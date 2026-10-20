@@ -57,6 +57,13 @@ impl Demo {
             d.action(id);
         }
     }
+
+    /// Sets one of the demo's `ParamView` sliders; unknown ids are ignored.
+    pub fn param(&mut self, id: &str, value: f32) {
+        if let Demo::SeekFlee(d) = self {
+            d.param(id, value);
+        }
+    }
 }
 
 pub fn catalog() -> Vec<DemoInfo> {
@@ -82,23 +89,31 @@ mod tests {
         assert!(Demo::new("nope").is_none());
     }
 
-    /// No color goes unexplained: every line and trail color a demo draws is in its legend.
+    /// No color goes unexplained: every line and trail color a demo draws, after any one of
+    /// its actions, is in its legend.
     #[test]
     fn every_drawn_color_has_a_legend_entry() {
         for d in catalog() {
-            let mut demo = Demo::new(&d.id).expect("catalog demo");
-            for _ in 0..60 {
-                demo.update(1.0 / 60.0);
-            }
-            let view = demo.view();
-            let explained: Vec<u32> = view.legend.iter().map(|l| l.color).collect();
-            let drawn = view.lines.iter().map(|l| l.color);
-            for color in drawn.chain(view.trails.iter().map(|t| t.color)) {
-                assert!(
-                    explained.contains(&color),
-                    "{}: {color:06x} has no legend entry",
-                    d.id
-                );
+            let actions = Demo::new(&d.id).expect("catalog demo").view().actions;
+            let pressed = actions.iter().map(|a| Some(a.id.as_str()));
+            for action in [None].into_iter().chain(pressed) {
+                let mut demo = Demo::new(&d.id).expect("catalog demo");
+                if let Some(id) = action {
+                    demo.action(id);
+                }
+                for _ in 0..60 {
+                    demo.update(1.0 / 60.0);
+                }
+                let view = demo.view();
+                let explained: Vec<u32> = view.legend.iter().map(|l| l.color).collect();
+                let drawn = view.lines.iter().map(|l| l.color);
+                for color in drawn.chain(view.trails.iter().map(|t| t.color)) {
+                    assert!(
+                        explained.contains(&color),
+                        "{} after {action:?}: {color:06x} has no legend entry",
+                        d.id
+                    );
+                }
             }
         }
     }

@@ -98,6 +98,7 @@ fn answer(call: Call, commands: &mpsc::UnboundedSender<Command>) -> Result<Reply
         Call::DemoSelect { id } => Command::Select(id),
         Call::DemoClick { x, y } => Command::Click(Vec2::new(x, y)),
         Call::DemoAction { id } => Command::Action(id),
+        Call::DemoParam { id, value } => Command::Param(id, value),
         Call::SimPlay => Command::Play,
         Call::SimPause => Command::Pause,
         Call::SimStep => Command::Step,
@@ -161,6 +162,20 @@ mod tests {
             })
         );
         assert!(received.try_recv().is_err());
+    }
+
+    #[test]
+    fn demo_param_reaches_the_sim() {
+        let (commands, mut received) = mpsc::unbounded_channel();
+        let call = Call::DemoParam {
+            id: "slowing_radius".into(),
+            value: 4.5,
+        };
+        respond(&request(5, call), &commands);
+        assert_eq!(
+            received.try_recv(),
+            Ok(Command::Param("slowing_radius".into(), 4.5))
+        );
     }
 
     #[test]

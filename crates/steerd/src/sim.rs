@@ -23,6 +23,7 @@ pub enum Command {
     Select(String),
     Click(Vec2),
     Action(String),
+    Param(String, f32),
 }
 
 /// The current demo and whether time is running.
@@ -64,6 +65,7 @@ impl Sim {
                 }
                 Command::Click(at) => self.demo.click(at),
                 Command::Action(id) => self.demo.action(&id),
+                Command::Param(id, value) => self.demo.param(&id, value),
             }
         }
         if self.running {
@@ -156,7 +158,7 @@ mod tests {
         match sim.frame() {
             HostFrame::Frame { demo, frame, .. } => {
                 assert_eq!(demo, "seek-flee");
-                assert_eq!(frame.actions.len(), 2);
+                assert_eq!(frame.actions.len(), 4);
             }
             other => panic!("not a frame: {other:?}"),
         }

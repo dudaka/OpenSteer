@@ -67,6 +67,13 @@ impl Vehicle {
         }
     }
 
+    /// Slows the vehicle along its heading (`applyBrakingForce`): speed drops by
+    /// `speed * rate`, capped at `max_force`, per second. Bypasses the low-speed rule.
+    pub fn apply_braking_force(&mut self, rate: f32, dt: f32) {
+        let braking = (self.speed * rate).min(self.max_force);
+        self.speed -= braking * dt;
+    }
+
     /// `adjustRawSteeringForce`: below 20% of `max_speed`, bend the force toward `forward`,
     /// more so the slower the vehicle, so it cannot steer backward from rest.
     fn adjust_raw_steering_force(&self, force: Vec2) -> Vec2 {
@@ -127,6 +134,17 @@ mod tests {
         let v = Vehicle::default();
         let adjusted = v.adjust_raw_steering_force(Vec2::new(0.05, -1.0));
         assert!(adjusted.normalize().dot(v.forward) > 0.999);
+    }
+
+    #[test]
+    fn braking_is_proportional_to_speed_and_capped_at_max_force() {
+        let mut v = moving();
+        // speed 1.5 * rate 0.1 = 0.15 < max_force 0.3: 1.5 - 0.15 * 0.5
+        v.apply_braking_force(0.1, 0.5);
+        assert!((v.speed - 1.425).abs() < 1e-6);
+        // 1.425 * 1 = 1.425 capped at 0.3: 1.425 - 0.3 * 0.5
+        v.apply_braking_force(1.0, 0.5);
+        assert!((v.speed - 1.275).abs() < 1e-6);
     }
 
     #[test]

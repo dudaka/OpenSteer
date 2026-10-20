@@ -3,6 +3,7 @@ import type { ActionView } from "./ActionView";
 import type { LabelView } from "./LabelView";
 import type { LegendView } from "./LegendView";
 import type { LineView } from "./LineView";
+import type { ParamView } from "./ParamView";
 import type { TrailView } from "./TrailView";
 import type { VehicleView } from "./VehicleView";
 
@@ -17,7 +18,7 @@ time: number,
 /**
  * World point the camera centres on.
  */
-focus: [number, number], vehicles: Array<VehicleView>, lines: Array<LineView>, trails: Array<TrailView>, labels: Array<LabelView>, actions: Array<ActionView>, 
+focus: [number, number], vehicles: Array<VehicleView>, lines: Array<LineView>, trails: Array<TrailView>, labels: Array<LabelView>, actions: Array<ActionView>, params: Array<ParamView>, 
 /**
  * What each line color means, for every color this frame draws.
  */

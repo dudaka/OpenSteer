@@ -44,6 +44,13 @@ header p {
   min-width: 64px;
 }
 
+.param {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
 button[aria-pressed="true"] {
   font-weight: 600;
   outline: 2px solid #f2b134;

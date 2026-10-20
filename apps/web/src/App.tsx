@@ -5,6 +5,7 @@ import { Actions } from "./Actions";
 import { Controls } from "./Controls";
 import { Demos } from "./Demos";
 import { Legend } from "./Legend";
+import { Params } from "./Params";
 
 // three.js is loaded in its own chunk, as caravan's MapView.
 const Scene = lazy(() => import("./scene/Scene").then((m) => ({ default: m.Scene })));
@@ -20,6 +21,7 @@ export function App() {
         <p data-status={status}>steerd: {status}</p>
         <Controls />
         <Actions />
+        <Params />
       </header>
       <div className="body">
         <Demos />
