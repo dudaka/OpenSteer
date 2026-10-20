@@ -87,7 +87,7 @@ impl Vehicle {
             return force;
         }
         let range = self.speed / max_adjusted_speed;
-        let cosine = interpolate(range.powi(20), 1.0, -1.0);
+        let cosine = interpolate(f64::from(range).powf(20.0) as f32, 1.0, -1.0);
         limit_max_deviation_angle(force, cosine, self.forward)
     }
 }
