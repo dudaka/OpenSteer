@@ -41,6 +41,11 @@ impl Vehicle {
         self.forward * self.speed
     }
 
+    /// Where the vehicle will be after `time` seconds at its current velocity.
+    pub fn predict_future_position(&self, time: f32) -> Vec2 {
+        self.position + self.velocity() * time
+    }
+
     /// Unit vector 90 degrees from `forward`, as OpenSteer's `side()`.
     pub fn side(&self) -> Vec2 {
         self.forward.perp()
