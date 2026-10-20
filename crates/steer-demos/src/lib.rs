@@ -1,8 +1,14 @@
 //! One module per demo (the OpenSteer plug-ins): world setup, per-step update and the view
 //! model the daemon sends to the browser.
 
+mod circling;
+mod view;
+
 use serde::Serialize;
 use ts_rs::TS;
+
+pub use circling::Circling;
+pub use view::{FrameView, VehicleView};
 
 /// A demo the web app can select, in sidebar order.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
