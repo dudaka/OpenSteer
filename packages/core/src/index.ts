@@ -5,6 +5,8 @@ import { HostConnection, webSocketLink, type OpenLink } from "./transport";
 export * from "./store";
 export { HostConnection, webSocketLink, type ConnectionStatus, type Link, type OpenLink } from "./transport";
 export type { DemoInfo } from "./contract/DemoInfo";
+export type { FrameView } from "./contract/FrameView";
+export type { VehicleView } from "./contract/VehicleView";
 
 /** Typed calls against one host; results land in the store. */
 export class Host {
@@ -16,7 +18,9 @@ export class Host {
         store.dispatch(hostActions.status({ host: id, status }));
         if (status === "connected") void this.refresh();
       },
-      onFrame: () => {},
+      onFrame: (frame) => {
+        if (frame.t === "frame") store.dispatch(hostActions.frame({ host: id, frame: frame.frame }));
+      },
     });
   }
 

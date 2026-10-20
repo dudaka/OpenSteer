@@ -1,23 +1,41 @@
 //! One session per client over the WebSocket; every frame is MessagePack.
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
+use axum::extract::State;
 use axum::response::Response;
+use tokio::sync::broadcast;
 
 use crate::contract::{Call, HostFrame, Reply, Request};
 
-pub async fn handler(ws: WebSocketUpgrade) -> Response {
-    ws.on_upgrade(serve)
+pub async fn handler(
+    ws: WebSocketUpgrade,
+    State(frames): State<broadcast::Sender<HostFrame>>,
+) -> Response {
+    let frames = frames.subscribe();
+    ws.on_upgrade(|socket| serve(socket, frames))
 }
 
-/// Answers each request until the client goes.
-async fn serve(mut socket: WebSocket) {
+/// Answers each request and forwards each simulation frame until the client goes.
+async fn serve(mut socket: WebSocket, mut frames: broadcast::Receiver<HostFrame>) {
     tracing::info!(event = "client.connect");
-    while let Some(Ok(msg)) = socket.recv().await {
-        let Message::Binary(bytes) = msg else {
-            continue;
-        };
-        let Some(frame) = respond(&bytes) else {
-            continue;
+    loop {
+        let frame = tokio::select! {
+            msg = socket.recv() => match msg {
+                Some(Ok(Message::Binary(bytes))) => match respond(&bytes) {
+                    Some(frame) => frame,
+                    None => continue,
+                },
+                Some(Ok(_)) => continue,
+                Some(Err(_)) | None => break,
+            },
+            frame = frames.recv() => match frame {
+                Ok(frame) => frame,
+                Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                    tracing::warn!(event = "client.lagged", skipped);
+                    continue;
+                }
+                Err(broadcast::error::RecvError::Closed) => break,
+            },
         };
         let bytes = rmp_serde::to_vec_named(&frame).expect("HostFrame serializes");
         if socket.send(Message::Binary(bytes.into())).await.is_err() {

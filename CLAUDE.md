@@ -11,7 +11,7 @@ This is the original OpenSteer C++ library (Craig Reynolds' steering behaviors, 
 - Plan, layout, commands and progress: `PLAN.md`. Stage 1 is **2D only**; 2.5D/3D with terrain and navmesh comes later, after research.
 - The project setup **follows `~/Workspace/silkroad/caravan` exactly** (Cargo workspace `crates/*`, npm workspaces `packages/*` + `apps/*`, axum WebSocket daemon, MessagePack frames, ts-rs generated contract in `packages/core/src/contract/`, Redux Toolkit store, React + Vite). When unsure how to set something up, read the matching caravan file and copy its pattern.
 - Crates: `steer-core` (math, vehicle, behaviors; no tokio/serde/IO) <- `steer-demos` (one module per C++ plug-in, view models) <- `steerd` (daemon, port 7400). Depend only downward.
-- Rendering is three.js with an orthographic top-down camera; Rust 2D `(x, y)` is drawn on the three.js ground plane as `(x, 0, y)`.
+- Rendering is three.js with an orthographic top-down camera; Rust 2D `(x, y)` is drawn on the three.js ground plane as `(x, 0, y)`, so +x is right and +y is down the screen.
 - The frontend holds no steering logic: Rust computes every position and annotation into view models; the browser draws and sends typed commands. Never hand-write a wire type in TypeScript.
 
 ## Building the C++ reference demo
@@ -42,6 +42,10 @@ cmake --build build
 - `steerForWander` returns a pure lateral force (`side*WanderSide + up*WanderUp`) driven by `scalarRandomWalk`; it is meant to be added to a forward force, not used alone.
 - `steerForPursuit` uses a 3x3 table of time factors (quarry ahead/aside/behind x parallel/perpendicular/anti-parallel) to estimate intercept time.
 - Most demos run on the XZ ground plane (`setYtoZero`), so a 2D port maps C++ `(x, z)` to `(x, y)`.
+
+## Git workflow
+
+One feature branch per feature (e.g. `feat/sim-loop`); commit and push there, never straight to `main`. CI runs only on pushes to `main` and on pull requests, so branch pushes do not start it. Merge into `main` through a PR when the feature is done.
 
 ## Project skills (`.claude/skills/`, sources in `THIRD_PARTY.md`)
 

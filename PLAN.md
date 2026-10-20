@@ -61,7 +61,7 @@ npm run build && npm run typecheck
 1. [done] Workspace files above + empty `steer-core`, `steer-demos`, `steerd`. -> verify: `cargo test`, `cargo clippy -- -D warnings`. (CI has the rust job only; the web job is added in step 3.)
 2. [done] `steerd` serves `/ws`; contract with one call `demo.list` (`HostFrame::Res` only; the sim frame variant comes in step 4). `cargo test` writes TS types. -> verify: types appear in `packages/core/src/contract/`; a msgpack WebSocket client gets the demo list.
 3. [done] `packages/core` transport + store, `apps/web` shows connection status and the demo list. -> verify: browser shows "connected" and the list.
-4. Sim loop: steerd ticks a fixed 60 Hz step, sends one hard-coded dot per frame; a three.js scene draws it. -> verify: moving dot.
+4. [done] Sim loop: steerd ticks a fixed 60 Hz step, sends one hard-coded dot per frame; a three.js scene draws it. -> verify: moving dot.
 
 ## Phase 1 - vehicle and integrator (`src/SimpleVehicle.cpp`)
 
