@@ -606,6 +606,7 @@ name = "steer-demos"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "steer-core",
  "ts-rs",
 ]
 

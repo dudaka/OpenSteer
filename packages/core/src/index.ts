@@ -6,6 +6,9 @@ export * from "./store";
 export { HostConnection, webSocketLink, type ConnectionStatus, type Link, type OpenLink } from "./transport";
 export type { DemoInfo } from "./contract/DemoInfo";
 export type { FrameView } from "./contract/FrameView";
+export type { LabelView } from "./contract/LabelView";
+export type { LineView } from "./contract/LineView";
+export type { TrailView } from "./contract/TrailView";
 export type { VehicleView } from "./contract/VehicleView";
 
 /** Typed calls against one host; results land in the store. */
