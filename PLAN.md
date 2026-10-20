@@ -13,7 +13,7 @@ Later stage (not planned yet): research 2.5D / 3D with terrain and navmesh.
 - In progress: the user asked (2026-10-20) to build **every demo, steps 10-20**, one branch and PR
   per step, merged on green CI without pausing. Questions for the user collect under "Open
   questions"; after the batch, return to holding each behavior until they understand it.
-- Tests: 130 Rust tests (10 C++ oracles: `oracle_one_turning`, `oracle_seek_flee`, `oracle_wander`, `oracle_pursuit`, `oracle_obstacles`, `oracle_pathway`, `oracle_path_following`, `oracle_boids`, `oracle_neighbors`, `oracle_capture_the_flag`).
+- Tests: 133 Rust tests (11 C++ oracles: `oracle_one_turning`, `oracle_seek_flee`, `oracle_wander`, `oracle_pursuit`, `oracle_obstacles`, `oracle_pathway`, `oracle_path_following`, `oracle_boids`, `oracle_neighbors`, `oracle_capture_the_flag`, `oracle_pedestrians`).
 
 ## Setup, mirrored from `~/Workspace/silkroad/caravan`
 
@@ -112,7 +112,7 @@ npm run build && npm run typecheck
 ## Phase 5 - composite demos (optional)
 
 18. [done] Demo "Capture the Flag" (`steer_demos::CaptureTheFlag`): the plug-in's seeker (`clearPathToGoal`, `XXXsteerToEvadeAllDefenders`, look-ahead 0.9/2 s, `limitMaxDeviationAngle` 0.707), 4 pursuing enemies, 40 random rocks (add/remove buttons), braking after a tag or goal and a restart 4 s later. `oracle/capture_the_flag.cpp` copies the plug-in logic with a fixed layout; `crates/steer-demos/tests/oracle_capture_the_flag.rs` pins two rounds (seeker evading for 20 s; seeker tagged at ~11 s, then braking) every 60 steps; mutations (evade behind-weight, corridor width, enemy braking) fail.
-19. Pedestrians (path + obstacles + neighbors).
+19. [done] Demo "Pedestrians" (`steer_demos::Pedestrians`): `Pedestrian.cpp`'s path and two rocks, 1-200 pedestrians (100), `determineCombinedSteering` (obstacle avoidance 6 s, else neighbor avoidance x 10, else wander + 0.5 x directed path following; both avoidances skipped 10% of steps), neighbors from the grid within 12. `step(dt, random01)` takes the random source. `oracle/pedestrians.cpp` (fixed layout of 10, LCG draws in the plug-in's order) pinned every 180 steps over 1800 incl. the avoidance counts; mutations (leak 0.2, one wander draw) fail. Not ported: the plug-in's tilted `RectangleObstacle` (see Gaps).
 20. Soccer.
 
 ## Each demo page
@@ -131,6 +131,7 @@ in a sidebar, mirroring OpenSteerDemo's plug-in selection.
 
 - Arrive: keep the faithful "orbits unless braking is tuned" result, or add a non-OpenSteer stop rule?
 - Obstacles: keep the faithful container widening (body crosses the arena wall by ~0.5), or shrink containers?
+- Pedestrians: port the tilted rectangle as a 2D wall obstacle?
 
 ## Findings (verified, with numbers)
 
@@ -150,6 +151,7 @@ in a sidebar, mirroring OpenSteerDemo's plug-in selection.
 - **In perpendicular encounters the faster vehicle gives way**, not the slower as the C++ comment says: the code tests `threat->speed() <= speed()`. The port follows the code.
 - **Neighbor avoidance reduces but does not prevent overlaps.** 8 crossing pedestrians, 60 s: 847 steps with bodies overlapping without avoidance, 57 with it (it reacts only to the earliest threat, and an overlap gets only a sideways push).
 - **Capture the Flag is about even.** Random rounds over 10 min: 32 ended, 17 reached home, 15 tagged, mean round 14.7 s.
+- **Pedestrians can start inside a rock.** The rocks sit on the path and `Pedestrian::reset` does not avoid them: 6 of 100 start inside (the C++ does the same). In 60 s nobody else enters one; this was proven by elimination (leak-through off: 600 vs 609 inside-steps; neighbor avoidance off: 623), then by counting starts (6) and new entries (0).
 - **Flee has no "far enough"**: it runs away forever at max_speed.
 - **One Turning:** speed dips from 1.5 to 0.963 at 2.80 s (0.832 at 4.25 s with the low-speed rule off), reaches max speed 5 at 20.7 s. The smoothed acceleration matches the capped push except during the first ~0.5 s (smoothing, 15% per step at 60 Hz) and ~2.5-4.5 s (low-speed rule).
 - **Integrator per step**: low-speed bend -> cap at max_force -> /mass -> blend 15% (clip(9*dt, 0.15, 0.4)) into smoothed acceleration -> velocity += acc*dt, cap at max_speed -> position += velocity*dt -> forward = velocity direction.
@@ -164,6 +166,8 @@ in a sidebar, mirroring OpenSteerDemo's plug-in selection.
 - Arrive, Brake and the sliders were not viewed in the browser (the running `dev.sh` predated them).
 - The One Turning push line change (PR #8) is covered by a unit test but was not viewed in the browser.
 - The C++ OpenSteerDemo app (CMake build) was never built here; its cppunit tests are not wired into CMake.
+- Pedestrians lacks the plug-in's third obstacle, a 7x7 `RectangleObstacle` tilted 45 degrees (seen from both sides): on the ground it is a wall at x = 20, z -3..4, but its steer hint has a vertical part that shrinks the in-plane push after `setYtoZero`, so a faithful 2D port needs a dedicated wall obstacle.
+- Pedestrians and Boids take neighbors in index order; OpenSteer's LQ database returns them in bin order, which matters only for which of several equal threats is answered first.
 
 ## Learning aids
 
