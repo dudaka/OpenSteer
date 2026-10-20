@@ -51,6 +51,7 @@ Commands (once Phase 0 exists):
 ```
 cargo test                              # all Rust tests, regenerates contract types
 cargo test -p steer-core seek           # one test by name filter
+scripts/dev.sh                          # steerd + Vite together, open http://localhost:5173; Ctrl-C stops both
 cargo run -p steerd                     # http://127.0.0.1:7400 (serves apps/web/dist)
 npm install && npm run dev              # Vite on :5173, proxies /ws to steerd
 npm run build && npm run typecheck
