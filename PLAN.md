@@ -65,9 +65,9 @@ npm run build && npm run typecheck
 
 ## Phase 1 - vehicle and integrator (`src/SimpleVehicle.cpp`)
 
-5. `Vec2` (`length`, `normalize`, `truncate_length`, `dot`, `perp`, `rotate`). -> verify: unit tests.
-6. `Vehicle { pos, vel, forward, mass, radius, max_force, max_speed, smoothed_accel }` and `apply_steering_force(force, dt)` ported from `applySteeringForce`. -> verify: test speed never exceeds max_speed and forward stays unit length.
-7. Demo "One Turning" (`plugins/OneTurning.cpp`): constant force, trail, velocity/accel annotation lines. -> verify: smooth arc in browser, matches C++ demo visually.
+5. [done] `Vec2` (`length`, `normalize`, `truncate_length`, `dot`, `perp`, parallel/perpendicular components) + `util` (`interpolate`, `blend_into_accumulator`, `limit_max_deviation_angle`). `rotate`/`distance` come when a behavior needs them. -> verify: unit tests.
+6. [done] `Vehicle { position, forward, speed, mass, radius, max_force, max_speed, smoothed_acceleration }` (C++ keeps forward + speed, velocity = forward * speed) and `apply_steering_force(force, dt)` ported from `applySteeringForce` incl. `adjustRawSteeringForce`. -> verify: property tests + `tests/oracle_one_turning.rs` matches the C++ `SimpleVehicle` (`oracle/one_turning.cpp`) to 1e-4 over 600 steps.
+7. [done] Demo "One Turning" (`plugins/OneTurning.cpp`): constant force, trail, velocity/accel annotation lines. -> verify: smooth arc in browser, matches C++ demo visually. Camera follows the vehicle (Rust sends `focus`); no reset control yet, so it runs off in a straight line once at max speed.
 
 ## Phase 2 - single-target behaviors (`include/OpenSteer/SteerLibrary.h`)
 

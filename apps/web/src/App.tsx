@@ -3,7 +3,7 @@ import { lazy, Suspense } from "react";
 import { useSelector } from "react-redux";
 
 // three.js is loaded in its own chunk, as caravan's MapView.
-const Scene = lazy(() => import("./Scene").then((m) => ({ default: m.Scene })));
+const Scene = lazy(() => import("./scene/Scene").then((m) => ({ default: m.Scene })));
 
 /** Connection status, the demo list and the scene from the local steerd. */
 export function App() {

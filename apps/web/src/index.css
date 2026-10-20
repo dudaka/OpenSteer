@@ -38,6 +38,19 @@ header p {
 .scene {
   flex: 1;
   min-height: 0;
+  position: relative;
+}
+
+.labels {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.label {
+  font: 12px ui-monospace, monospace;
+  white-space: nowrap;
+  padding: 0 0 4px 10px;
 }
 
 .scene canvas {
