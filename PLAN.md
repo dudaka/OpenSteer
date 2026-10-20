@@ -33,7 +33,7 @@ packages/core           @opensteer/core: MessagePack transport (@msgpack/msgpack
                         Toolkit store whose reducers only copy what steerd sent, generated
                         contract types in src/contract/ (committed, never hand-written).
 apps/web                @opensteer/web: React 19 + Vite + react-redux; Vite proxies /ws to
-                        127.0.0.1:7400. 2D drawing on <canvas> (three.js only at the 3D stage).
+                        127.0.0.1:7400. Drawing with three.js (as caravan), orthographic top-down camera on the XZ ground plane, so 2.5D/3D later only changes the camera and adds height.
 ```
 
 Rules carried over from caravan:
@@ -60,8 +60,8 @@ npm run build && npm run typecheck
 
 1. [done] Workspace files above + empty `steer-core`, `steer-demos`, `steerd`. -> verify: `cargo test`, `cargo clippy -- -D warnings`. (CI has the rust job only; the web job is added in step 3.)
 2. [done] `steerd` serves `/ws`; contract with one call `demo.list` (`HostFrame::Res` only; the sim frame variant comes in step 4). `cargo test` writes TS types. -> verify: types appear in `packages/core/src/contract/`; a msgpack WebSocket client gets the demo list.
-3. `packages/core` transport + store, `apps/web` shows connection status and the demo list. -> verify: browser shows "connected" and the list.
-4. Sim loop: steerd ticks a fixed 60 Hz step, sends one hard-coded dot per frame; canvas draws it. -> verify: moving dot.
+3. [done] `packages/core` transport + store, `apps/web` shows connection status and the demo list. -> verify: browser shows "connected" and the list.
+4. Sim loop: steerd ticks a fixed 60 Hz step, sends one hard-coded dot per frame; a three.js scene draws it. -> verify: moving dot.
 
 ## Phase 1 - vehicle and integrator (`src/SimpleVehicle.cpp`)
 
@@ -97,5 +97,5 @@ npm run build && npm run typecheck
 
 ## Each demo page
 
-Canvas, play/pause/step/reset, parameter sliders, toggles for each annotation. Demos are listed
+three.js view, play/pause/step/reset, parameter sliders, toggles for each annotation. Demos are listed
 in a sidebar, mirroring OpenSteerDemo's plug-in selection.

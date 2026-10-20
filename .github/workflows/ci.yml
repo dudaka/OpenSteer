@@ -26,3 +26,15 @@ jobs:
       - name: contract types are committed
         # `cargo test` regenerates packages/core/src/contract/ through ts-rs.
         run: git diff --exit-code packages/core/src/contract
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
