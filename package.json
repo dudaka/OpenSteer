@@ -1,0 +1,10 @@
+{
+  "name": "opensteer",
+  "private": true,
+  "workspaces": ["packages/*", "apps/*"],
+  "scripts": {
+    "build": "npm run build -w @opensteer/core && npm run build -w @opensteer/web",
+    "dev": "npm run dev -w @opensteer/web",
+    "typecheck": "npm run typecheck --workspaces"
+  }
+}
