@@ -7,11 +7,13 @@ Later stage (not planned yet): research 2.5D / 3D with terrain and navmesh.
 
 ## Status (2026-10-20)
 
-- Done: Phase 0 (skeleton), Phase 1 (vehicle + One Turning), Phase 2 step 8 (Seek and Flee),
-  demo controls, demo selection, click input, per-demo legend. All merged to `main` (PRs #1-#8).
-- Next: **step 9, Arrive**. The user asked to hold each step until they understand the previous
-  behavior; they have finished with One Turning and Seek. Start step 9 only when asked.
-- Tests: 52 Rust tests (2 C++ oracles: `oracle_one_turning`, `oracle_seek_flee`), CI green.
+- Done: Phase 0 (skeleton), Phase 1 (vehicle + One Turning), Phase 2 steps 8-9 (Seek and Flee,
+  Arrive with braking), demo controls, demo selection, click input, per-demo legend, parameter
+  sliders.
+- In progress: the user asked (2026-10-20) to build **every demo, steps 10-20**, one branch and PR
+  per step, merged on green CI without pausing. Questions for the user collect under "Open
+  questions"; after the batch, return to holding each behavior until they understand it.
+- Tests: 63 Rust tests (2 C++ oracles: `oracle_one_turning`, `oracle_seek_flee`).
 
 ## Setup, mirrored from `~/Workspace/silkroad/caravan`
 
@@ -90,7 +92,7 @@ npm run build && npm run typecheck
 ## Phase 2 - single-target behaviors (`include/OpenSteer/SteerLibrary.h`)
 
 8. [done] Seek and Flee (port `xxxsteerForSeek/Flee`; `tests/oracle_seek_flee.rs` vs `oracle/seek_flee.cpp`, 1e-4 over 300 steps). Demo "Seek and Flee": click sets the target, Seek/Flee buttons, want (green) and push (red) drawn at true length (max_speed 3, so pink is also true length and red = green - pink closes a triangle).
-9. **Next.** Arrive (Reynolds 1999, not in OpenSteer, so no oracle): desired speed falls inside a slowing radius. Third mode in the Seek and Flee demo. Before claiming it stops, test it with the low-speed rule on (see Findings: that rule is what makes seek orbit).
+9. [done] Arrive (Reynolds 1999, not in OpenSteer, so no oracle): `steer::arrive(v, target, slowing_radius)`, desired speed `max_speed * min(d / r, 1)`. Plus OpenSteer's `applyBrakingForce` as `Vehicle::apply_braking_force` (CaptureTheFlag, Soccer use it). Third mode in Seek and Flee, a Brake toggle (brakes inside the radius), sliders for slowing radius (1-15, 9) and braking rate (0.25-4, 0.75), radius circle. Tests pin the Findings cases.
 10. Wander (`steerForWander` + `scalarRandomWalk`) plus `steerForTargetSpeed`. Oracle needs the same random numbers: C++ `frandom01` is `rand() / RAND_MAX`, so either have the C++ harness print its random draws and feed them to Rust, or inject a random source into the Rust wander. Wander is a pure lateral force; it is added to a forward force, not used alone.
 11. Pursuit (9-case time-factor table) and Evasion. Pursuit calls plain `steerForSeek` (no truncation): port it too. C++ `steerForEvasion` is broken (`this->menace`); port from the plug-ins' use. Demo: `MultiplePursuit` - one wanderer, several pursuers, colored prediction lines.
 - verify each: unit test on force direction + oracle where OpenSteer has the behavior + demo page.
@@ -122,12 +124,19 @@ in a sidebar, mirroring OpenSteerDemo's plug-in selection.
 - [done] Demo selection: sidebar -> `demo.select` (unknown id refused with an error), `steer_demos::Demo` enum dispatch, frame carries the current `demo`.
 - [done] Demo input: `demo.click {x, y}` (scene raycasts the click onto the ground) and `demo.action {id}` for the buttons each frame lists in `actions`.
 - [done] Legend: each frame lists `legend` (color, meaning); one meaning per color across demos (`annotation::color`); a test fails if a demo draws a color its legend does not explain. Labels are neutral gray.
-- Parameter sliders and annotation toggles: when a demo needs them.
+- [done] Parameter sliders: each frame lists `params` (id, label, min, max, step, value); `demo.param {id, value}` sets one; the demo clamps to the range. Shown next to the demo's buttons.
+- Annotation toggles: when a demo needs them.
+
+## Open questions (for the user, after the batch)
+
+- Arrive: keep the faithful "orbits unless braking is tuned" result, or add a non-OpenSteer stop rule?
 
 ## Findings (verified, with numbers)
 
 - **Seek never stops, it orbits.** From rest at the origin to target (-3, 4) with max_force 1, max_speed 3: after 30 s it circles at 0.459 from the target, speed 0.583. The C++ prints the same digits. Cause, proven by switching it off: the low-speed rule (`adjustRawSteeringForce`, below 0.2 * max_speed bends the force toward forward) removes the braking component; with the rule off the vehicle stops on the target (distance 0.000). This is why Arrive exists.
 - **OpenSteer's seek slows down by itself.** `xxxsteerForSeek` truncates the offset to max_speed, so inside max_speed units the desired speed equals the distance. Plain `steerForSeek` does not.
+- **Arrive alone does not stop either** (rule on, same setup): r=3 equals OpenSteer's seek to every digit; r=5/9/15 orbit at speed 0.583 (just under 0.2 * max_speed = 0.6), distance 0.5-0.64 at 30 s. With the rule off every radius stops (r=9 fastest, step 612). r >= max_speed^2 / max_force = 9 never asks for more than max_force.
+- **Braking can stop Arrive, but only if it never passes the target.** Braking inside the radius: r=9 rate 0.75 and r=5 rate 1.5 come to rest and stay (checked to 120 s). r=5 rate 0.75 gets within 0.0003, creeps past (target cos +1 -> -1 at ~22.5 s), and the low-speed rule turns the pull back into a forward push: speed doubles about every second. Rate 3 holds speed at exactly max_force / rate = 0.333 (full forward push vs full braking) and wanders.
 - **Flee has no "far enough"**: it runs away forever at max_speed.
 - **One Turning:** speed dips from 1.5 to 0.963 at 2.80 s (0.832 at 4.25 s with the low-speed rule off), reaches max speed 5 at 20.7 s. The smoothed acceleration matches the capped push except during the first ~0.5 s (smoothing, 15% per step at 60 Hz) and ~2.5-4.5 s (low-speed rule).
 - **Integrator per step**: low-speed bend -> cap at max_force -> /mass -> blend 15% (clip(9*dt, 0.15, 0.4)) into smoothed acceleration -> velocity += acc*dt, cap at max_speed -> position += velocity*dt -> forward = velocity direction.
@@ -138,7 +147,8 @@ in a sidebar, mirroring OpenSteerDemo's plug-in selection.
 - One shared sim for all browser clients: one current demo and one running state.
 - Annotation lines are 1 px (WebGL `LineSegments`); three's `Line2` fat lines if too faint.
 - Sidebar is a fixed 180 px column (not phone-friendly); labels overlap when the car is near the target; the page has no favicon (404 in the console).
-- No parameter sliders or annotation toggles yet.
+- No annotation toggles yet. Sliders exist (`params` / `demo.param`).
+- Arrive, Brake and the sliders were not viewed in the browser (the running `dev.sh` predated them).
 - The One Turning push line change (PR #8) is covered by a unit test but was not viewed in the browser.
 - The C++ OpenSteerDemo app (CMake build) was never built here; its cppunit tests are not wired into CMake.
 
