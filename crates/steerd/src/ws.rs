@@ -2,39 +2,62 @@
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::State;
-use axum::response::Response;
-use tokio::sync::broadcast;
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::{IntoResponse, Response};
+use tokio::sync::{mpsc, watch};
 
 use crate::contract::{Call, HostFrame, Reply, Request};
+use crate::origin::LoopbackGuard;
+use crate::sim::Command;
+
+/// What every session shares: the latest frame and the way to the sim.
+#[derive(Clone)]
+pub struct Channels {
+    pub frames: watch::Receiver<HostFrame>,
+    pub commands: mpsc::UnboundedSender<Command>,
+}
 
 pub async fn handler(
     ws: WebSocketUpgrade,
-    State(frames): State<broadcast::Sender<HostFrame>>,
+    headers: HeaderMap,
+    State(channels): State<Channels>,
 ) -> Response {
-    let frames = frames.subscribe();
-    ws.on_upgrade(|socket| serve(socket, frames))
+    if !(LoopbackGuard { port: crate::PORT }).allows(&headers) {
+        tracing::warn!(
+            event = "client.rejected",
+            host = ?headers.get("host"),
+            origin = ?headers.get("origin"),
+            "WebSocket from a page this host does not serve"
+        );
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    ws.on_upgrade(|socket| serve(socket, channels))
 }
 
-/// Answers each request and forwards each simulation frame until the client goes.
-async fn serve(mut socket: WebSocket, mut frames: broadcast::Receiver<HostFrame>) {
+/// Sends the current frame, then answers each request and forwards each new frame until the
+/// client goes. A slow client skips to the latest frame.
+async fn serve(
+    mut socket: WebSocket,
+    Channels {
+        mut frames,
+        commands,
+    }: Channels,
+) {
     tracing::info!(event = "client.connect");
+    frames.mark_changed();
     loop {
         let frame = tokio::select! {
             msg = socket.recv() => match msg {
-                Some(Ok(Message::Binary(bytes))) => match respond(&bytes) {
+                Some(Ok(Message::Binary(bytes))) => match respond(&bytes, &commands) {
                     Some(frame) => frame,
                     None => continue,
                 },
                 Some(Ok(_)) => continue,
                 Some(Err(_)) | None => break,
             },
-            frame = frames.recv() => match frame {
-                Ok(frame) => frame,
-                Err(broadcast::error::RecvError::Lagged(skipped)) => {
-                    tracing::warn!(event = "client.lagged", skipped);
-                    continue;
-                }
-                Err(broadcast::error::RecvError::Closed) => break,
+            changed = frames.changed() => match changed {
+                Ok(()) => frames.borrow_and_update().clone(),
+                Err(_) => break,
             },
         };
         let bytes = rmp_serde::to_vec_named(&frame).expect("HostFrame serializes");
@@ -46,7 +69,7 @@ async fn serve(mut socket: WebSocket, mut frames: broadcast::Receiver<HostFrame>
 }
 
 /// The reply frame for one request frame; `None` for a frame that is not a request.
-fn respond(bytes: &[u8]) -> Option<HostFrame> {
+fn respond(bytes: &[u8], commands: &mpsc::UnboundedSender<Command>) -> Option<HostFrame> {
     let req: Request = match rmp_serde::from_slice(bytes) {
         Ok(req) => req,
         Err(e) => {
@@ -56,30 +79,38 @@ fn respond(bytes: &[u8]) -> Option<HostFrame> {
     };
     Some(HostFrame::Res {
         id: req.id,
-        result: Some(answer(req.call)),
+        result: Some(answer(req.call, commands)),
         error: None,
     })
 }
 
-fn answer(call: Call) -> Reply {
-    match call {
-        Call::DemoList => Reply::Demos(steer_demos::catalog()),
-    }
+fn answer(call: Call, commands: &mpsc::UnboundedSender<Command>) -> Reply {
+    let command = match call {
+        Call::DemoList => return Reply::Demos(steer_demos::catalog()),
+        Call::SimPlay => Command::Play,
+        Call::SimPause => Command::Pause,
+        Call::SimStep => Command::Step,
+        Call::SimReset => Command::Reset,
+    };
+    commands
+        .send(command)
+        .expect("the sim task runs for the life of the host");
+    Reply::Ok
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn request(id: u32, call: Call) -> Vec<u8> {
+        rmp_serde::to_vec_named(&Request { id, call }).expect("Request serializes")
+    }
+
     #[test]
     fn demo_list_round_trip() {
-        let bytes = rmp_serde::to_vec_named(&Request {
-            id: 7,
-            call: Call::DemoList,
-        })
-        .unwrap();
+        let (commands, _) = mpsc::unbounded_channel();
         assert_eq!(
-            respond(&bytes),
+            respond(&request(7, Call::DemoList), &commands),
             Some(HostFrame::Res {
                 id: 7,
                 result: Some(Reply::Demos(steer_demos::catalog())),
@@ -89,7 +120,23 @@ mod tests {
     }
 
     #[test]
+    fn sim_calls_reach_the_sim_and_reply_ok() {
+        let (commands, mut received) = mpsc::unbounded_channel();
+        let reply = respond(&request(3, Call::SimPause), &commands);
+        assert_eq!(
+            reply,
+            Some(HostFrame::Res {
+                id: 3,
+                result: Some(Reply::Ok),
+                error: None,
+            })
+        );
+        assert_eq!(received.try_recv(), Ok(Command::Pause));
+    }
+
+    #[test]
     fn bad_frame_is_ignored() {
-        assert_eq!(respond(&[0xc1]), None);
+        let (commands, _) = mpsc::unbounded_channel();
+        assert_eq!(respond(&[0xc1], &commands), None);
     }
 }

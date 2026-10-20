@@ -4,4 +4,4 @@ import type { DemoInfo } from "./DemoInfo";
 /**
  * The answer to a call, tagged as `{ type, value }`.
  */
-export type Reply = { "type": "demos", "value": Array<DemoInfo> };
+export type Reply = { "type": "demos", "value": Array<DemoInfo> } | { "type": "ok" };

@@ -99,3 +99,6 @@ npm run build && npm run typecheck
 
 three.js view, play/pause/step/reset, parameter sliders, toggles for each annotation. Demos are listed
 in a sidebar, mirroring OpenSteerDemo's plug-in selection.
+
+- [done] Play/pause/step/reset: calls `sim.play|pause|step|reset`; the sim task owns state (commands over `mpsc`), publishes the latest frame on a `watch` channel (a client joining while paused still gets it), and each frame carries `running`. Step = pause + one 1/60 s step, as OpenSteerDemo.
+- Demo selection (sidebar click -> `demo.select`), parameter sliders and annotation toggles: when Phase 2 adds a second demo.

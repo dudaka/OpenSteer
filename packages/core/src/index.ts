@@ -22,7 +22,7 @@ export class Host {
         if (status === "connected") void this.refresh();
       },
       onFrame: (frame) => {
-        if (frame.t === "frame") store.dispatch(hostActions.frame({ host: id, frame: frame.frame }));
+        if (frame.t === "frame") store.dispatch(hostActions.frame({ host: id, frame: frame.frame, running: frame.running }));
       },
     });
   }
@@ -30,6 +30,23 @@ export class Host {
   async refresh(): Promise<void> {
     const r = await this.conn.call({ method: "demo.list" });
     if (r.type === "demos") store.dispatch(hostActions.demos({ host: this.id, demos: r.value }));
+  }
+
+  // Sim controls: the effect arrives in the next frame, which carries `running`.
+  async play(): Promise<void> {
+    await this.conn.call({ method: "sim.play" });
+  }
+
+  async pause(): Promise<void> {
+    await this.conn.call({ method: "sim.pause" });
+  }
+
+  async step(): Promise<void> {
+    await this.conn.call({ method: "sim.step" });
+  }
+
+  async reset(): Promise<void> {
+    await this.conn.call({ method: "sim.reset" });
   }
 }
 
