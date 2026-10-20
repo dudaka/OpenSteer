@@ -8,11 +8,11 @@ use steer_core::{steer, Vec2, Vehicle};
 use crate::annotation::{
     circle, color, label, legend, line, point, vehicle_view, velocity_acceleration, Trail,
 };
-use crate::view::{ActionView, FrameView, LineView, ParamView};
+use crate::controls::{button, slider, Range};
+use crate::view::{FrameView, LineView, ParamView};
 
-/// Slider ranges: min, max, step.
-const SLOWING_RADIUS: (f32, f32, f32) = (1.0, 15.0, 0.5);
-const BRAKING_RATE: (f32, f32, f32) = (0.25, 4.0, 0.25);
+const SLOWING_RADIUS: Range = Range::new(1.0, 15.0, 0.5);
+const BRAKING_RATE: Range = Range::new(0.25, 4.0, 0.25);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Mode {
@@ -82,10 +82,8 @@ impl SeekFlee {
     /// A slider moved; the value is held to the slider's range.
     pub fn param(&mut self, id: &str, value: f32) {
         match id {
-            "slowing_radius" => {
-                self.slowing_radius = value.clamp(SLOWING_RADIUS.0, SLOWING_RADIUS.1)
-            }
-            "braking_rate" => self.braking_rate = value.clamp(BRAKING_RATE.0, BRAKING_RATE.1),
+            "slowing_radius" => self.slowing_radius = SLOWING_RADIUS.clamp(value),
+            "braking_rate" => self.braking_rate = BRAKING_RATE.clamp(value),
             _ => {}
         }
     }
@@ -132,19 +130,12 @@ impl SeekFlee {
                 (color::RADIUS, "slowing radius (Arrive)"),
                 (color::TRAIL, "trail: the last 5 s"),
             ]),
-            actions: [
-                ("seek", "Seek", self.mode == Mode::Seek),
-                ("flee", "Flee", self.mode == Mode::Flee),
-                ("arrive", "Arrive", self.mode == Mode::Arrive),
-                ("brake", "Brake", self.brake),
-            ]
-            .into_iter()
-            .map(|(id, label, active)| ActionView {
-                id: id.to_string(),
-                label: label.to_string(),
-                active,
-            })
-            .collect(),
+            actions: vec![
+                button("seek", "Seek", self.mode == Mode::Seek),
+                button("flee", "Flee", self.mode == Mode::Flee),
+                button("arrive", "Arrive", self.mode == Mode::Arrive),
+                button("brake", "Brake", self.brake),
+            ],
             params: self.params(),
         }
     }
@@ -154,30 +145,20 @@ impl SeekFlee {
         if self.mode != Mode::Arrive {
             return Vec::new();
         }
-        [
-            (
+        vec![
+            slider(
                 "slowing_radius",
                 "slowing radius",
                 SLOWING_RADIUS,
                 self.slowing_radius,
             ),
-            (
+            slider(
                 "braking_rate",
                 "braking rate",
                 BRAKING_RATE,
                 self.braking_rate,
             ),
         ]
-        .into_iter()
-        .map(|(id, label, (min, max, step), value)| ParamView {
-            id: id.to_string(),
-            label: label.to_string(),
-            min,
-            max,
-            step,
-            value,
-        })
-        .collect()
     }
 
     fn force(&self) -> Vec2 {

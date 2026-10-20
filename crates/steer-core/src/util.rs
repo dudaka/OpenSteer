@@ -37,9 +37,28 @@ pub fn limit_max_deviation_angle(source: Vec2, cosine_of_cone_angle: f32, basis:
     (basis * cosine_of_cone_angle + unit_perp * perp_dist) * source_length
 }
 
+/// `initial` moved by a random step in `-walk_speed..walk_speed`, clipped to `min..=max`
+/// (`scalarRandomWalk`). `random01` returns a number in `0..=1`.
+pub fn scalar_random_walk(
+    initial: f32,
+    walk_speed: f32,
+    min: f32,
+    max: f32,
+    random01: &mut impl FnMut() -> f32,
+) -> f32 {
+    (initial + (random01() * 2.0 - 1.0) * walk_speed).clamp(min, max)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn random_walk_steps_and_clips() {
+        assert_eq!(scalar_random_walk(0.5, 0.2, -1.0, 1.0, &mut || 1.0), 0.7);
+        assert_eq!(scalar_random_walk(0.9, 0.2, -1.0, 1.0, &mut || 1.0), 1.0);
+        assert_eq!(scalar_random_walk(-0.9, 0.2, -1.0, 1.0, &mut || 0.0), -1.0);
+    }
 
     #[test]
     fn interpolate_and_blend() {

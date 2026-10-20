@@ -3,12 +3,13 @@
 use steer_core::Vec2;
 
 use crate::view::FrameView;
-use crate::{DemoInfo, OneTurning, SeekFlee};
+use crate::{DemoInfo, OneTurning, SeekFlee, Wander};
 
 /// Every demo in sidebar order (OpenSteerDemo's `selectionOrderSortKey`): id and name.
-const DEMOS: [(&str, &str); 2] = [
+const DEMOS: [(&str, &str); 3] = [
     ("one-turning", "One Turning Away"),
     ("seek-flee", "Seek and Flee"),
+    ("wander", "Wander"),
 ];
 
 /// The demo selected at start.
@@ -18,6 +19,7 @@ pub const DEFAULT_DEMO: &str = "one-turning";
 pub enum Demo {
     OneTurning(OneTurning),
     SeekFlee(SeekFlee),
+    Wander(Wander),
 }
 
 impl Demo {
@@ -26,6 +28,7 @@ impl Demo {
         match id {
             "one-turning" => Some(Demo::OneTurning(OneTurning::default())),
             "seek-flee" => Some(Demo::SeekFlee(SeekFlee::default())),
+            "wander" => Some(Demo::Wander(Wander::default())),
             _ => None,
         }
     }
@@ -34,6 +37,7 @@ impl Demo {
         match self {
             Demo::OneTurning(d) => d.update(dt),
             Demo::SeekFlee(d) => d.update(dt),
+            Demo::Wander(d) => d.update(dt),
         }
     }
 
@@ -41,6 +45,7 @@ impl Demo {
         match self {
             Demo::OneTurning(d) => d.view(),
             Demo::SeekFlee(d) => d.view(),
+            Demo::Wander(d) => d.view(),
         }
     }
 
@@ -53,15 +58,19 @@ impl Demo {
 
     /// One of the demo's `ActionView` buttons; unknown ids are ignored.
     pub fn action(&mut self, id: &str) {
-        if let Demo::SeekFlee(d) = self {
-            d.action(id);
+        match self {
+            Demo::SeekFlee(d) => d.action(id),
+            Demo::Wander(d) => d.action(id),
+            Demo::OneTurning(_) => {}
         }
     }
 
     /// Sets one of the demo's `ParamView` sliders; unknown ids are ignored.
     pub fn param(&mut self, id: &str, value: f32) {
-        if let Demo::SeekFlee(d) = self {
-            d.param(id, value);
+        match self {
+            Demo::SeekFlee(d) => d.param(id, value),
+            Demo::Wander(d) => d.param(id, value),
+            Demo::OneTurning(_) => {}
         }
     }
 }

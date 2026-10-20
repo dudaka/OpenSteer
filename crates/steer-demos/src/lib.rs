@@ -2,10 +2,12 @@
 //! model the daemon sends to the browser.
 
 mod annotation;
+mod controls;
 mod demo;
 mod one_turning;
 mod seek_flee;
 mod view;
+mod wander;
 
 use serde::Serialize;
 use ts_rs::TS;
@@ -14,6 +16,7 @@ pub use demo::{catalog, Demo, DEFAULT_DEMO};
 pub use one_turning::OneTurning;
 pub use seek_flee::SeekFlee;
 pub use view::{ActionView, FrameView, LabelView, LineView, ParamView, TrailView, VehicleView};
+pub use wander::Wander;
 
 /// A demo the web app can select, in sidebar order.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
