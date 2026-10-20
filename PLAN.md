@@ -13,7 +13,7 @@ Later stage (not planned yet): research 2.5D / 3D with terrain and navmesh.
 - In progress: the user asked (2026-10-20) to build **every demo, steps 10-20**, one branch and PR
   per step, merged on green CI without pausing. Questions for the user collect under "Open
   questions"; after the batch, return to holding each behavior until they understand it.
-- Tests: 125 Rust tests (9 C++ oracles: `oracle_one_turning`, `oracle_seek_flee`, `oracle_wander`, `oracle_pursuit`, `oracle_obstacles`, `oracle_pathway`, `oracle_path_following`, `oracle_boids`, `oracle_neighbors`).
+- Tests: 130 Rust tests (10 C++ oracles: `oracle_one_turning`, `oracle_seek_flee`, `oracle_wander`, `oracle_pursuit`, `oracle_obstacles`, `oracle_pathway`, `oracle_path_following`, `oracle_boids`, `oracle_neighbors`, `oracle_capture_the_flag`).
 
 ## Setup, mirrored from `~/Workspace/silkroad/caravan`
 
@@ -111,7 +111,7 @@ npm run build && npm run typecheck
 
 ## Phase 5 - composite demos (optional)
 
-18. Capture the Flag (seek home, evade defenders, braking).
+18. [done] Demo "Capture the Flag" (`steer_demos::CaptureTheFlag`): the plug-in's seeker (`clearPathToGoal`, `XXXsteerToEvadeAllDefenders`, look-ahead 0.9/2 s, `limitMaxDeviationAngle` 0.707), 4 pursuing enemies, 40 random rocks (add/remove buttons), braking after a tag or goal and a restart 4 s later. `oracle/capture_the_flag.cpp` copies the plug-in logic with a fixed layout; `crates/steer-demos/tests/oracle_capture_the_flag.rs` pins two rounds (seeker evading for 20 s; seeker tagged at ~11 s, then braking) every 60 steps; mutations (evade behind-weight, corridor width, enemy braking) fail.
 19. Pedestrians (path + obstacles + neighbors).
 20. Soccer.
 
@@ -149,6 +149,7 @@ in a sidebar, mirroring OpenSteerDemo's plug-in selection.
 - **A neighbor grid must follow the boids during the pass.** A boid that wraps around jumps ~100 units; a grid built at the start of the pass missed it (step 284: boid 40 wrapped to 5.52 from boid 49). C++ updates each boid's proximity token after it moves; the port does the same (`Grid::move_point`).
 - **In perpendicular encounters the faster vehicle gives way**, not the slower as the C++ comment says: the code tests `threat->speed() <= speed()`. The port follows the code.
 - **Neighbor avoidance reduces but does not prevent overlaps.** 8 crossing pedestrians, 60 s: 847 steps with bodies overlapping without avoidance, 57 with it (it reacts only to the earliest threat, and an overlap gets only a sideways push).
+- **Capture the Flag is about even.** Random rounds over 10 min: 32 ended, 17 reached home, 15 tagged, mean round 14.7 s.
 - **Flee has no "far enough"**: it runs away forever at max_speed.
 - **One Turning:** speed dips from 1.5 to 0.963 at 2.80 s (0.832 at 4.25 s with the low-speed rule off), reaches max speed 5 at 20.7 s. The smoothed acceleration matches the capped push except during the first ~0.5 s (smoothing, 15% per step at 60 Hz) and ~2.5-4.5 s (low-speed rule).
 - **Integrator per step**: low-speed bend -> cap at max_force -> /mass -> blend 15% (clip(9*dt, 0.15, 0.4)) into smoothed acceleration -> velocity += acc*dt, cap at max_speed -> position += velocity*dt -> forward = velocity direction.
