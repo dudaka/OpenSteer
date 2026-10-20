@@ -3,6 +3,7 @@
 
 mod annotation;
 mod boids;
+mod capture_the_flag;
 mod controls;
 mod crossing;
 mod demo;
@@ -18,6 +19,7 @@ use serde::Serialize;
 use ts_rs::TS;
 
 pub use boids::Boids;
+pub use capture_the_flag::{CaptureTheFlag, SeekerState};
 pub use crossing::Crossing;
 pub use demo::{catalog, Demo, DEFAULT_DEMO};
 pub use obstacles::Obstacles;
