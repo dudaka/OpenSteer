@@ -12,6 +12,16 @@ use ts_rs::TS;
 pub enum Call {
     #[serde(rename = "demo.list")]
     DemoList,
+    #[serde(rename = "sim.play")]
+    SimPlay,
+    #[serde(rename = "sim.pause")]
+    SimPause,
+    /// Pause, then advance one fixed step.
+    #[serde(rename = "sim.step")]
+    SimStep,
+    /// Restart the current demo from its initial state.
+    #[serde(rename = "sim.reset")]
+    SimReset,
 }
 
 /// Client -> host.
@@ -28,6 +38,8 @@ pub struct Request {
 #[ts(export)]
 pub enum Reply {
     Demos(Vec<DemoInfo>),
+    /// The call was accepted; its effect arrives in the next frame.
+    Ok,
 }
 
 /// Host -> client. Tagged as `{ t, ... }`.
@@ -40,6 +52,6 @@ pub enum HostFrame {
         result: Option<Reply>,
         error: Option<String>,
     },
-    /// The world after one simulation step, sent to every client.
-    Frame { frame: FrameView },
+    /// The world after a change (a step, a reset, play or pause), sent to every client.
+    Frame { frame: FrameView, running: bool },
 }

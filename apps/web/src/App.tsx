@@ -1,6 +1,7 @@
 import { LOCAL_HOST, type RootState } from "@opensteer/core";
 import { lazy, Suspense } from "react";
 import { useSelector } from "react-redux";
+import { Controls } from "./Controls";
 
 // three.js is loaded in its own chunk, as caravan's MapView.
 const Scene = lazy(() => import("./scene/Scene").then((m) => ({ default: m.Scene })));
@@ -24,6 +25,7 @@ export function App() {
             ))}
           </ul>
         )}
+        <Controls />
       </header>
       <Suspense>
         <Scene />

@@ -13,9 +13,11 @@ export interface HostState {
   demos: DemoInfo[];
   /** The latest simulation frame; null until the first arrives. */
   frame: FrameView | null;
+  /** Whether the host's simulation time is running (false when paused). */
+  running: boolean;
 }
 
-const emptyHost = (): HostState => ({ status: "connecting", demos: [], frame: null });
+const emptyHost = (): HostState => ({ status: "connecting", demos: [], frame: null, running: false });
 
 const hosts = createSlice({
   name: "hosts",
@@ -27,8 +29,9 @@ const hosts = createSlice({
     demos(state, a: PayloadAction<{ host: string; demos: DemoInfo[] }>) {
       state[a.payload.host].demos = a.payload.demos;
     },
-    frame(state, a: PayloadAction<{ host: string; frame: FrameView }>) {
+    frame(state, a: PayloadAction<{ host: string; frame: FrameView; running: boolean }>) {
       state[a.payload.host].frame = a.payload.frame;
+      state[a.payload.host].running = a.payload.running;
     },
   },
 });

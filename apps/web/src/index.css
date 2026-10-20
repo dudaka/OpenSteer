@@ -35,6 +35,15 @@ header p {
   margin: 0;
 }
 
+.controls {
+  display: flex;
+  gap: 6px;
+}
+
+.controls button {
+  min-width: 64px;
+}
+
 .scene {
   flex: 1;
   min-height: 0;

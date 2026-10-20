@@ -3,4 +3,4 @@
 /**
  * A call from the client, tagged as `{ method, params }`.
  */
-export type Call = { "method": "demo.list" };
+export type Call = { "method": "demo.list" } | { "method": "sim.play" } | { "method": "sim.pause" } | { "method": "sim.step" } | { "method": "sim.reset" };

@@ -5,4 +5,4 @@ import type { Reply } from "./Reply";
 /**
  * Host -> client. Tagged as `{ t, ... }`.
  */
-export type HostFrame = { "t": "res", id: number, result: Reply | null, error: string | null, } | { "t": "frame", frame: FrameView, };
+export type HostFrame = { "t": "res", id: number, result: Reply | null, error: string | null, } | { "t": "frame", frame: FrameView, running: boolean, };
