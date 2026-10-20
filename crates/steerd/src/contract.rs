@@ -6,12 +6,21 @@ use steer_demos::{DemoInfo, FrameView};
 use ts_rs::TS;
 
 /// A call from the client, tagged as `{ method, params }`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(tag = "method", content = "params")]
 #[ts(export)]
 pub enum Call {
     #[serde(rename = "demo.list")]
     DemoList,
+    /// Switch to another demo, in its initial state; the running state is kept.
+    #[serde(rename = "demo.select")]
+    DemoSelect { id: String },
+    /// A click on the ground at world point `(x, y)`, for the current demo.
+    #[serde(rename = "demo.click")]
+    DemoClick { x: f32, y: f32 },
+    /// One of the current frame's `actions`.
+    #[serde(rename = "demo.action")]
+    DemoAction { id: String },
     #[serde(rename = "sim.play")]
     SimPlay,
     #[serde(rename = "sim.pause")]
@@ -25,7 +34,7 @@ pub enum Call {
 }
 
 /// Client -> host.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct Request {
     pub id: u32,
@@ -53,5 +62,10 @@ pub enum HostFrame {
         error: Option<String>,
     },
     /// The world after a change (a step, a reset, play or pause), sent to every client.
-    Frame { frame: FrameView, running: bool },
+    Frame {
+        frame: FrameView,
+        running: bool,
+        /// Id of the demo shown.
+        demo: String,
+    },
 }

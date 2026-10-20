@@ -41,6 +41,17 @@ pub struct LabelView {
     pub color: u32,
 }
 
+/// A demo-specific button (OpenSteerDemo's per-plug-in function keys); clicking it sends
+/// `demo.action` with `id`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(export)]
+pub struct ActionView {
+    pub id: String,
+    pub label: String,
+    /// Shown pressed, e.g. the current mode.
+    pub active: bool,
+}
+
 /// The whole world at one simulation step.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(export)]
@@ -53,4 +64,5 @@ pub struct FrameView {
     pub lines: Vec<LineView>,
     pub trails: Vec<TrailView>,
     pub labels: Vec<LabelView>,
+    pub actions: Vec<ActionView>,
 }

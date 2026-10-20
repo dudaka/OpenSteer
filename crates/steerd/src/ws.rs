@@ -4,6 +4,7 @@ use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
+use steer_core::Vec2;
 use tokio::sync::{mpsc, watch};
 
 use crate::contract::{Call, HostFrame, Reply, Request};
@@ -77,16 +78,26 @@ fn respond(bytes: &[u8], commands: &mpsc::UnboundedSender<Command>) -> Option<Ho
             return None;
         }
     };
+    let (result, error) = match answer(req.call, commands) {
+        Ok(reply) => (Some(reply), None),
+        Err(e) => (None, Some(e)),
+    };
     Some(HostFrame::Res {
         id: req.id,
-        result: Some(answer(req.call, commands)),
-        error: None,
+        result,
+        error,
     })
 }
 
-fn answer(call: Call, commands: &mpsc::UnboundedSender<Command>) -> Reply {
+fn answer(call: Call, commands: &mpsc::UnboundedSender<Command>) -> Result<Reply, String> {
     let command = match call {
-        Call::DemoList => return Reply::Demos(steer_demos::catalog()),
+        Call::DemoList => return Ok(Reply::Demos(steer_demos::catalog())),
+        Call::DemoSelect { id } if !steer_demos::catalog().iter().any(|d| d.id == id) => {
+            return Err(format!("no demo named {id:?}"));
+        }
+        Call::DemoSelect { id } => Command::Select(id),
+        Call::DemoClick { x, y } => Command::Click(Vec2::new(x, y)),
+        Call::DemoAction { id } => Command::Action(id),
         Call::SimPlay => Command::Play,
         Call::SimPause => Command::Pause,
         Call::SimStep => Command::Step,
@@ -95,7 +106,7 @@ fn answer(call: Call, commands: &mpsc::UnboundedSender<Command>) -> Reply {
     commands
         .send(command)
         .expect("the sim task runs for the life of the host");
-    Reply::Ok
+    Ok(Reply::Ok)
 }
 
 #[cfg(test)]
@@ -132,6 +143,24 @@ mod tests {
             })
         );
         assert_eq!(received.try_recv(), Ok(Command::Pause));
+    }
+
+    #[test]
+    fn an_unknown_demo_is_refused_before_the_sim() {
+        let (commands, mut received) = mpsc::unbounded_channel();
+        let reply = respond(
+            &request(4, Call::DemoSelect { id: "nope".into() }),
+            &commands,
+        );
+        assert_eq!(
+            reply,
+            Some(HostFrame::Res {
+                id: 4,
+                result: None,
+                error: Some("no demo named \"nope\"".into()),
+            })
+        );
+        assert!(received.try_recv().is_err());
     }
 
     #[test]

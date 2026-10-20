@@ -3,8 +3,8 @@
 
 use steer_core::{Vec2, Vehicle};
 
-use crate::annotation::{velocity_acceleration, Trail};
-use crate::view::{FrameView, LabelView, VehicleView};
+use crate::annotation::{label, point, vehicle_view, velocity_acceleration, Trail};
+use crate::view::FrameView;
 
 const FORCE: Vec2 = Vec2::new(-2.0, -3.0);
 
@@ -40,30 +40,17 @@ impl OneTurning {
 
     pub fn view(&self) -> FrameView {
         let v = &self.vehicle;
-        let at = [v.position.x, v.position.y];
         FrameView {
             time: self.time,
-            focus: at,
-            vehicles: vec![VehicleView {
-                position: at,
-                forward: [v.forward.x, v.forward.y],
-                radius: v.radius,
-                color: 0x808080,
-            }],
+            focus: point(v.position),
+            vehicles: vec![vehicle_view(v, 0x808080)],
             lines: velocity_acceleration(v).to_vec(),
             trails: vec![self.trail.view(v.position)],
             labels: vec![
-                LabelView {
-                    at,
-                    text: format!("speed: {:.2}", v.speed),
-                    color: 0xff0000,
-                },
-                LabelView {
-                    at: [0.0, 0.0],
-                    text: "start".to_string(),
-                    color: 0x00ff00,
-                },
+                label(v.position, format!("speed: {:.2}", v.speed), 0xff0000),
+                label(Vec2::ZERO, "start", 0x00ff00),
             ],
+            actions: Vec::new(),
         }
     }
 }

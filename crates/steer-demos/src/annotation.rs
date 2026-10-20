@@ -4,7 +4,7 @@ use std::collections::VecDeque;
 
 use steer_core::{Vec2, Vehicle};
 
-use crate::view::{LineView, TrailView};
+use crate::view::{LabelView, LineView, TrailView, VehicleView};
 
 /// OpenSteer's default trail: 5 seconds of history in 100 samples.
 const TRAIL_DURATION: f32 = 5.0;
@@ -43,17 +43,47 @@ impl Trail {
     }
 }
 
+pub fn point(p: Vec2) -> [f32; 2] {
+    [p.x, p.y]
+}
+
+pub fn line(from: Vec2, to: Vec2, color: u32) -> LineView {
+    LineView {
+        from: point(from),
+        to: point(to),
+        color,
+    }
+}
+
+pub fn label(at: Vec2, text: impl Into<String>, color: u32) -> LabelView {
+    LabelView {
+        at: point(at),
+        text: text.into(),
+        color,
+    }
+}
+
+/// `drawBasic2dCircularVehicle`.
+pub fn vehicle_view(v: &Vehicle, color: u32) -> VehicleView {
+    VehicleView {
+        position: point(v.position),
+        forward: point(v.forward),
+        radius: v.radius,
+        color,
+    }
+}
+
 /// `annotationVelocityAcceleration(3, 3)`: velocity (pinkish) and smoothed acceleration
 /// (bluish), each scaled so its maximum is 3 units long.
 pub fn velocity_acceleration(v: &Vehicle) -> [LineView; 2] {
-    let line = |offset: Vec2, color| LineView {
-        from: [v.position.x, v.position.y],
-        to: [v.position.x + offset.x, v.position.y + offset.y],
-        color,
-    };
+    let p = v.position;
     [
-        line(v.velocity() * (3.0 / v.max_speed), 0xff66ff),
-        line(v.smoothed_acceleration * (3.0 / v.max_force), 0x6666ff),
+        line(p, p + v.velocity() * (3.0 / v.max_speed), 0xff66ff),
+        line(
+            p,
+            p + v.smoothed_acceleration * (3.0 / v.max_force),
+            0x6666ff,
+        ),
     ]
 }
 

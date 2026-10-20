@@ -71,7 +71,7 @@ npm run build && npm run typecheck
 
 ## Phase 2 - single-target behaviors (`include/OpenSteer/SteerLibrary.h`)
 
-8. Seek and Flee (port `xxxsteerForSeek/Flee`). Demo: target follows mouse click.
+8. [done] Seek and Flee (port `xxxsteerForSeek/Flee`; `tests/oracle_seek_flee.rs` vs `oracle/seek_flee.cpp`). Demo "Seek and Flee": click sets the target, Seek/Flee buttons, desired velocity (green) and steering force (red) drawn. Finding: pure seek never stops, it orbits the target (radius ~0.46 here; the C++ does the same to the digit), which is what Arrive fixes.
 9. Arrive (classic Reynolds, not in OpenSteer) - slow inside a radius. Same demo, toggle.
 10. Wander (`steerForWander` + `scalarRandomWalk`) plus `steerForTargetSpeed`.
 11. Pursuit (9-case time-factor table) and Evasion. Demo: `MultiplePursuit` - one wanderer, several pursuers, colored prediction lines.
@@ -101,4 +101,6 @@ three.js view, play/pause/step/reset, parameter sliders, toggles for each annota
 in a sidebar, mirroring OpenSteerDemo's plug-in selection.
 
 - [done] Play/pause/step/reset: calls `sim.play|pause|step|reset`; the sim task owns state (commands over `mpsc`), publishes the latest frame on a `watch` channel (a client joining while paused still gets it), and each frame carries `running`. Step = pause + one 1/60 s step, as OpenSteerDemo.
-- Demo selection (sidebar click -> `demo.select`), parameter sliders and annotation toggles: when Phase 2 adds a second demo.
+- [done] Demo selection: sidebar -> `demo.select` (unknown id refused), `steer_demos::Demo` enum dispatch, frame carries the current `demo`.
+- [done] Demo input: `demo.click {x, y}` (scene raycasts the click onto the ground) and `demo.action {id}` for the buttons each frame lists in `actions`.
+- Parameter sliders and annotation toggles: when a demo needs them.
