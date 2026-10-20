@@ -10,6 +10,7 @@ This is the original OpenSteer C++ library (Craig Reynolds' steering behaviors, 
 
 - Plan, layout, commands and progress: `PLAN.md`. Stage 1 is **2D only**; 2.5D/3D with terrain and navmesh comes later, after research.
 - The project setup **follows `~/Workspace/silkroad/caravan` exactly** (Cargo workspace `crates/*`, npm workspaces `packages/*` + `apps/*`, axum WebSocket daemon, MessagePack frames, ts-rs generated contract in `packages/core/src/contract/`, Redux Toolkit store, React + Vite). When unsure how to set something up, read the matching caravan file and copy its pattern.
+- Port faithfully and prove it: `oracle/*.cpp` run OpenSteer's own C++ headless (build line at the top of each file); their output is pinned in `crates/*/tests/oracle_*.rs`. A difference is a bug in the port until proven otherwise.
 - Crates: `steer-core` (math, vehicle, behaviors; no tokio/serde/IO) <- `steer-demos` (one module per C++ plug-in, view models) <- `steerd` (daemon, port 7400). Depend only downward.
 - Rendering is three.js with an orthographic top-down camera; Rust 2D `(x, y)` is drawn on the three.js ground plane as `(x, 0, y)`, so +x is right and +y is down the screen.
 - The frontend holds no steering logic: Rust computes every position and annotation into view models; the browser draws and sends typed commands. Never hand-write a wire type in TypeScript.
