@@ -24,6 +24,8 @@ pub mod color {
     pub const RADIUS: u32 = 0x4fc3d0;
     /// Obstacle outlines.
     pub const OBSTACLE: u32 = 0xb08860;
+    /// A path's center line.
+    pub const PATH: u32 = 0x8fa3bf;
     /// The trail, `drawTrail`'s 70% gray.
     pub const TRAIL: u32 = 0xb3b3b3;
     /// Text labels: neutral, so red and green only ever mean push and want.

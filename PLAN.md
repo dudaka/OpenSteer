@@ -13,7 +13,7 @@ Later stage (not planned yet): research 2.5D / 3D with terrain and navmesh.
 - In progress: the user asked (2026-10-20) to build **every demo, steps 10-20**, one branch and PR
   per step, merged on green CI without pausing. Questions for the user collect under "Open
   questions"; after the batch, return to holding each behavior until they understand it.
-- Tests: 91 Rust tests (5 C++ oracles: `oracle_one_turning`, `oracle_seek_flee`, `oracle_wander`, `oracle_pursuit`, `oracle_obstacles`).
+- Tests: 105 Rust tests (7 C++ oracles: `oracle_one_turning`, `oracle_seek_flee`, `oracle_wander`, `oracle_pursuit`, `oracle_obstacles`, `oracle_pathway`, `oracle_path_following`).
 
 ## Setup, mirrored from `~/Workspace/silkroad/caravan`
 
@@ -100,8 +100,8 @@ npm run build && npm run typecheck
 ## Phase 3 - environment
 
 12. [done] `steer_core::obstacle`: `Circle` (`SphereObstacle` on the ground, `SeenFrom` outside/inside/both), `intersect_path`, `nearest_intersection`, `avoid_obstacles` (`steerToAvoidObstacles`). `oracle/obstacles.cpp`: LCG wanderer in a container with three rocks, avoidance wins when nonzero (Pedestrian's priority); 1e-4 over 1800 steps incl. the count of avoiding steps (222). Mutations: no vehicle-radius widening fails at step 360; "inside a solid obstacle" distance 0 -> 1 was missed by the oracle, now caught by a unit test. Demo "Obstacle Avoidance": the oracle scene, click adds a rock, "Remove added rocks", slider min time to collision, look-ahead corridor and hit point (teal), obstacles brown.
-13. Polyline pathway with radius (`PolylineSegmentedPathwaySingleRadius`): `map_point_to_path`, `map_path_distance_to_point`. -> verify: tests mirroring `test/PolylineSegmentedPath*Test.cpp`.
-14. Path following and stay-on-path. Demo: figure-eight (`plugins/PedestriansWalkingAnEight.cpp`).
+13. [done] `steer_core::pathway::Pathway` (`PolylineSegmentedPathwaySingleRadius`): `map_point` (on-path point, tangent, outside, path distance: `mapPointToPath` + `mapPointToPathDistance`), `point_at` (`mapPathDistanceToPoint`), `length`, open or cyclic. Verified by a C++ oracle instead of the cppunit tests (those are not wired up): `oracle/pathway.cpp` / `tests/oracle_pathway.rs`, 12 points and 9 distances on an open and a cyclic path, incl. corner ties and out-of-range distances; mutations (`<` -> `<=` tie, no cyclic wrap) fail.
+14. [done] `steer::follow_path` / `stay_on_path` (+ `*_target` for annotation; plain seek). `oracle/path_following.cpp`: the eight's path (y set to 0), one pedestrian `forward + 0.5 * path force`, directed with endpoint flips and stay-on-path, 1e-4 over 3600 steps; mutations (no right-way check; stay threshold 0 -> 0.5) fail. Demo "Path Following": 1-50 pedestrians (slider) on the eight with `Pedestrian::reset`'s random start, toggles "Follow in a direction" and "Wander" (both on, as the plug-in), pedestrian 0 shows its 3 s look-ahead, seek target and push.
 
 ## Phase 4 - groups
 
@@ -142,6 +142,9 @@ in a sidebar, mirroring OpenSteerDemo's plug-in selection.
 - **An equally fast pursuer never catches a wanderer.** Oracle: pursuer from (8, -6) behind `MpWanderer` (both max_speed 3) is still 3.04 behind after 10 s. MultiplePursuit's pursuers catch the wanderer only when it turns toward them.
 - **Plain flee slows down near the menace.** `steerForEvasion` uses plain `steerForFlee`: desired speed = distance from the predicted position, so the evader (max 2) runs at 0.38-0.85 once the hunter is within ~1-2 units (oracle steps 120-600) instead of escaping.
 - **A container lets the body cross its wall.** `SphereObstacle` widens every obstacle by the vehicle radius, also one seen from inside, so the arena (radius 15) is tested at 15.5: over 2 min the center reaches 15.02 (206 of 7200 steps beyond 15). Rocks keep a full body width (min clearance 0.5003). Shrinking the container by the radius instead keeps the center within 14.17 (not ported: not OpenSteer).
+- **Mapping quirks (pathway).** Ties between segments go to the earlier one (strict `<`), so the corner (10, 6) maps to segment 1. On a cyclic path a negative distance is not wrapped: `fmod(-3, L) = -3`, then clamped to 0 (the start).
+- **Only directed following without wander keeps pedestrians inside the path.** Ten pedestrians, 60 s after 10 s settling, worst distance outside: directed alone -0.092 (never out); directed + wander (the plug-in's default) 2.326; stay-on-path alone 1.939 (no direction, so they walk off the open ends: 1487 of 2682 outside steps within 1 of an end).
+- **The eight's endpoints are 3.06 apart**, so with radius 2 a directed pedestrian at one end can flip direction twice in quick succession (oracle: -1 at step 2520, +1 again by 2700).
 - **Flee has no "far enough"**: it runs away forever at max_speed.
 - **One Turning:** speed dips from 1.5 to 0.963 at 2.80 s (0.832 at 4.25 s with the low-speed rule off), reaches max speed 5 at 20.7 s. The smoothed acceleration matches the capped push except during the first ~0.5 s (smoothing, 15% per step at 60 Hz) and ~2.5-4.5 s (low-speed rule).
 - **Integrator per step**: low-speed bend -> cap at max_force -> /mass -> blend 15% (clip(9*dt, 0.15, 0.4)) into smoothed acceleration -> velocity += acc*dt, cap at max_speed -> position += velocity*dt -> forward = velocity direction.
