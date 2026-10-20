@@ -3,15 +3,16 @@
 use steer_core::Vec2;
 
 use crate::view::FrameView;
-use crate::{DemoInfo, Obstacles, OneTurning, Pursuit, SeekFlee, Wander};
+use crate::{DemoInfo, Obstacles, OneTurning, PathFollowing, Pursuit, SeekFlee, Wander};
 
 /// Every demo in sidebar order (OpenSteerDemo's `selectionOrderSortKey`): id and name.
-const DEMOS: [(&str, &str); 5] = [
+const DEMOS: [(&str, &str); 6] = [
     ("one-turning", "One Turning Away"),
     ("seek-flee", "Seek and Flee"),
     ("wander", "Wander"),
     ("pursuit", "Pursuit and Evasion"),
     ("obstacles", "Obstacle Avoidance"),
+    ("path-following", "Path Following"),
 ];
 
 /// The demo selected at start.
@@ -24,6 +25,7 @@ pub enum Demo {
     Wander(Wander),
     Pursuit(Pursuit),
     Obstacles(Obstacles),
+    PathFollowing(PathFollowing),
 }
 
 impl Demo {
@@ -35,6 +37,7 @@ impl Demo {
             "wander" => Some(Demo::Wander(Wander::default())),
             "pursuit" => Some(Demo::Pursuit(Pursuit::default())),
             "obstacles" => Some(Demo::Obstacles(Obstacles::default())),
+            "path-following" => Some(Demo::PathFollowing(PathFollowing::default())),
             _ => None,
         }
     }
@@ -46,6 +49,7 @@ impl Demo {
             Demo::Wander(d) => d.update(dt),
             Demo::Pursuit(d) => d.update(dt),
             Demo::Obstacles(d) => d.update(dt),
+            Demo::PathFollowing(d) => d.update(dt),
         }
     }
 
@@ -56,6 +60,7 @@ impl Demo {
             Demo::Wander(d) => d.view(),
             Demo::Pursuit(d) => d.view(),
             Demo::Obstacles(d) => d.view(),
+            Demo::PathFollowing(d) => d.view(),
         }
     }
 
@@ -75,6 +80,7 @@ impl Demo {
             Demo::Wander(d) => d.action(id),
             Demo::Pursuit(d) => d.action(id),
             Demo::Obstacles(d) => d.action(id),
+            Demo::PathFollowing(d) => d.action(id),
             Demo::OneTurning(_) => {}
         }
     }
@@ -86,6 +92,7 @@ impl Demo {
             Demo::Wander(d) => d.param(id, value),
             Demo::Pursuit(d) => d.param(id, value),
             Demo::Obstacles(d) => d.param(id, value),
+            Demo::PathFollowing(d) => d.param(id, value),
             Demo::OneTurning(_) => {}
         }
     }

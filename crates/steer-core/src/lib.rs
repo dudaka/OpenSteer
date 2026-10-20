@@ -2,6 +2,7 @@
 //! and the steering forces. Pure computation, no IO.
 
 pub mod obstacle;
+pub mod pathway;
 pub mod steer;
 pub mod util;
 mod vec2;
