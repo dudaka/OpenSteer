@@ -3,6 +3,7 @@
 //! Usage: steerd. Listens on http://127.0.0.1:7400; `/ws` is the client WebSocket.
 
 mod contract;
+mod origin;
 mod sim;
 mod ws;
 

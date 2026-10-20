@@ -2,10 +2,12 @@
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::State;
-use axum::response::Response;
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::{IntoResponse, Response};
 use tokio::sync::{mpsc, watch};
 
 use crate::contract::{Call, HostFrame, Reply, Request};
+use crate::origin::LoopbackGuard;
 use crate::sim::Command;
 
 /// What every session shares: the latest frame and the way to the sim.
@@ -15,7 +17,20 @@ pub struct Channels {
     pub commands: mpsc::UnboundedSender<Command>,
 }
 
-pub async fn handler(ws: WebSocketUpgrade, State(channels): State<Channels>) -> Response {
+pub async fn handler(
+    ws: WebSocketUpgrade,
+    headers: HeaderMap,
+    State(channels): State<Channels>,
+) -> Response {
+    if !(LoopbackGuard { port: crate::PORT }).allows(&headers) {
+        tracing::warn!(
+            event = "client.rejected",
+            host = ?headers.get("host"),
+            origin = ?headers.get("origin"),
+            "WebSocket from a page this host does not serve"
+        );
+        return StatusCode::FORBIDDEN.into_response();
+    }
     ws.on_upgrade(|socket| serve(socket, channels))
 }
 
