@@ -4,6 +4,7 @@
 mod annotation;
 mod controls;
 mod demo;
+mod obstacles;
 mod one_turning;
 mod pursuit;
 mod seek_flee;
@@ -14,6 +15,7 @@ use serde::Serialize;
 use ts_rs::TS;
 
 pub use demo::{catalog, Demo, DEFAULT_DEMO};
+pub use obstacles::Obstacles;
 pub use one_turning::OneTurning;
 pub use pursuit::Pursuit;
 pub use seek_flee::SeekFlee;

@@ -13,7 +13,7 @@ Later stage (not planned yet): research 2.5D / 3D with terrain and navmesh.
 - In progress: the user asked (2026-10-20) to build **every demo, steps 10-20**, one branch and PR
   per step, merged on green CI without pausing. Questions for the user collect under "Open
   questions"; after the batch, return to holding each behavior until they understand it.
-- Tests: 81 Rust tests (4 C++ oracles: `oracle_one_turning`, `oracle_seek_flee`, `oracle_wander`, `oracle_pursuit`).
+- Tests: 91 Rust tests (5 C++ oracles: `oracle_one_turning`, `oracle_seek_flee`, `oracle_wander`, `oracle_pursuit`, `oracle_obstacles`).
 
 ## Setup, mirrored from `~/Workspace/silkroad/caravan`
 
@@ -99,7 +99,7 @@ npm run build && npm run typecheck
 
 ## Phase 3 - environment
 
-12. Circle obstacles + `steer_to_avoid_obstacles` (`src/Obstacle.cpp`). Demo: wanderer among obstacles, show the probe and the chosen obstacle.
+12. [done] `steer_core::obstacle`: `Circle` (`SphereObstacle` on the ground, `SeenFrom` outside/inside/both), `intersect_path`, `nearest_intersection`, `avoid_obstacles` (`steerToAvoidObstacles`). `oracle/obstacles.cpp`: LCG wanderer in a container with three rocks, avoidance wins when nonzero (Pedestrian's priority); 1e-4 over 1800 steps incl. the count of avoiding steps (222). Mutations: no vehicle-radius widening fails at step 360; "inside a solid obstacle" distance 0 -> 1 was missed by the oracle, now caught by a unit test. Demo "Obstacle Avoidance": the oracle scene, click adds a rock, "Remove added rocks", slider min time to collision, look-ahead corridor and hit point (teal), obstacles brown.
 13. Polyline pathway with radius (`PolylineSegmentedPathwaySingleRadius`): `map_point_to_path`, `map_path_distance_to_point`. -> verify: tests mirroring `test/PolylineSegmentedPath*Test.cpp`.
 14. Path following and stay-on-path. Demo: figure-eight (`plugins/PedestriansWalkingAnEight.cpp`).
 
@@ -130,6 +130,7 @@ in a sidebar, mirroring OpenSteerDemo's plug-in selection.
 ## Open questions (for the user, after the batch)
 
 - Arrive: keep the faithful "orbits unless braking is tuned" result, or add a non-OpenSteer stop rule?
+- Obstacles: keep the faithful container widening (body crosses the arena wall by ~0.5), or shrink containers?
 
 ## Findings (verified, with numbers)
 
@@ -140,6 +141,7 @@ in a sidebar, mirroring OpenSteerDemo's plug-in selection.
 - **Wandering runs faster than the target speed.** Target 1.5, mean speed 10-60 s: weight 0 -> 1.500, 1 -> 1.521, 3 -> 1.669, 5 -> 1.901 (the C++ shows the same). Cause, proven by switching smoothing off (weight 3 drops to 1.517): the smoothed acceleration lags the turning side vector, so part of the sideways force points forward; the rest is Euler integration lengthening the velocity each turn step.
 - **An equally fast pursuer never catches a wanderer.** Oracle: pursuer from (8, -6) behind `MpWanderer` (both max_speed 3) is still 3.04 behind after 10 s. MultiplePursuit's pursuers catch the wanderer only when it turns toward them.
 - **Plain flee slows down near the menace.** `steerForEvasion` uses plain `steerForFlee`: desired speed = distance from the predicted position, so the evader (max 2) runs at 0.38-0.85 once the hunter is within ~1-2 units (oracle steps 120-600) instead of escaping.
+- **A container lets the body cross its wall.** `SphereObstacle` widens every obstacle by the vehicle radius, also one seen from inside, so the arena (radius 15) is tested at 15.5: over 2 min the center reaches 15.02 (206 of 7200 steps beyond 15). Rocks keep a full body width (min clearance 0.5003). Shrinking the container by the radius instead keeps the center within 14.17 (not ported: not OpenSteer).
 - **Flee has no "far enough"**: it runs away forever at max_speed.
 - **One Turning:** speed dips from 1.5 to 0.963 at 2.80 s (0.832 at 4.25 s with the low-speed rule off), reaches max speed 5 at 20.7 s. The smoothed acceleration matches the capped push except during the first ~0.5 s (smoothing, 15% per step at 60 Hz) and ~2.5-4.5 s (low-speed rule).
 - **Integrator per step**: low-speed bend -> cap at max_force -> /mass -> blend 15% (clip(9*dt, 0.15, 0.4)) into smoothed acceleration -> velocity += acc*dt, cap at max_speed -> position += velocity*dt -> forward = velocity direction.

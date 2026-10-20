@@ -20,8 +20,10 @@ pub mod color {
     pub const TARGET: u32 = 0xffd23f;
     /// wander: the random sideways part of the push.
     pub const WANDER: u32 = 0xffa040;
-    /// A behavior's radius of effect, e.g. Arrive's slowing radius.
+    /// A behavior's reach, e.g. Arrive's slowing radius or obstacle avoidance's look-ahead.
     pub const RADIUS: u32 = 0x4fc3d0;
+    /// Obstacle outlines.
+    pub const OBSTACLE: u32 = 0xb08860;
     /// The trail, `drawTrail`'s 70% gray.
     pub const TRAIL: u32 = 0xb3b3b3;
     /// Text labels: neutral, so red and green only ever mean push and want.
