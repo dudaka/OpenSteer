@@ -97,6 +97,7 @@ impl SeekFlee {
         FrameView {
             time: self.time,
             focus: point(p),
+            view_size: 20.0,
             vehicles: vec![vehicle_view(v, color::BODY)],
             lines: [
                 line(

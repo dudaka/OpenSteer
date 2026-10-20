@@ -108,6 +108,7 @@ impl Obstacles {
         FrameView {
             time: self.time,
             focus: [0.0, 0.0],
+            view_size: 34.0,
             vehicles: vec![vehicle_view(v, color::BODY)],
             lines,
             trails: vec![self.trail.view(p)],

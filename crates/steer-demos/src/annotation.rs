@@ -26,6 +26,8 @@ pub mod color {
     pub const OBSTACLE: u32 = 0xb08860;
     /// A path's center line.
     pub const PATH: u32 = 0x8fa3bf;
+    /// The edge of a wrap-around world.
+    pub const EDGE: u32 = 0x5c6370;
     /// The trail, `drawTrail`'s 70% gray.
     pub const TRAIL: u32 = 0xb3b3b3;
     /// Text labels: neutral, so red and green only ever mean push and want.

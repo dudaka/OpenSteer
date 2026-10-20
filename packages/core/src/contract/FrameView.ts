@@ -18,7 +18,11 @@ time: number,
 /**
  * World point the camera centres on.
  */
-focus: [number, number], vehicles: Array<VehicleView>, lines: Array<LineView>, trails: Array<TrailView>, labels: Array<LabelView>, actions: Array<ActionView>, params: Array<ParamView>, 
+focus: [number, number], 
+/**
+ * World units visible across the shorter side of the view.
+ */
+view_size: number, vehicles: Array<VehicleView>, lines: Array<LineView>, trails: Array<TrailView>, labels: Array<LabelView>, actions: Array<ActionView>, params: Array<ParamView>, 
 /**
  * What each line color means, for every color this frame draws.
  */

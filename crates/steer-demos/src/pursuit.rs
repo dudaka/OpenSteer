@@ -171,6 +171,7 @@ impl Pursuit {
         FrameView {
             time: self.time,
             focus: point(q.position),
+            view_size: 60.0,
             vehicles: [vehicle_view(q, QUARRY_BODY)]
                 .into_iter()
                 .chain(

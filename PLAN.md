@@ -13,7 +13,7 @@ Later stage (not planned yet): research 2.5D / 3D with terrain and navmesh.
 - In progress: the user asked (2026-10-20) to build **every demo, steps 10-20**, one branch and PR
   per step, merged on green CI without pausing. Questions for the user collect under "Open
   questions"; after the batch, return to holding each behavior until they understand it.
-- Tests: 105 Rust tests (7 C++ oracles: `oracle_one_turning`, `oracle_seek_flee`, `oracle_wander`, `oracle_pursuit`, `oracle_obstacles`, `oracle_pathway`, `oracle_path_following`).
+- Tests: 117 Rust tests (8 C++ oracles: `oracle_one_turning`, `oracle_seek_flee`, `oracle_wander`, `oracle_pursuit`, `oracle_obstacles`, `oracle_pathway`, `oracle_path_following`, `oracle_boids`).
 
 ## Setup, mirrored from `~/Workspace/silkroad/caravan`
 
@@ -105,8 +105,8 @@ npm run build && npm run typecheck
 
 ## Phase 4 - groups
 
-15. Neighbor query: brute force first, then a uniform grid (role of `src/lq.c`). -> verify: grid equals brute force in a test.
-16. Separation, Alignment, Cohesion (`inBoidNeighborhood`). Demo: Boids (`plugins/Boids.cpp`) with weight sliders and wrap-around.
+15. [done] `steer_core::proximity`: `brute_force` and `Grid` (square bins, `move_point` = `updateForNewPosition`), both return sorted indices strictly inside the radius. Tests: grid equals brute force for 200 queries at 4 radii and after 100 moves; a too-small cell range fails.
+16. [done] `steer_core::flock`: `in_neighborhood`, `separation`, `alignment`, `cohesion` over an iterator of the other vehicles. `oracle/boids.cpp`: 12 boids with the plug-in's constants, sequential update, circular wrap-around, all 12 pinned every 100 steps for 600 steps; built with `-ffp-contract=off`. Mutations (`powi` back, 1/d separation, min neighborhood 2 radii) fail. Demo "Boids": 10-300 boids (100) in a radius-50 wrap-around circle, sliders for count and the three weights (12/8/8), grid kept current during the pass (a test: bit-identical to the whole flock over 600 steps), boid 0 shows its flockmates and push. Each frame now carries `view_size` (the camera's width in world units); earlier demos were cut off at 20.
 17. Neighbor avoidance (`steerToAvoidNeighbors`, nearest approach). Demo: pedestrians crossing.
 
 ## Phase 5 - composite demos (optional)
@@ -145,6 +145,8 @@ in a sidebar, mirroring OpenSteerDemo's plug-in selection.
 - **Mapping quirks (pathway).** Ties between segments go to the earlier one (strict `<`), so the corner (10, 6) maps to segment 1. On a cyclic path a negative distance is not wrapped: `fmod(-3, L) = -3`, then clamped to 0 (the start).
 - **Only directed following without wander keeps pedestrians inside the path.** Ten pedestrians, 60 s after 10 s settling, worst distance outside: directed alone -0.092 (never out); directed + wander (the plug-in's default) 2.326; stay-on-path alone 1.939 (no direction, so they walk off the open ends: 1487 of 2682 outside steps within 1 of an end).
 - **The eight's endpoints are 3.06 apart**, so with radius 2 a directed pedestrian at one end can flip direction twice in quick succession (oracle: -1 at step 2520, +1 again by 2700).
+- **The low-speed rule's `pow` must be computed in double.** C++ `pow(range, 20)` with a float and an int promotes to the double `pow`; the port used `f32::powi`, 1 ulp apart at times. Earlier oracles hid it under 1e-4; flocking amplifies it (boid 0 off by 2e-3 at step 200). Traced to the first bit difference (step 12, boid 6, low-speed regime); with `f64::powf` and the oracle built with `-ffp-contract=off` (clang on arm64 fuses multiply-adds by default) the traces are bit-identical over 7200 boid-steps. Oracles of chaotic scenes need `-ffp-contract=off`.
+- **A neighbor grid must follow the boids during the pass.** A boid that wraps around jumps ~100 units; a grid built at the start of the pass missed it (step 284: boid 40 wrapped to 5.52 from boid 49). C++ updates each boid's proximity token after it moves; the port does the same (`Grid::move_point`).
 - **Flee has no "far enough"**: it runs away forever at max_speed.
 - **One Turning:** speed dips from 1.5 to 0.963 at 2.80 s (0.832 at 4.25 s with the low-speed rule off), reaches max speed 5 at 20.7 s. The smoothed acceleration matches the capped push except during the first ~0.5 s (smoothing, 15% per step at 60 Hz) and ~2.5-4.5 s (low-speed rule).
 - **Integrator per step**: low-speed bend -> cap at max_force -> /mass -> blend 15% (clip(9*dt, 0.15, 0.4)) into smoothed acceleration -> velocity += acc*dt, cap at max_speed -> position += velocity*dt -> forward = velocity direction.
