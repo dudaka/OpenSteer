@@ -52,6 +52,14 @@ pub struct ActionView {
     pub active: bool,
 }
 
+/// One entry of the scene's legend: what a line color means in this demo.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(export)]
+pub struct LegendView {
+    pub color: u32,
+    pub label: String,
+}
+
 /// The whole world at one simulation step.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(export)]
@@ -65,4 +73,6 @@ pub struct FrameView {
     pub trails: Vec<TrailView>,
     pub labels: Vec<LabelView>,
     pub actions: Vec<ActionView>,
+    /// What each line color means, for every color this frame draws.
+    pub legend: Vec<LegendView>,
 }

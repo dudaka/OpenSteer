@@ -81,4 +81,25 @@ mod tests {
         assert!(Demo::new(DEFAULT_DEMO).is_some());
         assert!(Demo::new("nope").is_none());
     }
+
+    /// No color goes unexplained: every line and trail color a demo draws is in its legend.
+    #[test]
+    fn every_drawn_color_has_a_legend_entry() {
+        for d in catalog() {
+            let mut demo = Demo::new(&d.id).expect("catalog demo");
+            for _ in 0..60 {
+                demo.update(1.0 / 60.0);
+            }
+            let view = demo.view();
+            let explained: Vec<u32> = view.legend.iter().map(|l| l.color).collect();
+            let drawn = view.lines.iter().map(|l| l.color);
+            for color in drawn.chain(view.trails.iter().map(|t| t.color)) {
+                assert!(
+                    explained.contains(&color),
+                    "{}: {color:06x} has no legend entry",
+                    d.id
+                );
+            }
+        }
+    }
 }

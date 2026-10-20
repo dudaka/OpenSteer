@@ -4,6 +4,7 @@ import { useSelector } from "react-redux";
 import { Actions } from "./Actions";
 import { Controls } from "./Controls";
 import { Demos } from "./Demos";
+import { Legend } from "./Legend";
 
 // three.js is loaded in its own chunk, as caravan's MapView.
 const Scene = lazy(() => import("./scene/Scene").then((m) => ({ default: m.Scene })));
@@ -22,9 +23,12 @@ export function App() {
       </header>
       <div className="body">
         <Demos />
-        <Suspense>
-          <Scene />
-        </Suspense>
+        <div className="stage">
+          <Suspense>
+            <Scene />
+          </Suspense>
+          <Legend />
+        </div>
       </div>
     </main>
   );

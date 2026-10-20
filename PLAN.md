@@ -104,4 +104,6 @@ in a sidebar, mirroring OpenSteerDemo's plug-in selection.
 - [done] Play/pause/step/reset: calls `sim.play|pause|step|reset`; the sim task owns state (commands over `mpsc`), publishes the latest frame on a `watch` channel (a client joining while paused still gets it), and each frame carries `running`. Step = pause + one 1/60 s step, as OpenSteerDemo.
 - [done] Demo selection: sidebar -> `demo.select` (unknown id refused), `steer_demos::Demo` enum dispatch, frame carries the current `demo`.
 - [done] Demo input: `demo.click {x, y}` (scene raycasts the click onto the ground) and `demo.action {id}` for the buttons each frame lists in `actions`.
+- [done] Legend: each frame lists `legend` (color, meaning); one meaning per color across demos (`annotation::color`: red push, green want, pink have, blue change); a test fails if a demo draws a color its legend does not explain. Labels are neutral.
 - Parameter sliders and annotation toggles: when a demo needs them.
+- Thicker annotation lines (WebGL draws `LineSegments` 1px wide; three's `Line2` fat lines if they prove too faint).

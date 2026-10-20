@@ -67,12 +67,46 @@ button[aria-pressed="true"] {
   text-align: left;
 }
 
+.stage {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  position: relative;
+  display: flex;
+}
+
 .scene {
   flex: 1;
   min-height: 0;
   min-width: 0;
   position: relative;
   cursor: crosshair;
+}
+
+/* Over the dark scene in either page theme, so its colors are fixed. */
+.legend {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  margin: 0;
+  padding: 8px 12px;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+  font: 12px ui-monospace, monospace;
+  color: #d0d4dc;
+  background: rgb(20 22 27 / 0.78);
+  border-radius: 8px;
+  pointer-events: none;
+}
+
+.legend i {
+  display: inline-block;
+  width: 18px;
+  height: 3px;
+  margin-right: 8px;
+  vertical-align: middle;
+  border-radius: 2px;
 }
 
 .labels {

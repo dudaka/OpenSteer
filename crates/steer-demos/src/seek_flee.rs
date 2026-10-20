@@ -4,12 +4,10 @@
 
 use steer_core::{steer, Vec2, Vehicle};
 
-use crate::annotation::{label, line, point, vehicle_view, velocity_acceleration, Trail};
+use crate::annotation::{
+    color, label, legend, line, point, vehicle_view, velocity_acceleration, Trail,
+};
 use crate::view::{ActionView, FrameView};
-
-const TARGET_COLOR: u32 = 0xffd23f;
-const DESIRED_COLOR: u32 = 0x3fd27a;
-const FORCE_COLOR: u32 = 0xff5040;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Mode {
@@ -71,29 +69,37 @@ impl SeekFlee {
         FrameView {
             time: self.time,
             focus: point(p),
-            vehicles: vec![vehicle_view(v, 0x808080)],
+            vehicles: vec![vehicle_view(v, color::BODY)],
             lines: [
                 line(
                     t - Vec2::new(cross, 0.0),
                     t + Vec2::new(cross, 0.0),
-                    TARGET_COLOR,
+                    color::TARGET,
                 ),
                 line(
                     t - Vec2::new(0.0, cross),
                     t + Vec2::new(0.0, cross),
-                    TARGET_COLOR,
+                    color::TARGET,
                 ),
-                line(p, p + v.velocity() + force, DESIRED_COLOR),
-                line(p + v.velocity(), p + v.velocity() + force, FORCE_COLOR),
+                line(p, p + v.velocity() + force, color::WANT),
+                line(p + v.velocity(), p + v.velocity() + force, color::PUSH),
             ]
             .into_iter()
             .chain(velocity_acceleration(v))
             .collect(),
             trails: vec![self.trail.view(p)],
             labels: vec![
-                label(p, format!("speed: {:.2}", v.speed), 0xff0000),
-                label(t, "target (click to move)", TARGET_COLOR),
+                label(p, format!("speed: {:.2}", v.speed), color::LABEL),
+                label(t, "target (click to move)", color::TARGET),
             ],
+            legend: legend(&[
+                (color::WANT, "want: desired velocity"),
+                (color::HAVE, "have: current velocity"),
+                (color::PUSH, "push = want - have"),
+                (color::CHANGE, "change: smoothed acceleration"),
+                (color::TARGET, "target"),
+                (color::TRAIL, "trail: the last 5 s"),
+            ]),
             actions: [("seek", "Seek", Mode::Seek), ("flee", "Flee", Mode::Flee)]
                 .into_iter()
                 .map(|(id, label, mode)| ActionView {

@@ -8,6 +8,7 @@ export type { ActionView } from "./contract/ActionView";
 export type { DemoInfo } from "./contract/DemoInfo";
 export type { FrameView } from "./contract/FrameView";
 export type { LabelView } from "./contract/LabelView";
+export type { LegendView } from "./contract/LegendView";
 export type { LineView } from "./contract/LineView";
 export type { TrailView } from "./contract/TrailView";
 export type { VehicleView } from "./contract/VehicleView";
