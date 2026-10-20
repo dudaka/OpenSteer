@@ -157,6 +157,7 @@ impl PathFollowing {
         FrameView {
             time: self.time,
             focus: [3.0, 0.0],
+            view_size: 36.0,
             vehicles: self
                 .pedestrians
                 .iter()

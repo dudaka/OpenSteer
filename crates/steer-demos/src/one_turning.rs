@@ -51,6 +51,7 @@ impl OneTurning {
         FrameView {
             time: self.time,
             focus: point(p),
+            view_size: 20.0,
             vehicles: vec![vehicle_view(v, color::BODY)],
             // The push first, so velocity and acceleration are drawn over it.
             lines: [line(p, p + FORCE.normalize() * PUSH_LENGTH, color::PUSH)]

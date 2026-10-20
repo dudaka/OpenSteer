@@ -80,6 +80,8 @@ pub struct FrameView {
     pub time: f32,
     /// World point the camera centres on.
     pub focus: [f32; 2],
+    /// World units visible across the shorter side of the view.
+    pub view_size: f32,
     pub vehicles: Vec<VehicleView>,
     pub lines: Vec<LineView>,
     pub trails: Vec<TrailView>,

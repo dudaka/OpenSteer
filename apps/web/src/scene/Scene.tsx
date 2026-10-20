@@ -5,13 +5,14 @@ import { CSS2DRenderer } from "three/addons/renderers/CSS2DRenderer.js";
 import { useHost } from "../host";
 import { Labels, Lines, Vehicles } from "./draw";
 
-/** World units visible across the shorter side of the view. */
-const VIEW_SIZE = 20;
 /** Grid cell size in world units; the grid snaps to it while following the focus. */
 const CELL = 2;
+/** Grid width in world units: wider than the largest view a demo asks for. */
+const GRID_SIZE = 240;
 
 /**
- * Top-down orthographic view of the latest frame, centred on its focus. A world point (x, y)
+ * Top-down orthographic view of the latest frame, centred on its focus and showing its
+ * view_size world units across the shorter side. A world point (x, y)
  * is drawn at (x, 0, y): +x to the right, +y down the screen. Reads the store in its own
  * render loop, so frames never re-render React.
  */
@@ -30,7 +31,7 @@ export function Scene() {
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x1d1f24);
-    const grid = new THREE.GridHelper(VIEW_SIZE * 3, (VIEW_SIZE * 3) / CELL, 0x4a4f59, 0x30343c);
+    const grid = new THREE.GridHelper(GRID_SIZE, GRID_SIZE / CELL, 0x4a4f59, 0x30343c);
     grid.position.y = -0.01;
     scene.add(grid);
 
@@ -42,11 +43,12 @@ export function Scene() {
     const labels = new Labels(scene);
     if (import.meta.env.DEV) Object.assign(window, { __THREE_GAME_DIAGNOSTICS__: { renderer, scene, camera } });
 
+    let viewSize = 20;
     const resize = () => {
       const { clientWidth: w, clientHeight: h } = el;
       renderer.setSize(w, h, false);
       labelRenderer.setSize(w, h);
-      const half = VIEW_SIZE / 2;
+      const half = viewSize / 2;
       const [x, y] = w >= h ? [half * (w / h), half] : [half, half * (h / w)];
       Object.assign(camera, { left: -x, right: x, top: y, bottom: -y, near: 0.1, far: 100 });
       camera.updateProjectionMatrix();
@@ -70,6 +72,10 @@ export function Scene() {
       const frame = store.getState().hosts[LOCAL_HOST].frame;
       if (frame) {
         const [fx, fy] = frame.focus;
+        if (frame.view_size !== viewSize) {
+          viewSize = frame.view_size;
+          resize();
+        }
         camera.position.set(fx, 50, fy);
         camera.lookAt(fx, 0, fy);
         grid.position.set(Math.round(fx / CELL) * CELL, -0.01, Math.round(fy / CELL) * CELL);
