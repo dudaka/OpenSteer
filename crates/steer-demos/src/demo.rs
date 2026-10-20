@@ -3,14 +3,15 @@
 use steer_core::Vec2;
 
 use crate::view::FrameView;
-use crate::{DemoInfo, OneTurning, Pursuit, SeekFlee, Wander};
+use crate::{DemoInfo, Obstacles, OneTurning, Pursuit, SeekFlee, Wander};
 
 /// Every demo in sidebar order (OpenSteerDemo's `selectionOrderSortKey`): id and name.
-const DEMOS: [(&str, &str); 4] = [
+const DEMOS: [(&str, &str); 5] = [
     ("one-turning", "One Turning Away"),
     ("seek-flee", "Seek and Flee"),
     ("wander", "Wander"),
     ("pursuit", "Pursuit and Evasion"),
+    ("obstacles", "Obstacle Avoidance"),
 ];
 
 /// The demo selected at start.
@@ -22,6 +23,7 @@ pub enum Demo {
     SeekFlee(SeekFlee),
     Wander(Wander),
     Pursuit(Pursuit),
+    Obstacles(Obstacles),
 }
 
 impl Demo {
@@ -32,6 +34,7 @@ impl Demo {
             "seek-flee" => Some(Demo::SeekFlee(SeekFlee::default())),
             "wander" => Some(Demo::Wander(Wander::default())),
             "pursuit" => Some(Demo::Pursuit(Pursuit::default())),
+            "obstacles" => Some(Demo::Obstacles(Obstacles::default())),
             _ => None,
         }
     }
@@ -42,6 +45,7 @@ impl Demo {
             Demo::SeekFlee(d) => d.update(dt),
             Demo::Wander(d) => d.update(dt),
             Demo::Pursuit(d) => d.update(dt),
+            Demo::Obstacles(d) => d.update(dt),
         }
     }
 
@@ -51,13 +55,16 @@ impl Demo {
             Demo::SeekFlee(d) => d.view(),
             Demo::Wander(d) => d.view(),
             Demo::Pursuit(d) => d.view(),
+            Demo::Obstacles(d) => d.view(),
         }
     }
 
     /// A click on the ground at world point `at`; demos without click input ignore it.
     pub fn click(&mut self, at: Vec2) {
-        if let Demo::SeekFlee(d) = self {
-            d.click(at);
+        match self {
+            Demo::SeekFlee(d) => d.click(at),
+            Demo::Obstacles(d) => d.click(at),
+            _ => {}
         }
     }
 
@@ -67,6 +74,7 @@ impl Demo {
             Demo::SeekFlee(d) => d.action(id),
             Demo::Wander(d) => d.action(id),
             Demo::Pursuit(d) => d.action(id),
+            Demo::Obstacles(d) => d.action(id),
             Demo::OneTurning(_) => {}
         }
     }
@@ -77,6 +85,7 @@ impl Demo {
             Demo::SeekFlee(d) => d.param(id, value),
             Demo::Wander(d) => d.param(id, value),
             Demo::Pursuit(d) => d.param(id, value),
+            Demo::Obstacles(d) => d.param(id, value),
             Demo::OneTurning(_) => {}
         }
     }
