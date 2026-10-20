@@ -10,6 +10,11 @@ use crate::view::FrameView;
 
 const FORCE: Vec2 = Vec2::new(-2.0, -3.0);
 
+/// The push is drawn as a direction, longer than the acceleration line's 3 units at max force:
+/// once the smoothed acceleration matches the push it lies along the first part of this line,
+/// and the two split where the low-speed rule bends the force.
+const PUSH_LENGTH: f32 = 4.5;
+
 #[derive(Debug, Clone)]
 pub struct OneTurning {
     vehicle: Vehicle,
@@ -43,17 +48,14 @@ impl OneTurning {
     pub fn view(&self) -> FrameView {
         let v = &self.vehicle;
         let p = v.position;
-        // The push as the vehicle receives it, capped at max_force, on the acceleration line's
-        // scale: the blue (smoothed) line can be seen catching up with it.
-        let push = FORCE.truncate_length(v.max_force) * (3.0 / v.max_force);
         FrameView {
             time: self.time,
             focus: point(p),
             vehicles: vec![vehicle_view(v, color::BODY)],
-            // Push last, so it is drawn on top of the acceleration it soon matches.
-            lines: velocity_acceleration(v)
+            // The push first, so velocity and acceleration are drawn over it.
+            lines: [line(p, p + FORCE.normalize() * PUSH_LENGTH, color::PUSH)]
                 .into_iter()
-                .chain([line(p, p + push, color::PUSH)])
+                .chain(velocity_acceleration(v))
                 .collect(),
             trails: vec![self.trail.view(p)],
             labels: vec![
@@ -62,10 +64,7 @@ impl OneTurning {
             ],
             actions: Vec::new(),
             legend: legend(&[
-                (
-                    color::PUSH,
-                    "push (the same every step, capped at max force)",
-                ),
+                (color::PUSH, "push direction (the same every step)"),
                 (color::HAVE, "have: current velocity"),
                 (color::CHANGE, "change: smoothed acceleration"),
                 (color::TRAIL, "trail: the last 5 s"),
@@ -91,12 +90,25 @@ mod tests {
     }
 
     #[test]
-    fn push_line_is_the_capped_force_at_three_units() {
-        let view = OneTurning::default().view();
-        let push = view.lines.last().expect("the push line");
+    fn push_is_drawn_first_and_longer_than_the_acceleration_line() {
+        let mut demo = OneTurning::default();
+        for _ in 0..120 {
+            demo.update(1.0 / 60.0);
+        }
+        let view = demo.view();
+        let offset =
+            |l: &crate::view::LineView| Vec2::new(l.to[0] - l.from[0], l.to[1] - l.from[1]);
+        let push = &view.lines[0];
         assert_eq!(push.color, color::PUSH);
-        let len = Vec2::new(push.to[0] - push.from[0], push.to[1] - push.from[1]);
-        assert!((len.length() - 3.0).abs() < 1e-5);
-        assert!(len.normalize().dot(FORCE.normalize()) > 0.9999);
+        assert!((offset(push).length() - PUSH_LENGTH).abs() < 1e-5);
+        assert!(offset(push).normalize().dot(FORCE.normalize()) > 0.9999);
+        let change = view
+            .lines
+            .iter()
+            .find(|l| l.color == color::CHANGE)
+            .expect("acceleration line");
+        // At 2 s the acceleration has settled on the push: same direction, 3 units, inside it.
+        assert!(offset(change).normalize().dot(FORCE.normalize()) > 0.9999);
+        assert!(offset(change).length() < PUSH_LENGTH);
     }
 }
