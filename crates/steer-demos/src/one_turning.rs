@@ -63,6 +63,7 @@ impl OneTurning {
                 label(Vec2::ZERO, "start", color::LABEL),
             ],
             actions: Vec::new(),
+            params: Vec::new(),
             legend: legend(&[
                 (color::PUSH, "push direction (the same every step)"),
                 (color::HAVE, "have: current velocity"),

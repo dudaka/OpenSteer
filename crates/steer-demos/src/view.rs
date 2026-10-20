@@ -52,6 +52,18 @@ pub struct ActionView {
     pub active: bool,
 }
 
+/// A demo-specific slider; moving it sends `demo.param` with `id` and the new value.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(export)]
+pub struct ParamView {
+    pub id: String,
+    pub label: String,
+    pub min: f32,
+    pub max: f32,
+    pub step: f32,
+    pub value: f32,
+}
+
 /// One entry of the scene's legend: what a line color means in this demo.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(export)]
@@ -73,6 +85,7 @@ pub struct FrameView {
     pub trails: Vec<TrailView>,
     pub labels: Vec<LabelView>,
     pub actions: Vec<ActionView>,
+    pub params: Vec<ParamView>,
     /// What each line color means, for every color this frame draws.
     pub legend: Vec<LegendView>,
 }

@@ -8,7 +8,11 @@ use steer_core::{steer, Vec2, Vehicle};
 use crate::annotation::{
     circle, color, label, legend, line, point, vehicle_view, velocity_acceleration, Trail,
 };
-use crate::view::{ActionView, FrameView, LineView};
+use crate::view::{ActionView, FrameView, LineView, ParamView};
+
+/// Slider ranges: min, max, step.
+const SLOWING_RADIUS: (f32, f32, f32) = (1.0, 15.0, 0.5);
+const BRAKING_RATE: (f32, f32, f32) = (0.25, 4.0, 0.25);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Mode {
@@ -75,6 +79,17 @@ impl SeekFlee {
         }
     }
 
+    /// A slider moved; the value is held to the slider's range.
+    pub fn param(&mut self, id: &str, value: f32) {
+        match id {
+            "slowing_radius" => {
+                self.slowing_radius = value.clamp(SLOWING_RADIUS.0, SLOWING_RADIUS.1)
+            }
+            "braking_rate" => self.braking_rate = value.clamp(BRAKING_RATE.0, BRAKING_RATE.1),
+            _ => {}
+        }
+    }
+
     pub fn view(&self) -> FrameView {
         let v = &self.vehicle;
         let p = v.position;
@@ -130,7 +145,39 @@ impl SeekFlee {
                 active,
             })
             .collect(),
+            params: self.params(),
         }
+    }
+
+    /// Arrive's sliders, shown in Arrive mode.
+    fn params(&self) -> Vec<ParamView> {
+        if self.mode != Mode::Arrive {
+            return Vec::new();
+        }
+        [
+            (
+                "slowing_radius",
+                "slowing radius",
+                SLOWING_RADIUS,
+                self.slowing_radius,
+            ),
+            (
+                "braking_rate",
+                "braking rate",
+                BRAKING_RATE,
+                self.braking_rate,
+            ),
+        ]
+        .into_iter()
+        .map(|(id, label, (min, max, step), value)| ParamView {
+            id: id.to_string(),
+            label: label.to_string(),
+            min,
+            max,
+            step,
+            value,
+        })
+        .collect()
     }
 
     fn force(&self) -> Vec2 {
@@ -232,6 +279,19 @@ mod tests {
         run(&mut demo, 1200);
         assert!((demo.vehicle.speed - 1.0 / 3.0).abs() < 1e-3);
         assert!(distance_to_target(&demo) > 2.0);
+    }
+
+    #[test]
+    fn sliders_show_in_arrive_and_set_values_within_range() {
+        let mut demo = SeekFlee::default();
+        assert!(demo.view().params.is_empty());
+        demo.action("arrive");
+        demo.param("slowing_radius", 4.5);
+        demo.param("braking_rate", 99.0);
+        let values: Vec<f32> = demo.view().params.iter().map(|p| p.value).collect();
+        assert_eq!(values, [4.5, 4.0]);
+        demo.param("slowing_radius", 0.0);
+        assert_eq!(demo.slowing_radius, 1.0);
     }
 
     #[test]

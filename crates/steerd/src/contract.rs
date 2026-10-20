@@ -21,6 +21,9 @@ pub enum Call {
     /// One of the current frame's `actions`.
     #[serde(rename = "demo.action")]
     DemoAction { id: String },
+    /// Set one of the current frame's `params` sliders.
+    #[serde(rename = "demo.param")]
+    DemoParam { id: String, value: f32 },
     #[serde(rename = "sim.play")]
     SimPlay,
     #[serde(rename = "sim.pause")]

@@ -10,6 +10,7 @@ export type { FrameView } from "./contract/FrameView";
 export type { LabelView } from "./contract/LabelView";
 export type { LegendView } from "./contract/LegendView";
 export type { LineView } from "./contract/LineView";
+export type { ParamView } from "./contract/ParamView";
 export type { TrailView } from "./contract/TrailView";
 export type { VehicleView } from "./contract/VehicleView";
 
@@ -48,6 +49,10 @@ export class Host {
 
   async action(id: string): Promise<void> {
     await this.conn.call({ method: "demo.action", params: { id } });
+  }
+
+  async param(id: string, value: number): Promise<void> {
+    await this.conn.call({ method: "demo.param", params: { id, value } });
   }
 
   async play(): Promise<void> {

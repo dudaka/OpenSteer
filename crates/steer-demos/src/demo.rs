@@ -57,6 +57,13 @@ impl Demo {
             d.action(id);
         }
     }
+
+    /// Sets one of the demo's `ParamView` sliders; unknown ids are ignored.
+    pub fn param(&mut self, id: &str, value: f32) {
+        if let Demo::SeekFlee(d) = self {
+            d.param(id, value);
+        }
+    }
 }
 
 pub fn catalog() -> Vec<DemoInfo> {

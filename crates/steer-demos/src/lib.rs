@@ -13,7 +13,7 @@ use ts_rs::TS;
 pub use demo::{catalog, Demo, DEFAULT_DEMO};
 pub use one_turning::OneTurning;
 pub use seek_flee::SeekFlee;
-pub use view::{ActionView, FrameView, LabelView, LineView, TrailView, VehicleView};
+pub use view::{ActionView, FrameView, LabelView, LineView, ParamView, TrailView, VehicleView};
 
 /// A demo the web app can select, in sidebar order.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
