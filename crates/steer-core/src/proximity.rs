@@ -32,6 +32,18 @@ impl Grid {
         Self { cell_size, cells }
     }
 
+    /// Moves point `i` from `from` to `to` (`updateForNewPosition`).
+    pub fn move_point(&mut self, i: usize, from: Vec2, to: Vec2) {
+        let (old, new) = (cell_of(from, self.cell_size), cell_of(to, self.cell_size));
+        if old == new {
+            return;
+        }
+        if let Some(cell) = self.cells.get_mut(&old) {
+            cell.retain(|&j| j != i);
+        }
+        self.cells.entry(new).or_default().push(i);
+    }
+
     /// The same answer as `brute_force`, looking only at the cells the query circle touches.
     pub fn neighbors(&self, points: &[Vec2], center: Vec2, radius: f32) -> Vec<usize> {
         let r = Vec2::new(radius, radius);
@@ -85,6 +97,25 @@ mod tests {
                     "center {center:?} radius {radius}"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn moved_points_are_found_where_they_are_now() {
+        let mut seed = 3;
+        let mut points: Vec<Vec2> = (0..200).map(|_| scatter(&mut seed)).collect();
+        let mut grid = Grid::new(&points, 9.0);
+        for (i, point) in points.iter_mut().enumerate().take(100) {
+            let to = scatter(&mut seed);
+            grid.move_point(i, *point, to);
+            *point = to;
+        }
+        for _ in 0..100 {
+            let center = scatter(&mut seed);
+            assert_eq!(
+                grid.neighbors(&points, center, 9.0),
+                brute_force(&points, center, 9.0)
+            );
         }
     }
 
