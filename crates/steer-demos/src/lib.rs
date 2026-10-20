@@ -4,6 +4,7 @@
 mod annotation;
 mod boids;
 mod controls;
+mod crossing;
 mod demo;
 mod obstacles;
 mod one_turning;
@@ -17,6 +18,7 @@ use serde::Serialize;
 use ts_rs::TS;
 
 pub use boids::Boids;
+pub use crossing::Crossing;
 pub use demo::{catalog, Demo, DEFAULT_DEMO};
 pub use obstacles::Obstacles;
 pub use one_turning::OneTurning;
