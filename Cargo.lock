@@ -618,6 +618,7 @@ dependencies = [
  "axum",
  "rmp-serde",
  "serde",
+ "steer-core",
  "steer-demos",
  "tokio",
  "tracing",

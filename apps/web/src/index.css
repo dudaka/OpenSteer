@@ -44,10 +44,35 @@ header p {
   min-width: 64px;
 }
 
+button[aria-pressed="true"] {
+  font-weight: 600;
+  outline: 2px solid #f2b134;
+}
+
+.body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 12px;
+}
+
+.demos {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 180px;
+}
+
+.demos button {
+  text-align: left;
+}
+
 .scene {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   position: relative;
+  cursor: crosshair;
 }
 
 .labels {

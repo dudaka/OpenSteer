@@ -3,4 +3,4 @@
 /**
  * A call from the client, tagged as `{ method, params }`.
  */
-export type Call = { "method": "demo.list" } | { "method": "sim.play" } | { "method": "sim.pause" } | { "method": "sim.step" } | { "method": "sim.reset" };
+export type Call = { "method": "demo.list" } | { "method": "demo.select", "params": { id: string, } } | { "method": "demo.click", "params": { x: number, y: number, } } | { "method": "demo.action", "params": { id: string, } } | { "method": "sim.play" } | { "method": "sim.pause" } | { "method": "sim.step" } | { "method": "sim.reset" };

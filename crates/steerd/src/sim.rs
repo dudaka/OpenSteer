@@ -3,7 +3,8 @@
 
 use std::time::Duration;
 
-use steer_demos::OneTurning;
+use steer_core::Vec2;
+use steer_demos::{Demo, DEFAULT_DEMO};
 use tokio::sync::{mpsc, watch};
 use tokio::time::{interval, MissedTickBehavior};
 
@@ -12,25 +13,31 @@ use crate::contract::HostFrame;
 /// Fixed simulation step, in seconds (60 Hz).
 pub const STEP: f32 = 1.0 / 60.0;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Command {
     Play,
     Pause,
     Step,
     Reset,
+    /// A demo id already checked against the catalog.
+    Select(String),
+    Click(Vec2),
+    Action(String),
 }
 
-/// The demo and whether time is running.
+/// The current demo and whether time is running.
 #[derive(Debug)]
 pub struct Sim {
-    demo: OneTurning,
+    id: String,
+    demo: Demo,
     running: bool,
 }
 
 impl Default for Sim {
     fn default() -> Self {
         Self {
-            demo: OneTurning::default(),
+            id: DEFAULT_DEMO.to_string(),
+            demo: Demo::new(DEFAULT_DEMO).expect("the default demo is in the catalog"),
             running: true,
         }
     }
@@ -50,7 +57,13 @@ impl Sim {
                     self.running = false;
                     self.demo.update(STEP);
                 }
-                Command::Reset => self.demo = OneTurning::default(),
+                Command::Reset => self.demo = Self::fresh(&self.id),
+                Command::Select(id) => {
+                    self.demo = Self::fresh(&id);
+                    self.id = id;
+                }
+                Command::Click(at) => self.demo.click(at),
+                Command::Action(id) => self.demo.action(&id),
             }
         }
         if self.running {
@@ -63,7 +76,12 @@ impl Sim {
         HostFrame::Frame {
             frame: self.demo.view(),
             running: self.running,
+            demo: self.id.clone(),
         }
+    }
+
+    fn fresh(id: &str) -> Demo {
+        Demo::new(id).expect("demo ids are checked against the catalog before they get here")
     }
 }
 
@@ -89,9 +107,9 @@ mod tests {
 
     /// Ticks once; the frame's time and running state if anything changed.
     fn tick(sim: &mut Sim, commands: &[Command]) -> Option<(f32, bool)> {
-        sim.tick(commands.iter().copied())
+        sim.tick(commands.iter().cloned())
             .then(|| match sim.frame() {
-                HostFrame::Frame { frame, running } => (frame.time, running),
+                HostFrame::Frame { frame, running, .. } => (frame.time, running),
                 other => panic!("not a frame: {other:?}"),
             })
     }
@@ -128,5 +146,19 @@ mod tests {
             tick(&mut sim, &[Command::Play, Command::Reset]),
             Some((STEP, true))
         );
+    }
+
+    #[test]
+    fn select_switches_demo_and_reset_restarts_the_selected_one() {
+        let mut sim = Sim::default();
+        tick(&mut sim, &[Command::Select("seek-flee".into())]);
+        tick(&mut sim, &[Command::Reset]);
+        match sim.frame() {
+            HostFrame::Frame { demo, frame, .. } => {
+                assert_eq!(demo, "seek-flee");
+                assert_eq!(frame.actions.len(), 2);
+            }
+            other => panic!("not a frame: {other:?}"),
+        }
     }
 }

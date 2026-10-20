@@ -4,6 +4,7 @@ import { HostConnection, webSocketLink, type OpenLink } from "./transport";
 
 export * from "./store";
 export { HostConnection, webSocketLink, type ConnectionStatus, type Link, type OpenLink } from "./transport";
+export type { ActionView } from "./contract/ActionView";
 export type { DemoInfo } from "./contract/DemoInfo";
 export type { FrameView } from "./contract/FrameView";
 export type { LabelView } from "./contract/LabelView";
@@ -22,7 +23,9 @@ export class Host {
         if (status === "connected") void this.refresh();
       },
       onFrame: (frame) => {
-        if (frame.t === "frame") store.dispatch(hostActions.frame({ host: id, frame: frame.frame, running: frame.running }));
+        if (frame.t === "frame") {
+          store.dispatch(hostActions.frame({ host: id, frame: frame.frame, running: frame.running, demo: frame.demo }));
+        }
       },
     });
   }
@@ -32,7 +35,20 @@ export class Host {
     if (r.type === "demos") store.dispatch(hostActions.demos({ host: this.id, demos: r.value }));
   }
 
-  // Sim controls: the effect arrives in the next frame, which carries `running`.
+  // Demo and sim calls: the effect arrives in the next frame, which carries `demo` and `running`.
+  async select(demo: string): Promise<void> {
+    await this.conn.call({ method: "demo.select", params: { id: demo } });
+  }
+
+  /** A click on the ground at world point (x, y). */
+  async click(x: number, y: number): Promise<void> {
+    await this.conn.call({ method: "demo.click", params: { x, y } });
+  }
+
+  async action(id: string): Promise<void> {
+    await this.conn.call({ method: "demo.action", params: { id } });
+  }
+
   async play(): Promise<void> {
     await this.conn.call({ method: "sim.play" });
   }

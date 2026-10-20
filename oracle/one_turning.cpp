@@ -1,10 +1,9 @@
 // Oracle: OpenSteer's own C++ SimpleVehicle, run headless. Build and run from the repo root:
-//   c++ -std=c++11 -w -Iinclude -o /tmp/one_turning oracle/one_turning.cpp \
+//   c++ -std=c++11 -w -Iinclude -o /tmp/one_turning oracle/one_turning.cpp oracle/annotation_stubs.cpp \
 //     src/SimpleVehicle.cpp src/Vec3.cpp src/Vec3Utilities.cpp src/Color.cpp && /tmp/one_turning
 // Its output is pinned in crates/steer-core/tests/oracle_one_turning.rs.
 #include <cstdio>
 #include "OpenSteer/SimpleVehicle.h"
-#include "OpenSteer/Color.h"
 
 using namespace OpenSteer;
 
@@ -27,10 +26,3 @@ int main() {
     }
 }
 
-// Annotation drawing is OpenGL in the demo; never reached here.
-namespace OpenSteer {
-bool drawPhaseActive = false;
-bool enableAnnotation = false;
-void drawLine(const Vec3&, const Vec3&, const Color&) {}
-void deferredDrawLine(const Vec3&, const Vec3&, const Color&) {}
-}

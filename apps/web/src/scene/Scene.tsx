@@ -2,6 +2,7 @@ import { LOCAL_HOST, store } from "@opensteer/core";
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import { CSS2DRenderer } from "three/addons/renderers/CSS2DRenderer.js";
+import { useHost } from "../host";
 import { Labels, Lines, Vehicles } from "./draw";
 
 /** World units visible across the shorter side of the view. */
@@ -16,6 +17,7 @@ const CELL = 2;
  */
 export function Scene() {
   const mount = useRef<HTMLDivElement>(null);
+  const host = useHost();
 
   useEffect(() => {
     const el = mount.current!;
@@ -52,6 +54,18 @@ export function Scene() {
     const observer = new ResizeObserver(resize);
     observer.observe(el);
 
+    // Input handling: a click becomes the world point it hits on the ground plane.
+    const ground = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+    const raycaster = new THREE.Raycaster();
+    const hit = new THREE.Vector3();
+    const onClick = (e: PointerEvent) => {
+      const rect = renderer.domElement.getBoundingClientRect();
+      const ndc = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
+      raycaster.setFromCamera(ndc, camera);
+      if (raycaster.ray.intersectPlane(ground, hit)) void host.click(hit.x, hit.z);
+    };
+    renderer.domElement.addEventListener("pointerdown", onClick);
+
     renderer.setAnimationLoop(() => {
       const frame = store.getState().hosts[LOCAL_HOST].frame;
       if (frame) {
@@ -69,6 +83,7 @@ export function Scene() {
 
     return () => {
       renderer.setAnimationLoop(null);
+      renderer.domElement.removeEventListener("pointerdown", onClick);
       observer.disconnect();
       vehicles.dispose();
       lines.dispose();
@@ -76,7 +91,7 @@ export function Scene() {
       renderer.dispose();
       el.replaceChildren();
     };
-  }, []);
+  }, [host]);
 
   return <div ref={mount} className="scene" />;
 }
