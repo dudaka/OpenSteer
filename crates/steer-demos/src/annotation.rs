@@ -18,6 +18,8 @@ pub mod color {
     /// want: the desired velocity.
     pub const WANT: u32 = 0x3fd27a;
     pub const TARGET: u32 = 0xffd23f;
+    /// A behavior's radius of effect, e.g. Arrive's slowing radius.
+    pub const RADIUS: u32 = 0x4fc3d0;
     /// The trail, `drawTrail`'s 70% gray.
     pub const TRAIL: u32 = 0xb3b3b3;
     /// Text labels: neutral, so red and green only ever mean push and want.
@@ -90,6 +92,18 @@ pub fn label(at: Vec2, text: impl Into<String>, color: u32) -> LabelView {
         text: text.into(),
         color,
     }
+}
+
+/// A circle drawn as 40 line segments.
+pub fn circle(center: Vec2, radius: f32, color: u32) -> Vec<LineView> {
+    const SEGMENTS: usize = 40;
+    let at = |i: usize| {
+        let angle = i as f32 * std::f32::consts::TAU / SEGMENTS as f32;
+        center + Vec2::new(angle.cos(), angle.sin()) * radius
+    };
+    (0..SEGMENTS)
+        .map(|i| line(at(i), at(i + 1), color))
+        .collect()
 }
 
 /// `drawBasic2dCircularVehicle`.

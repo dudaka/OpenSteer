@@ -156,7 +156,7 @@ mod tests {
         match sim.frame() {
             HostFrame::Frame { demo, frame, .. } => {
                 assert_eq!(demo, "seek-flee");
-                assert_eq!(frame.actions.len(), 2);
+                assert_eq!(frame.actions.len(), 4);
             }
             other => panic!("not a frame: {other:?}"),
         }
