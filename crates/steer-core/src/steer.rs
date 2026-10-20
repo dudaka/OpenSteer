@@ -1,6 +1,7 @@
 //! Steering behaviors from OpenSteer's `SteerLibrary.h`. Each returns a force for
 //! `Vehicle::apply_steering_force`; callers combine them.
 
+use crate::util::scalar_random_walk;
 use crate::{Vec2, Vehicle};
 
 /// Steer toward `target` (`xxxsteerForSeek`, the version the plug-ins use). The desired
@@ -27,6 +28,25 @@ pub fn arrive(v: &Vehicle, target: Vec2, slowing_radius: f32) -> Vec2 {
     }
     let desired_speed = v.max_speed * (distance / slowing_radius).min(1.0);
     offset / distance * desired_speed - v.velocity()
+}
+
+/// A random sideways force (`steerForWander`): `wander_side` random-walks in `-1..=1` at
+/// `12 * dt` per call and the force is `side * wander_side`. Add it to a forward force. The C++
+/// also walks an `up` value; on the ground plane it has no effect, so it is not ported.
+pub fn wander(
+    v: &Vehicle,
+    wander_side: &mut f32,
+    dt: f32,
+    random01: &mut impl FnMut() -> f32,
+) -> Vec2 {
+    *wander_side = scalar_random_walk(*wander_side, 12.0 * dt, -1.0, 1.0, random01);
+    v.side() * *wander_side
+}
+
+/// A force along `forward` toward `target_speed` (`steerForTargetSpeed`): the speed error,
+/// clipped to `max_force`.
+pub fn target_speed(v: &Vehicle, target_speed: f32) -> Vec2 {
+    v.forward * (target_speed - v.speed).clamp(-v.max_force, v.max_force)
 }
 
 #[cfg(test)]
@@ -58,6 +78,25 @@ mod tests {
     fn flee_is_seek_mirrored() {
         let v = moving();
         assert_eq!(flee(&v, Vec2::new(10.0, 0.0)), Vec2::new(-3.0, -1.0));
+    }
+
+    #[test]
+    fn wander_is_sideways_and_bounded() {
+        let v = moving();
+        let mut side = 0.95;
+        let force = wander(&v, &mut side, 1.0 / 60.0, &mut || 1.0);
+        assert_eq!(side, 1.0);
+        assert_eq!(force, v.side());
+        assert_eq!(force.dot(v.forward), 0.0);
+    }
+
+    #[test]
+    fn target_speed_pushes_along_forward_clipped() {
+        let v = moving();
+        // speed 1, max_force 0.1
+        assert_eq!(target_speed(&v, 1.0625), Vec2::new(0.0, 0.0625));
+        assert_eq!(target_speed(&v, 9.0), Vec2::new(0.0, 0.1));
+        assert_eq!(target_speed(&v, 0.0), Vec2::new(0.0, -0.1));
     }
 
     #[test]

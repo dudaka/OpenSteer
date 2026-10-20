@@ -18,6 +18,8 @@ pub mod color {
     /// want: the desired velocity.
     pub const WANT: u32 = 0x3fd27a;
     pub const TARGET: u32 = 0xffd23f;
+    /// wander: the random sideways part of the push.
+    pub const WANDER: u32 = 0xffa040;
     /// A behavior's radius of effect, e.g. Arrive's slowing radius.
     pub const RADIUS: u32 = 0x4fc3d0;
     /// The trail, `drawTrail`'s 70% gray.
