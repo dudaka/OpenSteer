@@ -3,10 +3,12 @@
 use steer_core::Vec2;
 
 use crate::view::FrameView;
-use crate::{Boids, DemoInfo, Obstacles, OneTurning, PathFollowing, Pursuit, SeekFlee, Wander};
+use crate::{
+    Boids, Crossing, DemoInfo, Obstacles, OneTurning, PathFollowing, Pursuit, SeekFlee, Wander,
+};
 
 /// Every demo in sidebar order (OpenSteerDemo's `selectionOrderSortKey`): id and name.
-const DEMOS: [(&str, &str); 7] = [
+const DEMOS: [(&str, &str); 8] = [
     ("one-turning", "One Turning Away"),
     ("seek-flee", "Seek and Flee"),
     ("wander", "Wander"),
@@ -14,6 +16,7 @@ const DEMOS: [(&str, &str); 7] = [
     ("obstacles", "Obstacle Avoidance"),
     ("path-following", "Path Following"),
     ("boids", "Boids"),
+    ("crossing", "Pedestrians Crossing"),
 ];
 
 /// The demo selected at start.
@@ -28,6 +31,7 @@ pub enum Demo {
     Obstacles(Obstacles),
     PathFollowing(PathFollowing),
     Boids(Boids),
+    Crossing(Crossing),
 }
 
 impl Demo {
@@ -41,6 +45,7 @@ impl Demo {
             "obstacles" => Some(Demo::Obstacles(Obstacles::default())),
             "path-following" => Some(Demo::PathFollowing(PathFollowing::default())),
             "boids" => Some(Demo::Boids(Boids::default())),
+            "crossing" => Some(Demo::Crossing(Crossing::default())),
             _ => None,
         }
     }
@@ -54,6 +59,7 @@ impl Demo {
             Demo::Obstacles(d) => d.update(dt),
             Demo::PathFollowing(d) => d.update(dt),
             Demo::Boids(d) => d.update(dt),
+            Demo::Crossing(d) => d.update(dt),
         }
     }
 
@@ -66,6 +72,7 @@ impl Demo {
             Demo::Obstacles(d) => d.view(),
             Demo::PathFollowing(d) => d.view(),
             Demo::Boids(d) => d.view(),
+            Demo::Crossing(d) => d.view(),
         }
     }
 
@@ -86,6 +93,7 @@ impl Demo {
             Demo::Pursuit(d) => d.action(id),
             Demo::Obstacles(d) => d.action(id),
             Demo::PathFollowing(d) => d.action(id),
+            Demo::Crossing(d) => d.action(id),
             Demo::OneTurning(_) | Demo::Boids(_) => {}
         }
     }
@@ -99,6 +107,7 @@ impl Demo {
             Demo::Obstacles(d) => d.param(id, value),
             Demo::PathFollowing(d) => d.param(id, value),
             Demo::Boids(d) => d.param(id, value),
+            Demo::Crossing(d) => d.param(id, value),
             Demo::OneTurning(_) => {}
         }
     }
