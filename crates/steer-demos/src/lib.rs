@@ -5,6 +5,7 @@ mod annotation;
 mod controls;
 mod demo;
 mod one_turning;
+mod pursuit;
 mod seek_flee;
 mod view;
 mod wander;
@@ -14,6 +15,7 @@ use ts_rs::TS;
 
 pub use demo::{catalog, Demo, DEFAULT_DEMO};
 pub use one_turning::OneTurning;
+pub use pursuit::Pursuit;
 pub use seek_flee::SeekFlee;
 pub use view::{ActionView, FrameView, LabelView, LineView, ParamView, TrailView, VehicleView};
 pub use wander::Wander;

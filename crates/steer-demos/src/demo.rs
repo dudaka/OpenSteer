@@ -3,13 +3,14 @@
 use steer_core::Vec2;
 
 use crate::view::FrameView;
-use crate::{DemoInfo, OneTurning, SeekFlee, Wander};
+use crate::{DemoInfo, OneTurning, Pursuit, SeekFlee, Wander};
 
 /// Every demo in sidebar order (OpenSteerDemo's `selectionOrderSortKey`): id and name.
-const DEMOS: [(&str, &str); 3] = [
+const DEMOS: [(&str, &str); 4] = [
     ("one-turning", "One Turning Away"),
     ("seek-flee", "Seek and Flee"),
     ("wander", "Wander"),
+    ("pursuit", "Pursuit and Evasion"),
 ];
 
 /// The demo selected at start.
@@ -20,6 +21,7 @@ pub enum Demo {
     OneTurning(OneTurning),
     SeekFlee(SeekFlee),
     Wander(Wander),
+    Pursuit(Pursuit),
 }
 
 impl Demo {
@@ -29,6 +31,7 @@ impl Demo {
             "one-turning" => Some(Demo::OneTurning(OneTurning::default())),
             "seek-flee" => Some(Demo::SeekFlee(SeekFlee::default())),
             "wander" => Some(Demo::Wander(Wander::default())),
+            "pursuit" => Some(Demo::Pursuit(Pursuit::default())),
             _ => None,
         }
     }
@@ -38,6 +41,7 @@ impl Demo {
             Demo::OneTurning(d) => d.update(dt),
             Demo::SeekFlee(d) => d.update(dt),
             Demo::Wander(d) => d.update(dt),
+            Demo::Pursuit(d) => d.update(dt),
         }
     }
 
@@ -46,6 +50,7 @@ impl Demo {
             Demo::OneTurning(d) => d.view(),
             Demo::SeekFlee(d) => d.view(),
             Demo::Wander(d) => d.view(),
+            Demo::Pursuit(d) => d.view(),
         }
     }
 
@@ -61,6 +66,7 @@ impl Demo {
         match self {
             Demo::SeekFlee(d) => d.action(id),
             Demo::Wander(d) => d.action(id),
+            Demo::Pursuit(d) => d.action(id),
             Demo::OneTurning(_) => {}
         }
     }
@@ -70,6 +76,7 @@ impl Demo {
         match self {
             Demo::SeekFlee(d) => d.param(id, value),
             Demo::Wander(d) => d.param(id, value),
+            Demo::Pursuit(d) => d.param(id, value),
             Demo::OneTurning(_) => {}
         }
     }
