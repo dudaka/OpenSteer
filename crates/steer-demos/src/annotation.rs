@@ -4,7 +4,36 @@ use std::collections::VecDeque;
 
 use steer_core::{Vec2, Vehicle};
 
-use crate::view::{LabelView, LineView, TrailView, VehicleView};
+use crate::view::{LabelView, LegendView, LineView, TrailView, VehicleView};
+
+/// One meaning per color, shared by every demo. Velocity, acceleration and trail keep
+/// OpenSteer's colors; red and green are kept for the push and the want.
+pub mod color {
+    /// have: current velocity (OpenSteer's pinkish).
+    pub const HAVE: u32 = 0xff66ff;
+    /// change: smoothed acceleration (OpenSteer's bluish).
+    pub const CHANGE: u32 = 0x6666ff;
+    /// push: the steering force.
+    pub const PUSH: u32 = 0xff5040;
+    /// want: the desired velocity.
+    pub const WANT: u32 = 0x3fd27a;
+    pub const TARGET: u32 = 0xffd23f;
+    /// The trail, `drawTrail`'s 70% gray.
+    pub const TRAIL: u32 = 0xb3b3b3;
+    /// Text labels: neutral, so red and green only ever mean push and want.
+    pub const LABEL: u32 = 0xd0d4dc;
+    pub const BODY: u32 = 0x808080;
+}
+
+pub fn legend(entries: &[(u32, &str)]) -> Vec<LegendView> {
+    entries
+        .iter()
+        .map(|&(color, label)| LegendView {
+            color,
+            label: label.to_string(),
+        })
+        .collect()
+}
 
 /// OpenSteer's default trail: 5 seconds of history in 100 samples.
 const TRAIL_DURATION: f32 = 5.0;
@@ -29,7 +58,7 @@ impl Trail {
         self.last_sample_time = time;
     }
 
-    /// The trail up to the vehicle's current position, in `drawTrail`'s 70% gray.
+    /// The trail up to the vehicle's current position.
     pub fn view(&self, current: Vec2) -> TrailView {
         TrailView {
             points: self
@@ -38,7 +67,7 @@ impl Trail {
                 .chain([&current])
                 .map(|p| [p.x, p.y])
                 .collect(),
-            color: 0xb3b3b3,
+            color: color::TRAIL,
         }
     }
 }
@@ -78,11 +107,11 @@ pub fn vehicle_view(v: &Vehicle, color: u32) -> VehicleView {
 pub fn velocity_acceleration(v: &Vehicle) -> [LineView; 2] {
     let p = v.position;
     [
-        line(p, p + v.velocity() * (3.0 / v.max_speed), 0xff66ff),
+        line(p, p + v.velocity() * (3.0 / v.max_speed), color::HAVE),
         line(
             p,
             p + v.smoothed_acceleration * (3.0 / v.max_force),
-            0x6666ff,
+            color::CHANGE,
         ),
     ]
 }
