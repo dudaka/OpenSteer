@@ -42,3 +42,10 @@ cmake --build build
 - `steerForWander` returns a pure lateral force (`side*WanderSide + up*WanderUp`) driven by `scalarRandomWalk`; it is meant to be added to a forward force, not used alone.
 - `steerForPursuit` uses a 3x3 table of time factors (quarry ahead/aside/behind x parallel/perpendicular/anti-parallel) to estimate intercept time.
 - Most demos run on the XZ ground plane (`setYtoZero`), so a 2D port maps C++ `(x, z)` to `(x, y)`.
+
+## Project skills (`.claude/skills/`, sources in `THIRD_PARTY.md`)
+
+Use them while building and learning, but this file and the user's global rules win on any conflict (small incremental steps, no emojis, no overengineering).
+- Rust: `rust-router` routes a Rust question to the right `m01`-`m15` skill (ownership, error handling, concurrency, type-driven design, performance, anti-patterns); `coding-guidelines` for style; `domain-web` for axum/tokio in `steerd`. `unsafe` is forbidden in this workspace.
+- three.js: `threejs-debug-profiler` for blank canvas, resize and render bugs; `threejs-qa-release` for canvas-pixel inspection and visual checks; `threejs-gameplay-systems` for camera, loop and input patterns; `threejs-aaa-graphics-builder` only at the 2.5D/3D stage.
+- Do not use `threejs-game-director` (it drives a whole-game production pass) or the asset generators (`threejs-3d/image/audio-generator`, paid APIs) unless the user asks.
