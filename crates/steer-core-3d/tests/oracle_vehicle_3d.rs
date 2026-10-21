@@ -1,11 +1,14 @@
 //! The 3D vehicle against the C++ `SimpleVehicle`, printed by `oracle/vehicle_3d.cpp`: a
 //! constant push that climbs and turns, and a vehicle circling to its side with banking on.
 
+mod common;
+
+use common::{check, State};
 use steer_core_3d::{Vec3, Vehicle};
 
 /// step (1, then every 60: `side` and `up` flipped by a wrong handedness are back after an
 /// even number of steps), then position, forward, side, up (x, y, z each) and speed
-const CLIMB: [(u32, [f64; 13]); 11] = [
+const CLIMB: [(u32, State); 11] = [
     (
         1,
         [
@@ -85,7 +88,7 @@ const CLIMB: [(u32, [f64; 13]); 11] = [
     ),
 ];
 
-const BANK: [(u32, [f64; 13]); 11] = [
+const BANK: [(u32, State); 11] = [
     (
         1,
         [
@@ -165,24 +168,7 @@ const BANK: [(u32, [f64; 13]); 11] = [
     ),
 ];
 
-fn state(v: &Vehicle) -> [f32; 13] {
-    let (p, f, s, u) = (v.position, v.forward, v.side, v.up);
-    [
-        p.x, p.y, p.z, f.x, f.y, f.z, s.x, s.y, s.z, u.x, u.y, u.z, v.speed,
-    ]
-}
-
-fn check(v: &Vehicle, step: u32, want: &[f64; 13]) {
-    let got = state(v);
-    for (g, w) in got.iter().zip(want) {
-        assert!(
-            (f64::from(*g) - w).abs() < 1e-4,
-            "step {step}: got {got:?}, want {want:?}"
-        );
-    }
-}
-
-fn run(mut v: Vehicle, cpp: &[(u32, [f64; 13])], force: impl Fn(&Vehicle) -> Vec3) {
+fn run(mut v: Vehicle, cpp: &[(u32, State)], force: impl Fn(&Vehicle) -> Vec3) {
     let mut checkpoints = cpp.iter();
     for step in 1..=600 {
         v.apply_steering_force(force(&v), 1.0 / 60.0);
