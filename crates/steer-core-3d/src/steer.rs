@@ -138,6 +138,19 @@ fn interval_comparison(x: f32, lower: f32, upper: f32) -> i32 {
     }
 }
 
+/// Steer toward `target` and come to rest on it (Reynolds 1999, not in OpenSteer). Outside
+/// `slowing_radius` the desired speed is `max_speed`; inside it falls linearly to zero at the
+/// target.
+pub fn arrive(v: &Vehicle, target: Vec3, slowing_radius: f32) -> Vec3 {
+    let offset = target - v.position;
+    let distance = offset.length();
+    if distance == 0.0 {
+        return -v.velocity();
+    }
+    let desired_speed = v.max_speed * (distance / slowing_radius).min(1.0);
+    offset / distance * desired_speed - v.velocity()
+}
+
 /// `steerForWander`'s two random walk values (`WanderSide`, `WanderUp`), each in `-1..=1`.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct WanderState {
@@ -254,5 +267,19 @@ mod tests {
             ..Vehicle::default()
         };
         assert_eq!(evasion(&moving(), &menace, 2.0), Vec3::new(0.0, 3.0, -3.0));
+    }
+
+    /// Target 2 straight up with slowing radius 4: desired speed 3 * 2/4 = 1.5 upward, minus
+    /// the velocity (0, 0, 1).
+    #[test]
+    fn arrive_slows_inside_the_radius() {
+        assert_eq!(
+            arrive(&moving(), Vec3::new(0.0, 2.0, 0.0), 4.0),
+            Vec3::new(0.0, 1.5, -1.0)
+        );
+        assert_eq!(
+            arrive(&moving(), Vec3::ZERO, 4.0),
+            Vec3::new(0.0, 0.0, -1.0)
+        );
     }
 }

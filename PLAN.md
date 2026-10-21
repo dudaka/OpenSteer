@@ -21,7 +21,7 @@ that `~/Workspace/silkroad/caravan` and `sro-polyanya` share. The 2D version sta
   (#25); 3D view merged (#26); 3D pursuit and evasion merged (#27); 3D obstacle avoidance
   merged (#28). From step 30 on, at the user's request, the remaining 3D demos run as a batch
   (one PR per step, merged on green CI); the user checks them all at the end.
-- Tests: 228 Rust tests (20 C++ oracles: `oracle_vehicle_3d`, `oracle_seek_flee_3d`, `oracle_wander_3d`, `oracle_pursuit_3d`, `oracle_obstacles_3d`, `oracle_path_following_3d`, `oracle_boids_3d`, `oracle_neighbors_3d`, `oracle_one_turning`, `oracle_seek_flee`, `oracle_wander`, `oracle_pursuit`, `oracle_obstacles`, `oracle_pathway`, `oracle_path_following`, `oracle_boids`, `oracle_neighbors`, `oracle_capture_the_flag`, `oracle_pedestrians`, `oracle_soccer`).
+- Tests: 230 Rust tests (20 C++ oracles: `oracle_vehicle_3d`, `oracle_seek_flee_3d`, `oracle_wander_3d`, `oracle_pursuit_3d`, `oracle_obstacles_3d`, `oracle_path_following_3d`, `oracle_boids_3d`, `oracle_neighbors_3d`, `oracle_one_turning`, `oracle_seek_flee`, `oracle_wander`, `oracle_pursuit`, `oracle_obstacles`, `oracle_pathway`, `oracle_path_following`, `oracle_boids`, `oracle_neighbors`, `oracle_capture_the_flag`, `oracle_pedestrians`, `oracle_soccer`).
 
 ## Setup, mirrored from `~/Workspace/silkroad/caravan`
 
@@ -198,7 +198,6 @@ Steps (each held for the user, as before):
     flatten every force (`setYtoZero`), so they are not re-ported: the oracle-checked 2D runs are
     lifted onto the ground plane ((x, y) -> (x, 0, y), up straight up). A test checks the 3D view
     is the 2D run lifted. These move onto Silkroad terrain in step C.
-  - Then the 1999 behaviors in full 3D (step E).
 - B. 3D view: a perspective, orbiting camera in the web app; 3D demos in an empty arena.
   Brought forward on 2026-10-21 (before the remaining behaviors) so each 3D behavior gets its
   demo as it is ported.
@@ -215,6 +214,9 @@ Steps (each held for the user, as before):
   against real walls.
 - E. Arrive, Leader Following, Wall Following and Containment in full 3D (3D rooms, wall
   surfaces, flying leaders).
+  No C++ oracle: tests pin hand-computed cases and measured facts. Built in the 3D batch.
+  - 34. [done] `steer_core_3d::steer::arrive`; "3D Seek and Flee" gains Arrive (slowing sphere),
+    Brake and the two sliders, as in 2D.
 
 ## Each demo page
 
@@ -276,6 +278,7 @@ Built from the ported, oracle-checked pieces; tests pin hand-computed cases and 
 - **On a 3D path even directed following leaves the tube.** Roller-coaster eight, radius 2, 10 walkers, worst distance outside over 60 s after 10 s: directed 0.602 (2D: never out), directed + wander 1.705 (2D 2.326), stay on path 0.915 (2D 1.939), stay on path + wander 3.349. Likely the vertical curves (not proven).
 - **3D Boids fly in all three dimensions.** 100 boids, 10 s: 93 wrap-arounds at the radius-50 sphere, heights -36.4..39.3, mean speed 8.59 of 9. The 30-boid oracle run matches the C++ over 600 steps (24 wraps).
 - **3D crossing: avoidance cuts overlaps by 78%.** 12 walkers through the center of a radius-10 sphere, 60 s: 570 steps with bodies overlapping without avoidance, 125 with it (2D, 8 walkers on a circle: 847 and 87).
+- **3D Arrive orbits like 2D Arrive.** Toward (6, 2, -4), 30 s: Arrive alone (radius 9) orbits at 0.554 and speed 0.582, just under the low-speed rule's 0.6; braking (radius 9, rate 0.75) stops it (0.018, 0.004); radius 5 rate 1.5 too (0.002, 0.0007); radius 5 rate 0.75 still orbits (0.547, 0.566).
 - **A wrong-handed basis hides on even steps.** With `side = up x forward` both `side` and `up` change sign every step, so checkpoints every 60 steps matched the C++ for a constant push; only the banking run (which uses `up`) caught it. The 3D oracle now also checks step 1.
 - **Flee has no "far enough"**: it runs away forever at max_speed.
 - **One Turning:** speed dips from 1.5 to 0.963 at 2.80 s (0.832 at 4.25 s with the low-speed rule off), reaches max speed 5 at 20.7 s. The smoothed acceleration matches the capped push except during the first ~0.5 s (smoothing, 15% per step at 60 Hz) and ~2.5-4.5 s (low-speed rule).
