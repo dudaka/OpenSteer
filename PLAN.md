@@ -21,7 +21,7 @@ that `~/Workspace/silkroad/caravan` and `sro-polyanya` share. The 2D version sta
   (#25); 3D view merged (#26); 3D pursuit and evasion merged (#27); 3D obstacle avoidance
   merged (#28). From step 30 on, at the user's request, the remaining 3D demos run as a batch
   (one PR per step, merged on green CI); the user checks them all at the end.
-- Tests: 221 Rust tests (19 C++ oracles: `oracle_vehicle_3d`, `oracle_seek_flee_3d`, `oracle_wander_3d`, `oracle_pursuit_3d`, `oracle_obstacles_3d`, `oracle_path_following_3d`, `oracle_boids_3d`, `oracle_one_turning`, `oracle_seek_flee`, `oracle_wander`, `oracle_pursuit`, `oracle_obstacles`, `oracle_pathway`, `oracle_path_following`, `oracle_boids`, `oracle_neighbors`, `oracle_capture_the_flag`, `oracle_pedestrians`, `oracle_soccer`).
+- Tests: 227 Rust tests (20 C++ oracles: `oracle_vehicle_3d`, `oracle_seek_flee_3d`, `oracle_wander_3d`, `oracle_pursuit_3d`, `oracle_obstacles_3d`, `oracle_path_following_3d`, `oracle_boids_3d`, `oracle_neighbors_3d`, `oracle_one_turning`, `oracle_seek_flee`, `oracle_wander`, `oracle_pursuit`, `oracle_obstacles`, `oracle_pathway`, `oracle_path_following`, `oracle_boids`, `oracle_neighbors`, `oracle_capture_the_flag`, `oracle_pedestrians`, `oracle_soccer`).
 
 ## Setup, mirrored from `~/Workspace/silkroad/caravan`
 
@@ -188,7 +188,12 @@ Steps (each held for the user, as before):
     weight sliders). `oracle/boids_3d.cpp` + `oracle_boids_3d.rs`: 30 boids from the plug-in's
     random reset (LCG replayed), 600 steps, every 7th boid and the wrap count; matches (chaotic,
     built with `-ffp-contract=off`). Mutation (banking off) fails.
-  - Then the remaining behaviors in OpenSteer's order, each with its oracle and 3D demo.
+  - 32. [done] `steer_core_3d::neighbors::{nearest_approach_time, approach_positions,
+    avoid_close_neighbors, threat, Threat, avoid_neighbors}` (sideways is the stored `side`).
+    Demo "3D Crossing": walkers on a Fibonacci sphere walk to the opposite point and back.
+    `oracle/neighbors_3d.cpp` + `oracle_neighbors_3d.rs`: 12 walkers, 900 steps, every 5th walker
+    and the avoiding count; matches. Mutation (the slower one gives way) fails.
+  - Then the composite demos and the 1999 behaviors in 3D.
 - B. 3D view: a perspective, orbiting camera in the web app; 3D demos in an empty arena.
   Brought forward on 2026-10-21 (before the remaining behaviors) so each 3D behavior gets its
   demo as it is ported.
@@ -265,6 +270,7 @@ Built from the ported, oracle-checked pieces; tests pin hand-computed cases and 
 - **3D obstacle avoidance repeats the 2D container finding.** Wanderer in a container sphere 15 with three rocks, 2 min: the center reaches 15.022 from the container's center (widened by the vehicle radius, as in 2D: 15.02); rock clearance stays at least 0.860 (body radius 0.5); avoiding 1142 of 7200 steps. Local-space versus world-offset intersection differs only below 1e-4 over 1800 steps.
 - **On a 3D path even directed following leaves the tube.** Roller-coaster eight, radius 2, 10 walkers, worst distance outside over 60 s after 10 s: directed 0.602 (2D: never out), directed + wander 1.705 (2D 2.326), stay on path 0.915 (2D 1.939), stay on path + wander 3.349. Likely the vertical curves (not proven).
 - **3D Boids fly in all three dimensions.** 100 boids, 10 s: 93 wrap-arounds at the radius-50 sphere, heights -36.4..39.3, mean speed 8.59 of 9. The 30-boid oracle run matches the C++ over 600 steps (24 wraps).
+- **3D crossing: avoidance cuts overlaps by 78%.** 12 walkers through the center of a radius-10 sphere, 60 s: 570 steps with bodies overlapping without avoidance, 125 with it (2D, 8 walkers on a circle: 847 and 87).
 - **A wrong-handed basis hides on even steps.** With `side = up x forward` both `side` and `up` change sign every step, so checkpoints every 60 steps matched the C++ for a constant push; only the banking run (which uses `up`) caught it. The 3D oracle now also checks step 1.
 - **Flee has no "far enough"**: it runs away forever at max_speed.
 - **One Turning:** speed dips from 1.5 to 0.963 at 2.80 s (0.832 at 4.25 s with the low-speed rule off), reaches max speed 5 at 20.7 s. The smoothed acceleration matches the capped push except during the first ~0.5 s (smoothing, 15% per step at 60 Hz) and ~2.5-4.5 s (low-speed rule).

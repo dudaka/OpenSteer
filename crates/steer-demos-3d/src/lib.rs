@@ -3,6 +3,7 @@
 
 mod annotation;
 mod boids;
+mod crossing;
 mod demo;
 mod obstacles;
 mod one_turning;
@@ -13,6 +14,7 @@ mod view;
 mod wander;
 
 pub use boids::Boids3;
+pub use crossing::Crossing3;
 pub use demo::{catalog, Demo3};
 pub use obstacles::Obstacles3;
 pub use one_turning::OneTurning3;
