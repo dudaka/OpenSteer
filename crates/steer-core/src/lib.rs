@@ -2,6 +2,7 @@
 //! and the steering forces. Pure computation, no IO.
 
 pub mod flock;
+pub mod leader;
 pub mod neighbors;
 pub mod obstacle;
 pub mod pathway;
