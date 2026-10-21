@@ -3,7 +3,8 @@
 Goal: re-implement OpenSteer steering behaviors in Rust, with a React page demonstrating each
 behavior. Stage 1 is 2D. Each step is small and ends with a check.
 
-Later stage (not planned yet): research 2.5D / 3D with terrain and navmesh.
+Stage 2 (Phase 7, planned 2026-10-21): 3D, first in an empty arena, then in the Silkroad world
+that `~/Workspace/silkroad/caravan` and `sro-polyanya` share. The 2D version stays alongside.
 
 ## Status (2026-10-21)
 
@@ -14,9 +15,10 @@ Later stage (not planned yet): research 2.5D / 3D with terrain and navmesh.
   Next: the user reviews the demos in the browser (none of steps 9-20 were viewed yet) and the
   "Open questions"; return to holding each behavior until they understand it.
 - 2026-10-21: Phase 6 (Reynolds 1999 behaviors not in OpenSteer), in the user's order: step 21
-  Leader Following (#20) and Wall Following (#21) merged; step 23 Containment built (branch
-  `feat/containment`, no PR yet). Phase 6 is then complete.
-- Tests: 160 Rust tests (12 C++ oracles: `oracle_one_turning`, `oracle_seek_flee`, `oracle_wander`, `oracle_pursuit`, `oracle_obstacles`, `oracle_pathway`, `oracle_path_following`, `oracle_boids`, `oracle_neighbors`, `oracle_capture_the_flag`, `oracle_pedestrians`, `oracle_soccer`).
+  Leader Following (#20), Wall Following (#21) and Containment (#22) merged: Phase 6 complete.
+- 2026-10-21: Phase 7 (3D) planned with the user (see below); working on step 24 (3D vector and
+  vehicle) on branch `feat/3d-core`: built, held for the user.
+- Tests: 167 Rust tests (13 C++ oracles: `oracle_vehicle_3d`, `oracle_one_turning`, `oracle_seek_flee`, `oracle_wander`, `oracle_pursuit`, `oracle_obstacles`, `oracle_pathway`, `oracle_path_following`, `oracle_boids`, `oracle_neighbors`, `oracle_capture_the_flag`, `oracle_pedestrians`, `oracle_soccer`).
 
 ## Setup, mirrored from `~/Workspace/silkroad/caravan`
 
@@ -118,6 +120,45 @@ npm run build && npm run typecheck
 19. [done] Demo "Pedestrians" (`steer_demos::Pedestrians`): `Pedestrian.cpp`'s path and two rocks, 1-200 pedestrians (100), `determineCombinedSteering` (obstacle avoidance 6 s, else neighbor avoidance x 10, else wander + 0.5 x directed path following; both avoidances skipped 10% of steps), neighbors from the grid within 12. `step(dt, random01)` takes the random source. `oracle/pedestrians.cpp` (fixed layout of 10, LCG draws in the plug-in's order) pinned every 180 steps over 1800 incl. the avoidance counts; mutations (leak 0.2, one wander draw) fail. Not ported: the plug-in's tilted `RectangleObstacle` (see Gaps).
 20. [done] Demo "Soccer" (`steer_demos::Soccer`, "Michael's Simple Soccer"): 8 v 8 on their spots, kick on touch, neighbor avoidance (1 s) against the players created earlier, seek the ball / get behind it / go home, a braking, bouncing ball, goals restart it. Deterministic (the plug-in's random draws are overwritten). `oracle/soccer.cpp` + `crates/steer-demos/tests/oracle_soccer.rs`: a minute, ball, score and two players every 120 steps; bit-identical traces over 3600 steps after the `side` fix below; mutations (exact-perp side, avoid everyone, no ball braking) fail.
 
+## Phase 7 - 3D (stage 2)
+
+Decided with the user 2026-10-21: keep the 2D crates and demos; add 3D alongside. Arena first,
+then the world. The four 1999 behaviors get full 3D versions. The world's navmesh code is copied
+into this repo (not a path or git dependency), so CI builds it; tests needing the game data
+(`~/Workspace/silkroad/Data`, 577 MB) skip when it is missing, as caravan's do.
+
+Research (2026-10-21, caravan and sro-polyanya read-only):
+- The Silkroad world is 2.5D: per 1920-unit region a 97x97 height grid over 96x96 tiles of 20,
+  plus object meshes (buildings, bridges) with stacked floors. Y is up. Characters walk on
+  surfaces; nothing flies.
+- `caravan/crates/caravan-navmesh` (Rust, depends only on `thiserror`): `Navmesh::load`,
+  `Region::height_at(x, z)`, `surface_heights`; region and object edges carry flags (blocked,
+  one-way ledge, bridge). No point location, nearest point, wall queries or path finding
+  (caravan deferred its wall model, D32).
+- `sro-polyanya` (C++, HTTP on 127.0.0.1:5577): Polyanya paths and line of sight; long queries
+  take ~20 s; no height or wall query in its API.
+- Caravan's renderer: `PerspectiveCamera(45)` + `OrbitControls`, terrain meshes from
+  `~/.caravan/map/<region>/` (built by `caravan-import`).
+
+Steps (each held for the user, as before):
+- A. 3D core, crate `steer-core-3d`, every OpenSteer behavior on `Vec3` with a real
+  forward/side/up basis, checked against the C++ in 3D (no flattening).
+  - 24. [done] `steer_core_3d::{Vec3, Vehicle}`: `Vec3` (cross, truncate, components,
+    `set_y_to_zero`), the vehicle with stored `forward`/`side`/`up` (`regenerate_basis` =
+    `regenerateOrthonormalBasisUF`), `apply_steering_force`, `apply_braking_force`, and
+    `banking` (`regenerateLocalSpaceForBanking`). `oracle/vehicle_3d.cpp` +
+    `crates/steer-core-3d/tests/oracle_vehicle_3d.rs`: a constant climbing push and a banking
+    circle, 600 steps, all 13 values at step 1 and every 60. Mutations (left-handed side,
+    banking blend 2 instead of 3) fail.
+  - Then the behaviors in OpenSteer's order, each with its oracle.
+- B. 3D view: a perspective, orbiting camera in the web app; 3D demos in an empty arena.
+- C. The world: copy `caravan-navmesh` in; load a few regions (e.g. around Jangan); ground
+  vehicles stand on the surface; draw the terrain.
+- D. Walls from the navmesh's blocked edges: obstacle avoidance, containment and wall following
+  against real walls.
+- E. Arrive, Leader Following, Wall Following and Containment in full 3D (3D rooms, wall
+  surfaces, flying leaders).
+
 ## Each demo page
 
 three.js view, play/pause/step/reset, parameter sliders, toggles for each annotation. Demos are listed
@@ -170,6 +211,8 @@ Built from the ported, oracle-checked pieces; tests pin hand-computed cases and 
 - **Wall following overshoots every 90-degree corner by about 1.4.** Offset 2, band +-0.5, look-ahead 1 s, 15-60 s: distance from the wall min 0.585, mean 2.306, max 3.385 (clockwise 0.814 / 2.348 / 3.405). Located by logging: the minimum is just after the inner corner (walkers run past the outline's turn at (1, 2) to x = -0.41, 0.59 from the wall edge x = -1), the maximum just after the outer corners (x = 9.37 vs the outline at 8). Path following only reacts once the predicted position leaves the band. Look-ahead 3 s cuts corners and rides closer (0.527 / 1.485 / 3.476); offset 4: 2.642 / 4.406 / 5.790.
 - **Containment took four designs; each failure was traced to its first escape.** (1) The paper's push (the sideways part of the nearest edge's inward normal): past a convex corner two edges tie for nearest and their pushes alternate (+5 y / -5 y) and cancel. (2) The full inward normal (turn and brake): the wanderer slows to 0.58, under the low-speed rule's 0.6, which bends the inward push forward into the wall (rule off: 4389 -> 58 outside steps). (3) Sideways toward the nearest point: heading into a corner, that direction is nearly anti-parallel to forward, so its sideways sign flips with heading noise. (4) Side probes, turn toward the roomier one: the choice holds (turning toward room makes that side roomier); what is left is physical: at speed 3 and max force 5 the turning radius (~1.8) is too wide to get out of a corner.
 - **Containment needs braking at corners.** 5 wanderers, 60 s (escapes / wanderer-steps outside / furthest out): look-ahead 1 s, no braking 4 / 364 / 2.05 (all come back); brake 1: 3 / 86 / 0.64; brake 4: 0 / 0 / 0. Look-ahead 0.5 s: no braking 32 / 2029 / 0.94 (one still out at the end), brake 4: 1 / 31 / 0.13. Look-ahead 2 s, brake 4: 1 / 93 / 0.70. Only the default (1 s, 4) kept everyone in.
+- **A banking vehicle circling to its side sinks.** Push `0.8 side + 0.1 forward`, banking on (C++ and port): y = -3.30 after 10 s. Rolling into the turn tilts `side` down (side.y = -0.025 at 10 s), so the sideways push gains a downward part; Boids counter this with their sphere constraint.
+- **A wrong-handed basis hides on even steps.** With `side = up x forward` both `side` and `up` change sign every step, so checkpoints every 60 steps matched the C++ for a constant push; only the banking run (which uses `up`) caught it. The 3D oracle now also checks step 1.
 - **Flee has no "far enough"**: it runs away forever at max_speed.
 - **One Turning:** speed dips from 1.5 to 0.963 at 2.80 s (0.832 at 4.25 s with the low-speed rule off), reaches max speed 5 at 20.7 s. The smoothed acceleration matches the capped push except during the first ~0.5 s (smoothing, 15% per step at 60 Hz) and ~2.5-4.5 s (low-speed rule).
 - **Integrator per step**: low-speed bend -> cap at max_force -> /mass -> blend 15% (clip(9*dt, 0.15, 0.4)) into smoothed acceleration -> velocity += acc*dt, cap at max_speed -> position += velocity*dt -> forward = velocity direction.
@@ -194,3 +237,5 @@ Picture explainers ("eli5") published as private artifacts, in the app's colors,
 copy of the integrator checked against the C++ oracles:
 - One Turning Away: https://claude.ai/artifact/QK9f28JJ82R2h2beZPCL9U
 - Seek: https://claude.ai/artifact/SkAWbZ4hPkWgMkEhEv5Jie
+- Steering Family Tree (all 17 behaviors, how they derive from and combine each other):
+  https://claude.ai/artifact/7rv3jpV4NSQYiYPwga9nWy
