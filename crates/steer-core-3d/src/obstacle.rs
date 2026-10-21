@@ -1,4 +1,5 @@
-//! Sphere obstacles and obstacle avoidance, from OpenSteer's `Obstacle.cpp` (`SphereObstacle`).
+//! Sphere and rectangle obstacles and obstacle avoidance, from OpenSteer's `Obstacle.cpp`
+//! (`SphereObstacle`, `RectangleObstacle`).
 
 use crate::{Vec3, Vehicle};
 
@@ -18,6 +19,25 @@ pub struct Sphere {
     pub center: Vec3,
     pub radius: f32,
     pub seen_from: SeenFrom,
+}
+
+/// `RectangleObstacle`: a `width` x `height` rectangle centered on `position` in the plane of its
+/// `side` and `up` axes; `forward` is its normal and the +forward half-space its outside. Seen
+/// from `Both`, it is a wall avoided from either side.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Rectangle {
+    pub position: Vec3,
+    pub side: Vec3,
+    pub up: Vec3,
+    pub forward: Vec3,
+    pub width: f32,
+    pub height: f32,
+    pub seen_from: SeenFrom,
+}
+
+/// An obstacle a vehicle's forward path can meet (`findIntersectionWithVehiclePath`).
+pub trait Obstacle {
+    fn intersect_path(&self, v: &Vehicle) -> Option<PathIntersection>;
 }
 
 /// Where a vehicle's forward path first meets an obstacle (`PathIntersection`).
@@ -90,9 +110,90 @@ impl Sphere {
     }
 }
 
+impl Obstacle for Sphere {
+    fn intersect_path(&self, v: &Vehicle) -> Option<PathIntersection> {
+        Sphere::intersect_path(self, v)
+    }
+}
+
+impl Rectangle {
+    /// The C++ constructor's order: width, height, side, up, forward, position, seen from.
+    pub const fn new(
+        width: f32,
+        height: f32,
+        side: Vec3,
+        up: Vec3,
+        forward: Vec3,
+        position: Vec3,
+        seen_from: SeenFrom,
+    ) -> Self {
+        Self {
+            position,
+            side,
+            up,
+            forward,
+            width,
+            height,
+            seen_from,
+        }
+    }
+
+    fn localize_direction(&self, d: Vec3) -> Vec3 {
+        Vec3::new(d.dot(self.side), d.dot(self.up), d.dot(self.forward))
+    }
+
+    fn globalize_direction(&self, l: Vec3) -> Vec3 {
+        self.side * l.x + self.up * l.y + self.forward * l.z
+    }
+
+    /// `xyPointInsideShape`: inside the rectangle widened by `radius` on every side.
+    fn inside_shape(&self, point: Vec3, radius: f32) -> bool {
+        let w = radius + self.width * 0.5;
+        let h = radius + self.height * 0.5;
+        !(point.x > w || point.x < -w || point.y > h || point.y < -h)
+    }
+}
+
+impl Obstacle for Rectangle {
+    /// `PlaneObstacle::findIntersectionWithVehiclePath`, in the rectangle's local space: where
+    /// the forward axis crosses the rectangle's plane, if the vehicle heads toward the plane from
+    /// a side it is seen from and the crossing is within the rectangle widened by the vehicle's
+    /// radius. The hint points back out of the plane and toward the nearer edge (the crossing's
+    /// direction from the center).
+    fn intersect_path(&self, v: &Vehicle) -> Option<PathIntersection> {
+        let lp = self.localize_direction(v.position - self.position);
+        let ld = self.localize_direction(v.forward);
+        if ld.z == 0.0 {
+            return None;
+        }
+        if (lp.z > 0.0 && ld.z > 0.0) || (lp.z < 0.0 && ld.z < 0.0) {
+            return None;
+        }
+        if (self.seen_from == SeenFrom::Outside && lp.z < 0.0)
+            || (self.seen_from == SeenFrom::Inside && lp.z > 0.0)
+        {
+            return None;
+        }
+        let ix = lp.x - (ld.x * lp.z / ld.z);
+        let iy = lp.y - (ld.y * lp.z / ld.z);
+        let crossing = Vec3::new(ix, iy, 0.0);
+        if !self.inside_shape(crossing, v.radius) {
+            return None;
+        }
+        let radial = self.globalize_direction(crossing.normalize());
+        let side_sign = if lp.z > 0.0 { 1.0 } else { -1.0 };
+        let opposing_normal = self.forward * side_sign;
+        Some(PathIntersection {
+            distance: (lp - crossing).length(),
+            surface_point: self.position + self.globalize_direction(crossing),
+            steer_hint: opposing_normal + radial,
+        })
+    }
+}
+
 /// The nearest path intersection over all obstacles (`firstPathIntersectionWithObstacleGroup`);
 /// on a tie the earlier obstacle wins.
-pub fn nearest_intersection(v: &Vehicle, obstacles: &[Sphere]) -> Option<PathIntersection> {
+pub fn nearest_intersection<O: Obstacle>(v: &Vehicle, obstacles: &[O]) -> Option<PathIntersection> {
     obstacles
         .iter()
         .filter_map(|o| o.intersect_path(v))
@@ -102,7 +203,11 @@ pub fn nearest_intersection(v: &Vehicle, obstacles: &[Sphere]) -> Option<PathInt
 /// `steerToAvoidObstacles`: if the nearest intersection is closer than
 /// `min_time_to_collision * speed`, a full `max_force` push along the part of the steer hint
 /// perpendicular to `forward`; otherwise zero.
-pub fn avoid_obstacles(v: &Vehicle, min_time_to_collision: f32, obstacles: &[Sphere]) -> Vec3 {
+pub fn avoid_obstacles<O: Obstacle>(
+    v: &Vehicle,
+    min_time_to_collision: f32,
+    obstacles: &[O],
+) -> Vec3 {
     match nearest_intersection(v, obstacles) {
         Some(i) if i.distance < min_time_to_collision * v.speed => {
             i.steer_hint.perpendicular_component(v.forward).normalize() * v.max_force
@@ -147,6 +252,46 @@ mod tests {
     fn a_rock_above_the_path_is_missed() {
         let rock = Sphere::new(Vec3::new(0.0, 2.0, 5.0), 1.0, SeenFrom::Outside);
         assert_eq!(rock.intersect_path(&heading_z(0.0, 0.0)), None);
+    }
+
+    /// A 6x2 wall facing +z, centered 4 ahead of the origin.
+    fn wall_ahead() -> Rectangle {
+        Rectangle::new(
+            6.0,
+            2.0,
+            Vec3::new(-1.0, 0.0, 0.0),
+            Vec3::new(0.0, 1.0, 0.0),
+            Vec3::new(0.0, 0.0, 1.0),
+            Vec3::new(0.0, 0.0, 4.0),
+            SeenFrom::Both,
+        )
+    }
+
+    /// Heading at the wall's center: the path meets it 4 ahead, but the crossing is the center,
+    /// so the hint has no "toward the edge" part and points straight back; its sideways part is
+    /// zero, and so is the push.
+    #[test]
+    fn a_wall_met_dead_center_gives_no_push() {
+        let v = heading_z(0.0, 0.0);
+        let hit = wall_ahead().intersect_path(&v).unwrap();
+        assert_eq!(
+            (hit.distance, hit.steer_hint),
+            (4.0, Vec3::new(0.0, 0.0, -1.0))
+        );
+        assert_eq!(avoid_obstacles(&v, 10.0, &[wall_ahead()]), Vec3::ZERO);
+    }
+
+    /// 1 to the +x side of the center, the hint is (1, 0, -1): back out of the plane and toward
+    /// the nearer edge; the push is its sideways part at full force.
+    #[test]
+    fn off_center_a_wall_pushes_toward_its_nearer_edge() {
+        let v = heading_z(1.0, 0.0);
+        let hit = wall_ahead().intersect_path(&v).unwrap();
+        assert_eq!(hit.steer_hint, Vec3::new(1.0, 0.0, -1.0));
+        assert_eq!(
+            avoid_obstacles(&v, 10.0, &[wall_ahead()]),
+            Vec3::new(2.0, 0.0, 0.0)
+        );
     }
 
     #[test]
