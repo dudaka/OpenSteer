@@ -13,6 +13,7 @@ mod path_following;
 mod pedestrians;
 mod pursuit;
 mod seek_flee;
+mod soccer;
 mod view;
 mod wander;
 
@@ -29,6 +30,7 @@ pub use path_following::PathFollowing;
 pub use pedestrians::Pedestrians;
 pub use pursuit::Pursuit;
 pub use seek_flee::SeekFlee;
+pub use soccer::Soccer;
 pub use view::{ActionView, FrameView, LabelView, LineView, ParamView, TrailView, VehicleView};
 pub use wander::Wander;
 

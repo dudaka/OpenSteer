@@ -211,12 +211,13 @@ mod tests {
         demo.overlap_steps
     }
 
-    /// Avoidance cuts overlapping steps from 847 to 57 in a minute, not to zero: it only
-    /// reacts to the earliest threat, and overlaps get a sideways push only.
+    /// Avoidance cuts overlapping steps from 847 to 87 in a minute, not to zero: it only
+    /// reacts to the earliest threat, and overlaps get a sideways push only. The 87 depends on
+    /// rounding (it was 57 before `side` followed OpenSteer's `up` bookkeeping).
     #[test]
     fn avoidance_reduces_overlaps() {
         assert_eq!(overlaps_in_a_minute(false), 847);
-        assert_eq!(overlaps_in_a_minute(true), 57);
+        assert_eq!(overlaps_in_a_minute(true), 87);
     }
 
     /// Pedestrian 0 crosses (flip at 12.90 s) and comes back (23.78 s) within 30 s.
