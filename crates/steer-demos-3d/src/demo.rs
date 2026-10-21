@@ -3,13 +3,14 @@
 use steer_demos::DemoInfo;
 
 use crate::view::Frame3View;
-use crate::{OneTurning3, SeekFlee3, Wander3};
+use crate::{OneTurning3, Pursuit3, SeekFlee3, Wander3};
 
 /// Every 3D demo in sidebar order (after the 2D ones): id and name.
-const DEMOS: [(&str, &str); 3] = [
+const DEMOS: [(&str, &str); 4] = [
     ("3d-one-turning", "3D One Turning"),
     ("3d-seek-flee", "3D Seek and Flee"),
     ("3d-wander", "3D Wander"),
+    ("3d-pursuit", "3D Pursuit and Evasion"),
 ];
 
 #[derive(Debug, Clone)]
@@ -17,6 +18,7 @@ pub enum Demo3 {
     OneTurning(OneTurning3),
     SeekFlee(SeekFlee3),
     Wander(Wander3),
+    Pursuit(Pursuit3),
 }
 
 impl Demo3 {
@@ -26,6 +28,7 @@ impl Demo3 {
             "3d-one-turning" => Some(Demo3::OneTurning(OneTurning3::default())),
             "3d-seek-flee" => Some(Demo3::SeekFlee(SeekFlee3::default())),
             "3d-wander" => Some(Demo3::Wander(Wander3::default())),
+            "3d-pursuit" => Some(Demo3::Pursuit(Pursuit3::default())),
             _ => None,
         }
     }
@@ -35,6 +38,7 @@ impl Demo3 {
             Demo3::OneTurning(d) => d.update(dt),
             Demo3::SeekFlee(d) => d.update(dt),
             Demo3::Wander(d) => d.update(dt),
+            Demo3::Pursuit(d) => d.update(dt),
         }
     }
 
@@ -43,6 +47,7 @@ impl Demo3 {
             Demo3::OneTurning(d) => d.view(),
             Demo3::SeekFlee(d) => d.view(),
             Demo3::Wander(d) => d.view(),
+            Demo3::Pursuit(d) => d.view(),
         }
     }
 
@@ -52,6 +57,7 @@ impl Demo3 {
             Demo3::OneTurning(d) => d.action(id),
             Demo3::SeekFlee(d) => d.action(id),
             Demo3::Wander(d) => d.action(id),
+            Demo3::Pursuit(d) => d.action(id),
         }
     }
 
@@ -59,6 +65,7 @@ impl Demo3 {
     pub fn param(&mut self, id: &str, value: f32) {
         match self {
             Demo3::Wander(d) => d.param(id, value),
+            Demo3::Pursuit(d) => d.param(id, value),
             Demo3::OneTurning(_) | Demo3::SeekFlee(_) => {}
         }
     }
