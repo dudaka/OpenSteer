@@ -8,8 +8,8 @@ use steer_core_3d::{Vec3, Vehicle};
 use steer_demos::controls::{slider, Range};
 use steer_demos::{color, legend};
 
-use crate::annotation::{cross, label, line, stem, vehicle_view, Trail};
-use crate::view::{Frame3View, Line3View};
+use crate::annotation::{block_edges, cross, label, line, stem, vehicle_view, Trail};
+use crate::view::Frame3View;
 
 const OFFSET: Range = Range::new(0.5, 6.0, 0.25);
 const LOOK_AHEAD: Range = Range::new(0.25, 3.0, 0.25);
@@ -33,26 +33,6 @@ impl Default for WallFollowing3 {
     fn default() -> Self {
         Self::new(2.0, 1.0)
     }
-}
-
-/// The block's 12 edges.
-fn edges(b: &Block) -> Vec<Line3View> {
-    let corner = |i: usize| {
-        Vec3::new(
-            if i & 1 == 0 { b.min.x } else { b.max.x },
-            if i & 2 == 0 { b.min.y } else { b.max.y },
-            if i & 4 == 0 { b.min.z } else { b.max.z },
-        )
-    };
-    let mut lines = Vec::new();
-    for i in 0..8 {
-        for bit in [1, 2, 4] {
-            if i & bit == 0 {
-                lines.push(line(corner(i), corner(i | bit), color::OBSTACLE));
-            }
-        }
-    }
-    lines
 }
 
 impl WallFollowing3 {
@@ -107,7 +87,7 @@ impl WallFollowing3 {
 
     pub fn view(&self) -> Frame3View {
         let first = &self.walkers[0].vehicle;
-        let mut lines = edges(&BLOCK);
+        let mut lines = block_edges(&BLOCK, color::OBSTACLE);
         let target = follow_surface_target(first, &BLOCK, self.offset, self.look_ahead);
         lines.extend(cross(target, 0.3, color::TARGET));
         let push = first.forward + follow_surface(first, &BLOCK, self.offset, self.look_ahead);

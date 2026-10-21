@@ -3,6 +3,7 @@
 
 use std::collections::VecDeque;
 
+use steer_core_3d::wall::Block;
 use steer_core_3d::{Vec3, Vehicle};
 use steer_demos::color;
 
@@ -84,6 +85,26 @@ pub fn ring(center: Vec3, normal: Vec3, radius: f32, color: u32) -> Vec<Line3Vie
     (0..SEGMENTS)
         .map(|i| line(at(i), at(i + 1), color))
         .collect()
+}
+
+/// A box's 12 edges.
+pub fn block_edges(b: &Block, color: u32) -> Vec<Line3View> {
+    let corner = |i: usize| {
+        Vec3::new(
+            if i & 1 == 0 { b.min.x } else { b.max.x },
+            if i & 2 == 0 { b.min.y } else { b.max.y },
+            if i & 4 == 0 { b.min.z } else { b.max.z },
+        )
+    };
+    let mut lines = Vec::new();
+    for i in 0..8 {
+        for bit in [1, 2, 4] {
+            if i & bit == 0 {
+                lines.push(line(corner(i), corner(i | bit), color));
+            }
+        }
+    }
+    lines
 }
 
 /// A vertical line from `at` down (or up) to the ground at y = 0, so heights read in 3D.

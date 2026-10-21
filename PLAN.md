@@ -21,7 +21,7 @@ that `~/Workspace/silkroad/caravan` and `sro-polyanya` share. The 2D version sta
   (#25); 3D view merged (#26); 3D pursuit and evasion merged (#27); 3D obstacle avoidance
   merged (#28). From step 30 on, at the user's request, the remaining 3D demos run as a batch
   (one PR per step, merged on green CI); the user checks them all at the end.
-- Tests: 241 Rust tests (20 C++ oracles: `oracle_vehicle_3d`, `oracle_seek_flee_3d`, `oracle_wander_3d`, `oracle_pursuit_3d`, `oracle_obstacles_3d`, `oracle_path_following_3d`, `oracle_boids_3d`, `oracle_neighbors_3d`, `oracle_one_turning`, `oracle_seek_flee`, `oracle_wander`, `oracle_pursuit`, `oracle_obstacles`, `oracle_pathway`, `oracle_path_following`, `oracle_boids`, `oracle_neighbors`, `oracle_capture_the_flag`, `oracle_pedestrians`, `oracle_soccer`).
+- Tests: 246 Rust tests (20 C++ oracles: `oracle_vehicle_3d`, `oracle_seek_flee_3d`, `oracle_wander_3d`, `oracle_pursuit_3d`, `oracle_obstacles_3d`, `oracle_path_following_3d`, `oracle_boids_3d`, `oracle_neighbors_3d`, `oracle_one_turning`, `oracle_seek_flee`, `oracle_wander`, `oracle_pursuit`, `oracle_obstacles`, `oracle_pathway`, `oracle_path_following`, `oracle_boids`, `oracle_neighbors`, `oracle_capture_the_flag`, `oracle_pedestrians`, `oracle_soccer`).
 
 ## Setup, mirrored from `~/Workspace/silkroad/caravan`
 
@@ -225,6 +225,12 @@ Steps (each held for the user, as before):
     the gap, seek), since a 3D surface has no closed outline to follow. Demo "3D Wall Following":
     three walkers hug a floating block (`forward + follow_surface`), gap and look-ahead sliders.
     Mutation (normal flipped: the target inside the block) fails.
+  - 37. [done] `steer_core_3d::containment::{probes, contain, room}`: the 2D design in 3D, five
+    probes (ahead, and 45 degrees toward +-side and +-up), push toward the roomiest side probe
+    while the ahead probe is outside. Demo "3D Containment": five 3D wanderers in a 24 x 12 x 16
+    box room, braking while containing; wanderers, look-ahead and brake sliders. Mutation (turn
+    toward the least room) fails 2 core tests and the demo measurement. Phase 7 A, B and E done;
+    C and D (the Silkroad world) wait for the user.
 
 ## Each demo page
 
@@ -289,6 +295,7 @@ Built from the ported, oracle-checked pieces; tests pin hand-computed cases and 
 - **3D Arrive orbits like 2D Arrive.** Toward (6, 2, -4), 30 s: Arrive alone (radius 9) orbits at 0.554 and speed 0.582, just under the low-speed rule's 0.6; braking (radius 9, rate 0.75) stops it (0.018, 0.004); radius 5 rate 1.5 too (0.002, 0.0007); radius 5 rate 0.75 still orbits (0.547, 0.566).
 - **3D Leader Following: far fewer overlaps than 2D.** 8 followers, 60 s, separation weight 2: mean 4.23 from the point behind, bodies overlapping on 57 of 3600 steps (2D: 672), 3.3% stepping aside; weight 0: 3.96, 3523 steps, 0.7%. Likely because followers also spread vertically (not proven).
 - **3D wall following never touches the wall.** Floating 12 x 6 x 8 block, three walkers, 15-60 s: gap 2 -> 1.68..3.37 (mean 2.37); 3 s look-ahead -> 1.16..2.57; gap 4 -> 3.82..4.87; gap 1 -> 0.62..2.52. Seeking the nearest point of the rounded offset surface turns corners smoothly, unlike the 2D outline version (overshoot ~1.4 per corner).
+- **3D containment in a box room needs no braking.** 5 wanderers, 60 s: look-ahead 1 s -> 0 escapes with or without braking; 0.5 s with brake 4 -> 0; 0.5 s without braking -> 14 escapes, 812 wanderer-steps outside, at most 0.39 out, all back by the end. The room is convex (the 2D L-shaped room's inner corner is what needed braking) and the up/down probes add turning room.
 - **A wrong-handed basis hides on even steps.** With `side = up x forward` both `side` and `up` change sign every step, so checkpoints every 60 steps matched the C++ for a constant push; only the banking run (which uses `up`) caught it. The 3D oracle now also checks step 1.
 - **Flee has no "far enough"**: it runs away forever at max_speed.
 - **One Turning:** speed dips from 1.5 to 0.963 at 2.80 s (0.832 at 4.25 s with the low-speed rule off), reaches max speed 5 at 20.7 s. The smoothed acceleration matches the capped push except during the first ~0.5 s (smoothing, 15% per step at 60 Hz) and ~2.5-4.5 s (low-speed rule).
