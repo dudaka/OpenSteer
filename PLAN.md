@@ -21,14 +21,14 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
   (2026-10-21). The 2D demos of steps 9-23 were never explicitly confirmed in the browser.
 - Rhythm: one behavior at a time, held until the user understands it, and ask before each PR;
   batches (no holding, merge on green CI) only when the user asks for one.
-- Next: the user looks at the drawn terrain (C3, on `feat/silkroad-terrain`); then a PR; then step D (walls), after settling its questions.
-- Tests: 265 Rust tests (9 in `silkroad-navmesh`), 20 C++ oracles. 2D: `oracle_one_turning`, `oracle_seek_flee`,
+- Next: the user learns D1 (rectangle obstacles, on `feat/rectangle-obstacle`); then a PR; then D2 (the wall query).
+- Tests: 269 Rust tests (9 in `silkroad-navmesh`), 21 C++ oracles. 2D: `oracle_one_turning`, `oracle_seek_flee`,
   `oracle_wander`, `oracle_pursuit`, `oracle_obstacles`, `oracle_pathway`,
   `oracle_path_following`, `oracle_boids`, `oracle_neighbors` (in `steer-core`),
   `oracle_capture_the_flag`, `oracle_pedestrians`, `oracle_soccer` (in `steer-demos`). 3D (in
   `steer-core-3d`): `oracle_vehicle_3d`, `oracle_seek_flee_3d`, `oracle_wander_3d`,
   `oracle_pursuit_3d`, `oracle_obstacles_3d`, `oracle_path_following_3d`, `oracle_boids_3d`,
-  `oracle_neighbors_3d`.
+  `oracle_neighbors_3d`, `oracle_rectangle_3d`.
 - Sidebar: 14 2D demos, then 15 3D demos (ids `3d-...`; the last is "3D Seek on Silkroad").
 
 ## Setup, mirrored from `~/Workspace/silkroad/caravan`
@@ -216,7 +216,7 @@ Steps C, D (next; settle "Open questions" with the user first, then one small st
     plaza: gate 0.097, then -3.26 on every leg, no step down more than 0.5. Mutations (seek the
     target's real height; skip the height; nearest surface instead of step-up; step 0; mirrored
     lookup) fail. ~0.24 ms per step on the plaza in debug.
-  - C3. [done, waiting for the user] The terrain reaches the browser once per demo, not every
+  - C3. [done, #40; viewed by the user] The terrain reaches the browser once per demo, not every
     frame: `World::terrain_grid(step)` (the regions' height points every `step`-th, shared edges
     taken once; neighbors' edge heights are equal), `TerrainView` (origin, spacing, size, heights,
     color), `Demo3::terrain()`; steerd sends `HostFrame::Terrain { demo, terrain }` on its own
@@ -227,9 +227,25 @@ Steps C, D (next; settle "Open questions" with the user first, then one small st
     points 8 apart (every 80 game units) over the 3x3 regions; building floors are not drawn.
     Tests: the grid's points are the height points (mutation: x and z swapped fails); the view is
     the walked terrain scaled; the terrain message names the demo.
-- D. Walls from the navmesh's blocked region/object edges: obstacle avoidance, containment (the
-  walkable area as the region) and wall following against real walls. Needs a wall-query port
-  (caravan has none; sro-polyanya keeps them as Triangle constraint edges).
+- D. Walls from the navmesh's blocked edges. Decided with the user 2026-10-21: walls are OpenSteer
+  `RectangleObstacle`s (vertical rectangles, avoided from both sides) with the ported obstacle
+  avoidance; a walker reacts only to walls of its own floor (each wall keeps its floor height;
+  within the step height); the wall query is a new `walls` module in `silkroad-navmesh`; the
+  first demo is the Plaza of "3D Seek on Silkroad". Facts (Jangan): 23 blocked terrain edges,
+  all on tile lines (2640 game units); 2 of 9216 tiles disabled; 62 objects with 664 blocked
+  outline edges and 77 blocked inline edges, so in town the walls are object outlines.
+  Proposed order, one small step at a time:
+  - D1. [done, waiting for the user] `obstacle::{Rectangle, Obstacle}`: OpenSteer's
+    `RectangleObstacle` (`PlaneObstacle::findIntersectionWithVehiclePath` with
+    `xyPointInsideShape`, in the rectangle's local space); `nearest_intersection` and
+    `avoid_obstacles` take any `Obstacle` (spheres unchanged). `oracle/rectangle_3d.cpp`: 192
+    single poses (an upright 6x2 wall seen from outside, inside, both; Pedestrian.cpp's tilted 7x7
+    rectangle) and a seek back and forth across both, 1800 steps. Mutations (no radius widening,
+    normal from the wrong side, no "toward the edge" hint) fail both oracle tests.
+  - D2. `silkroad_navmesh::walls`: blocked terrain and object edges as world segments with the
+    floor height on each side; tests pin the Jangan counts and a wall at the plaza's hole.
+  - D3. The Plaza with walls: walls near the walker's floor as rectangles, seek + avoidance; walls
+    drawn as lines; measure that the walker never crosses a wall or drops into the hole.
 
 ## Each demo page
 
@@ -252,6 +268,7 @@ in a sidebar, mirroring OpenSteerDemo's plug-in selection.
   `~/.caravan/map` assets. The navmesh copy lives in `crates/silkroad-navmesh`, frozen at caravan
   `0ad7987` with a source note; re-copied only for a needed fix (recorded in the note); our
   additions (step D wall queries) go in our crate.
+- Walls (step D): decided with the user 2026-10-21, see Phase 7 step D.
 - Arrive: keep the faithful "orbits unless braking is tuned" result, or add a non-OpenSteer stop rule?
 - Obstacles: keep the faithful container widening (body crosses the arena wall by ~0.5), or shrink containers?
 - Pedestrians: port the tilted rectangle as a 2D wall obstacle?
@@ -307,6 +324,8 @@ Phase 6 (1999 behaviors, 2D):
 - **3D Leader Following: far fewer overlaps than 2D.** 8 followers, 60 s, separation weight 2: mean 4.23 from the point behind, bodies overlapping on 57 of 3600 steps (2D: 672), 3.3% stepping aside; weight 0: 3.96, 3523 steps, 0.7%. Likely because followers also spread vertically (not proven).
 - **3D wall following never touches the wall.** Floating 12 x 6 x 8 block, three walkers, 15-60 s: gap 2 -> 1.68..3.37 (mean 2.37); 3 s look-ahead -> 1.16..2.57; gap 4 -> 3.82..4.87; gap 1 -> 0.62..2.52. Seeking the nearest point of the rounded offset surface turns corners smoothly, unlike the 2D outline version (overshoot ~1.4 per corner).
 - **3D containment in a box room needs no braking.** 5 wanderers, 60 s: look-ahead 1 s -> 0 escapes with or without braking; 0.5 s with brake 4 -> 0; 0.5 s without braking -> 14 escapes, 812 wanderer-steps outside, at most 0.39 out, all back by the end. The room is convex (the 2D L-shaped room's inner corner is what needed braking) and the up/down probes add turning room.
+- **A wall met dead center gives no avoidance push.** `PlaneObstacle`'s hint is the normal back out plus the crossing's direction from the rectangle's center (toward the nearer edge); at the center that second part is zero, the hint is straight back, its part sideways to forward is zero, and so is the push (unit test; the oracle prints the same hint (0, 0, -1)). Off center by 1 the hint is (1, 0, -1) and the push full force toward that edge.
+- **Rectangle avoidance slips past at the widened edge.** Seeking back and forth across an upright 6x2 wall and a tilted 7x7 one (avoidance 1 s ahead, max force 5, speed 3), the vehicle never crosses a wall inside its outline widened by the radius (0.5): it goes under (y = -0.53), over (y = 2.50) or around the side (|x| = 3.51..3.57), so its body just touches the edge. A walker on the ground cannot go over or under (matters for D3).
 
 Silkroad world:
 - **The terrain under Jangan's town is not the ground.** On a 320-unit grid the terrain inside Jangan has pits of -33 to -65 under the buildings (the walkable floor is the object above; the plaza is 21.5 higher than its terrain, as in caravan). The 3x3 around Jangan spans -79.8..114.8 game units, steepest 3.8 per unit (cliffs). Terrain-only demos stay outside the town.
