@@ -55,6 +55,16 @@ impl Wall {
             })
             .fold(f32::INFINITY, f32::min)
     }
+
+    /// Whether `point` is inside the polygon (even-odd ray crossing along +x).
+    pub fn contains(&self, point: Vec2) -> bool {
+        self.edges()
+            .filter(|(a, b)| (a.y > point.y) != (b.y > point.y))
+            .filter(|(a, b)| point.x < a.x + (point.y - a.y) / (b.y - a.y) * (b.x - a.x))
+            .count()
+            % 2
+            == 1
+    }
 }
 
 /// The cyclic path `offset` outside `wall`, with `radius`, for `follow_path` with direction +1:
@@ -112,6 +122,17 @@ mod tests {
         assert_eq!(wall.distance(Vec2::new(6.0, -3.0)), 3.0);
         assert_eq!(wall.distance(Vec2::new(15.0, 9.0)), 5.0);
         assert_eq!(wall.distance(Vec2::new(4.0, 7.0)), 1.0);
+    }
+
+    #[test]
+    fn contains_the_l_but_not_its_notch() {
+        let wall = l_shape();
+        assert!(wall.contains(Vec2::new(1.0, 1.0)));
+        assert!(wall.contains(Vec2::new(11.0, 4.0)));
+        assert!(wall.contains(Vec2::new(2.0, 9.0)));
+        assert!(!wall.contains(Vec2::new(8.0, 8.0)));
+        assert!(!wall.contains(Vec2::new(-1.0, 5.0)));
+        assert!(!wall.contains(Vec2::new(13.0, 1.0)));
     }
 
     #[test]
