@@ -2,13 +2,14 @@
 
 use steer_demos::DemoInfo;
 
+use crate::ground::Ground;
 use crate::view::Frame3View;
 use crate::{
     Boids3, Crossing3, Obstacles3, OneTurning3, PathFollowing3, Pursuit3, SeekFlee3, Wander3,
 };
 
 /// Every 3D demo in sidebar order (after the 2D ones): id and name.
-const DEMOS: [(&str, &str); 8] = [
+const DEMOS: [(&str, &str); 11] = [
     ("3d-one-turning", "3D One Turning"),
     ("3d-seek-flee", "3D Seek and Flee"),
     ("3d-wander", "3D Wander"),
@@ -17,6 +18,9 @@ const DEMOS: [(&str, &str); 8] = [
     ("3d-path-following", "3D Path Following"),
     ("3d-boids", "3D Boids"),
     ("3d-crossing", "3D Crossing"),
+    ("3d-capture-the-flag", "3D Capture the Flag (ground)"),
+    ("3d-pedestrians", "3D Pedestrians (ground)"),
+    ("3d-soccer", "3D Soccer (ground)"),
 ];
 
 #[derive(Debug, Clone)]
@@ -29,6 +33,8 @@ pub enum Demo3 {
     PathFollowing(PathFollowing3),
     Boids(Boids3),
     Crossing(Crossing3),
+    /// A ground-bound 2D demo in the 3D view.
+    Ground(Ground),
 }
 
 impl Demo3 {
@@ -43,6 +49,9 @@ impl Demo3 {
             "3d-path-following" => Some(Demo3::PathFollowing(PathFollowing3::default())),
             "3d-boids" => Some(Demo3::Boids(Boids3::default())),
             "3d-crossing" => Some(Demo3::Crossing(Crossing3::default())),
+            "3d-capture-the-flag" | "3d-pedestrians" | "3d-soccer" => {
+                Ground::new(&id["3d-".len()..]).map(Demo3::Ground)
+            }
             _ => None,
         }
     }
@@ -57,6 +66,7 @@ impl Demo3 {
             Demo3::PathFollowing(d) => d.update(dt),
             Demo3::Boids(d) => d.update(dt),
             Demo3::Crossing(d) => d.update(dt),
+            Demo3::Ground(d) => d.update(dt),
         }
     }
 
@@ -70,6 +80,7 @@ impl Demo3 {
             Demo3::PathFollowing(d) => d.view(),
             Demo3::Boids(d) => d.view(),
             Demo3::Crossing(d) => d.view(),
+            Demo3::Ground(d) => d.view(),
         }
     }
 
@@ -84,6 +95,7 @@ impl Demo3 {
             Demo3::PathFollowing(d) => d.action(id),
             Demo3::Boids(_) => {}
             Demo3::Crossing(d) => d.action(id),
+            Demo3::Ground(d) => d.action(id),
         }
     }
 
@@ -96,6 +108,7 @@ impl Demo3 {
             Demo3::PathFollowing(d) => d.param(id, value),
             Demo3::Boids(d) => d.param(id, value),
             Demo3::Crossing(d) => d.param(id, value),
+            Demo3::Ground(d) => d.param(id, value),
             Demo3::OneTurning(_) | Demo3::SeekFlee(_) => {}
         }
     }
