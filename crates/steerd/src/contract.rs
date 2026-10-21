@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 use steer_demos::{DemoInfo, FrameView};
-use steer_demos_3d::Frame3View;
+use steer_demos_3d::{Frame3View, TerrainView};
 use ts_rs::TS;
 
 /// A call from the client, tagged as `{ method, params }`.
@@ -71,6 +71,12 @@ pub enum HostFrame {
         running: bool,
         /// Id of the demo shown.
         demo: String,
+    },
+    /// The ground under `demo`, sent when the demo is chosen (and on connect), not every frame;
+    /// None for a demo without one.
+    Terrain {
+        demo: String,
+        terrain: Option<TerrainView>,
     },
 }
 

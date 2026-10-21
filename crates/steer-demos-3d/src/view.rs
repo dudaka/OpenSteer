@@ -43,6 +43,18 @@ pub struct Label3View {
     pub color: u32,
 }
 
+/// The ground under a 3D demo, sent when the demo is chosen (not every frame): a square grid of
+/// `size` x `size` heights `spacing` apart from `origin` (x, z), row by row along z.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(export)]
+pub struct TerrainView {
+    pub origin: [f32; 2],
+    pub spacing: f32,
+    pub size: u32,
+    pub heights: Vec<f32>,
+    pub color: u32,
+}
+
 /// The whole 3D world at one simulation step.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(export)]

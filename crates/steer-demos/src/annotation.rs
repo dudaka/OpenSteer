@@ -33,6 +33,8 @@ pub mod color {
     /// Text labels: neutral, so red and green only ever mean push and want.
     pub const LABEL: u32 = 0xd0d4dc;
     pub const BODY: u32 = 0x808080;
+    /// The game world's terrain (Silkroad demos).
+    pub const GROUND: u32 = 0x6f7d5c;
 }
 
 pub fn legend(entries: &[(u32, &str)]) -> Vec<LegendView> {

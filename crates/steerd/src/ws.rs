@@ -15,6 +15,8 @@ use crate::sim::{catalog, Command};
 #[derive(Clone)]
 pub struct Channels {
     pub frames: watch::Receiver<HostFrame>,
+    /// The current demo's ground, changed only when another demo is chosen.
+    pub terrain: watch::Receiver<HostFrame>,
     pub commands: mpsc::UnboundedSender<Command>,
 }
 
@@ -35,16 +37,18 @@ pub async fn handler(
     ws.on_upgrade(|socket| serve(socket, channels))
 }
 
-/// Sends the current frame, then answers each request and forwards each new frame until the
-/// client goes. A slow client skips to the latest frame.
+/// Sends the current ground and frame, then answers each request and forwards each new ground
+/// and frame until the client goes. A slow client skips to the latest of each.
 async fn serve(
     mut socket: WebSocket,
     Channels {
         mut frames,
+        mut terrain,
         commands,
     }: Channels,
 ) {
     tracing::info!(event = "client.connect");
+    terrain.mark_changed();
     frames.mark_changed();
     loop {
         let frame = tokio::select! {
@@ -55,6 +59,10 @@ async fn serve(
                 },
                 Some(Ok(_)) => continue,
                 Some(Err(_)) | None => break,
+            },
+            changed = terrain.changed() => match changed {
+                Ok(()) => terrain.borrow_and_update().clone(),
+                Err(_) => break,
             },
             changed = frames.changed() => match changed {
                 Ok(()) => frames.borrow_and_update().clone(),

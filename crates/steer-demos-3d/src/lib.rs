@@ -30,6 +30,6 @@ pub use path_following::PathFollowing3;
 pub use pursuit::Pursuit3;
 pub use seek_flee::SeekFlee3;
 pub use silkroad_seek::SilkroadSeek3;
-pub use view::{Frame3View, Label3View, Line3View, Trail3View, Vehicle3View};
+pub use view::{Frame3View, Label3View, Line3View, TerrainView, Trail3View, Vehicle3View};
 pub use wall_following::WallFollowing3;
 pub use wander::Wander3;

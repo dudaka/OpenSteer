@@ -21,8 +21,8 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
   (2026-10-21). The 2D demos of steps 9-23 were never explicitly confirmed in the browser.
 - Rhythm: one behavior at a time, held until the user understands it, and ask before each PR;
   batches (no holding, merge on green CI) only when the user asks for one.
-- Next: the user looks at "3D Seek on Silkroad" (Plaza) on `feat/silkroad-ground`; then a PR, then C3 (draw the terrain).
-- Tests: 261 Rust tests (9 in `silkroad-navmesh`), 20 C++ oracles. 2D: `oracle_one_turning`, `oracle_seek_flee`,
+- Next: the user looks at the drawn terrain (C3, on `feat/silkroad-terrain`); then a PR; then step D (walls), after settling its questions.
+- Tests: 265 Rust tests (9 in `silkroad-navmesh`), 20 C++ oracles. 2D: `oracle_one_turning`, `oracle_seek_flee`,
   `oracle_wander`, `oracle_pursuit`, `oracle_obstacles`, `oracle_pathway`,
   `oracle_path_following`, `oracle_boids`, `oracle_neighbors` (in `steer-core`),
   `oracle_capture_the_flag`, `oracle_pedestrians`, `oracle_soccer` (in `steer-demos`). 3D (in
@@ -203,7 +203,7 @@ Steps C, D (next; settle "Open questions" with the user first, then one small st
     overrides). 9 tests pass with the data (Jangan heights and objects match sro-polyanya), the 5
     data tests skip without it; the 2 ignored full-data tests (every region file, every object)
     pass in release. No steering yet.
-  - C2. [done, waiting for the user] `steer_demos_3d::world::World` loads Jangan and its 8
+  - C2. [done, #39] `steer_demos_3d::world::World` loads Jangan and its 8
     neighbors (< 0.1 s in debug) and lists the walkable surfaces over (x, z)
     (`surface_heights`: terrain where its tile is walkable, then object floors) in Jangan's
     frame (game units). Demo "3D Seek on Silkroad" (`3d-silkroad-seek`): the world scaled by
@@ -216,7 +216,17 @@ Steps C, D (next; settle "Open questions" with the user first, then one small st
     plaza: gate 0.097, then -3.26 on every leg, no step down more than 0.5. Mutations (seek the
     target's real height; skip the height; nearest surface instead of step-up; step 0; mirrored
     lookup) fail. ~0.24 ms per step on the plaza in debug.
-  - C3. Draw the terrain in `Scene3D`; camera and units sized for 1920-unit regions.
+  - C3. [done, waiting for the user] The terrain reaches the browser once per demo, not every
+    frame: `World::terrain_grid(step)` (the regions' height points every `step`-th, shared edges
+    taken once; neighbors' edge heights are equal), `TerrainView` (origin, spacing, size, heights,
+    color), `Demo3::terrain()`; steerd sends `HostFrame::Terrain { demo, terrain }` on its own
+    `watch` channel when another demo is chosen and on connect. The store keeps it with its demo
+    id; `Scene3D` draws it (`Terrain3`: indexed mesh, flat-shaded Lambert under a hemisphere and
+    a directional light, pushed back with polygon offset so lines on the ground show) when it
+    belongs to the shown demo, and hides the y = 0 grid. "3D Seek on Silkroad" sends 73 x 73
+    points 8 apart (every 80 game units) over the 3x3 regions; building floors are not drawn.
+    Tests: the grid's points are the height points (mutation: x and z swapped fails); the view is
+    the walked terrain scaled; the terrain message names the demo.
 - D. Walls from the navmesh's blocked region/object edges: obstacle avoidance, containment (the
   walkable area as the region) and wall following against real walls. Needs a wall-query port
   (caravan has none; sro-polyanya keeps them as Triangle constraint edges).

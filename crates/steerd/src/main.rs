@@ -24,11 +24,16 @@ async fn main() -> Result<()> {
         .init();
     let sim = sim::Sim::default();
     let (frames_tx, frames) = watch::channel(sim.frame());
+    let (terrain_tx, terrain) = watch::channel(sim.terrain());
     let (commands, commands_rx) = mpsc::unbounded_channel();
-    tokio::spawn(sim::run(sim, frames_tx, commands_rx));
+    tokio::spawn(sim::run(sim, frames_tx, terrain_tx, commands_rx));
     let app = Router::new()
         .route("/ws", get(ws::handler))
-        .with_state(ws::Channels { frames, commands });
+        .with_state(ws::Channels {
+            frames,
+            terrain,
+            commands,
+        });
     let addr = SocketAddr::from(([127, 0, 0, 1], PORT));
     let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!(event = "host.listen", %addr);
