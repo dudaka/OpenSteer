@@ -1,0 +1,16 @@
+[package]
+name = "steer-demos-3d"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+fastrand = "2.5.0"
+serde = { version = "1.0.229", features = ["derive"] }
+steer-core-3d = { path = "../steer-core-3d" }
+steer-demos = { path = "../steer-demos" }
+ts-rs = "12.0.1"
+
+[lints]
+workspace = true

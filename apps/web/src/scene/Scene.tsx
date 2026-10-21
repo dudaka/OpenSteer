@@ -70,7 +70,7 @@ export function Scene() {
 
     renderer.setAnimationLoop(() => {
       const frame = store.getState().hosts[LOCAL_HOST].frame;
-      if (frame) {
+      if (frame?.kind === "flat") {
         const [fx, fy] = frame.focus;
         if (frame.view_size !== viewSize) {
           viewSize = frame.view_size;

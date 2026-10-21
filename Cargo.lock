@@ -622,6 +622,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "steer-demos-3d"
+version = "0.1.0"
+dependencies = [
+ "fastrand",
+ "serde",
+ "steer-core-3d",
+ "steer-demos",
+ "ts-rs",
+]
+
+[[package]]
 name = "steerd"
 version = "0.1.0"
 dependencies = [
@@ -631,6 +642,7 @@ dependencies = [
  "serde",
  "steer-core",
  "steer-demos",
+ "steer-demos-3d",
  "tokio",
  "tracing",
  "tracing-subscriber",

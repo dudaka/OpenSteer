@@ -4,11 +4,12 @@
 use std::time::Duration;
 
 use steer_core::Vec2;
-use steer_demos::{Demo, DEFAULT_DEMO};
+use steer_demos::{Demo, DemoInfo, DEFAULT_DEMO};
+use steer_demos_3d::Demo3;
 use tokio::sync::{mpsc, watch};
 use tokio::time::{interval, MissedTickBehavior};
 
-use crate::contract::HostFrame;
+use crate::contract::{HostFrame, SceneFrame};
 
 /// Fixed simulation step, in seconds (60 Hz).
 pub const STEP: f32 = 1.0 / 60.0;
@@ -26,11 +27,69 @@ pub enum Command {
     Param(String, f32),
 }
 
+/// Every demo the host offers: the 2D ones, then the 3D ones.
+pub fn catalog() -> Vec<DemoInfo> {
+    steer_demos::catalog()
+        .into_iter()
+        .chain(steer_demos_3d::catalog())
+        .collect()
+}
+
+/// A 2D or a 3D demo.
+#[derive(Debug)]
+enum AnyDemo {
+    Flat(Demo),
+    Space(Demo3),
+}
+
+impl AnyDemo {
+    fn new(id: &str) -> Option<Self> {
+        Demo::new(id)
+            .map(AnyDemo::Flat)
+            .or_else(|| Demo3::new(id).map(AnyDemo::Space))
+    }
+
+    fn update(&mut self, dt: f32) {
+        match self {
+            AnyDemo::Flat(d) => d.update(dt),
+            AnyDemo::Space(d) => d.update(dt),
+        }
+    }
+
+    /// 3D demos take no clicks.
+    fn click(&mut self, at: Vec2) {
+        if let AnyDemo::Flat(d) = self {
+            d.click(at);
+        }
+    }
+
+    fn action(&mut self, id: &str) {
+        match self {
+            AnyDemo::Flat(d) => d.action(id),
+            AnyDemo::Space(d) => d.action(id),
+        }
+    }
+
+    fn param(&mut self, id: &str, value: f32) {
+        match self {
+            AnyDemo::Flat(d) => d.param(id, value),
+            AnyDemo::Space(d) => d.param(id, value),
+        }
+    }
+
+    fn view(&self) -> SceneFrame {
+        match self {
+            AnyDemo::Flat(d) => SceneFrame::Flat(d.view()),
+            AnyDemo::Space(d) => SceneFrame::Space(d.view()),
+        }
+    }
+}
+
 /// The current demo and whether time is running.
 #[derive(Debug)]
 pub struct Sim {
     id: String,
-    demo: Demo,
+    demo: AnyDemo,
     running: bool,
 }
 
@@ -38,7 +97,7 @@ impl Default for Sim {
     fn default() -> Self {
         Self {
             id: DEFAULT_DEMO.to_string(),
-            demo: Demo::new(DEFAULT_DEMO).expect("the default demo is in the catalog"),
+            demo: AnyDemo::new(DEFAULT_DEMO).expect("the default demo is in the catalog"),
             running: true,
         }
     }
@@ -82,8 +141,8 @@ impl Sim {
         }
     }
 
-    fn fresh(id: &str) -> Demo {
-        Demo::new(id).expect("demo ids are checked against the catalog before they get here")
+    fn fresh(id: &str) -> AnyDemo {
+        AnyDemo::new(id).expect("demo ids are checked against the catalog before they get here")
     }
 }
 
@@ -111,7 +170,11 @@ mod tests {
     fn tick(sim: &mut Sim, commands: &[Command]) -> Option<(f32, bool)> {
         sim.tick(commands.iter().cloned())
             .then(|| match sim.frame() {
-                HostFrame::Frame { frame, running, .. } => (frame.time, running),
+                HostFrame::Frame {
+                    frame: SceneFrame::Flat(frame),
+                    running,
+                    ..
+                } => (frame.time, running),
                 other => panic!("not a frame: {other:?}"),
             })
     }
@@ -151,12 +214,34 @@ mod tests {
     }
 
     #[test]
+    fn a_3d_demo_sends_space_frames_and_ignores_clicks() {
+        let mut sim = Sim::default();
+        sim.tick([Command::Select("3d-seek-flee".into())]);
+        sim.tick([Command::Click(Vec2::new(1.0, 2.0))]);
+        match sim.frame() {
+            HostFrame::Frame {
+                demo,
+                frame: SceneFrame::Space(frame),
+                ..
+            } => {
+                assert_eq!(demo, "3d-seek-flee");
+                assert_eq!(frame.time, 2.0 * STEP);
+            }
+            other => panic!("not a 3D frame: {other:?}"),
+        }
+    }
+
+    #[test]
     fn select_switches_demo_and_reset_restarts_the_selected_one() {
         let mut sim = Sim::default();
         tick(&mut sim, &[Command::Select("seek-flee".into())]);
         tick(&mut sim, &[Command::Reset]);
         match sim.frame() {
-            HostFrame::Frame { demo, frame, .. } => {
+            HostFrame::Frame {
+                demo,
+                frame: SceneFrame::Flat(frame),
+                ..
+            } => {
                 assert_eq!(demo, "seek-flee");
                 assert_eq!(frame.actions.len(), 4);
             }

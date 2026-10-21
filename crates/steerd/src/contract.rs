@@ -3,6 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 use steer_demos::{DemoInfo, FrameView};
+use steer_demos_3d::Frame3View;
 use ts_rs::TS;
 
 /// A call from the client, tagged as `{ method, params }`.
@@ -66,9 +67,19 @@ pub enum HostFrame {
     },
     /// The world after a change (a step, a reset, play or pause), sent to every client.
     Frame {
-        frame: FrameView,
+        frame: SceneFrame,
         running: bool,
         /// Id of the demo shown.
         demo: String,
     },
+}
+
+/// A 2D demo's frame (drawn top-down) or a 3D demo's (drawn with an orbiting camera), tagged as
+/// `{ kind, ...frame }`.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+#[ts(export)]
+pub enum SceneFrame {
+    Flat(FrameView),
+    Space(Frame3View),
 }
