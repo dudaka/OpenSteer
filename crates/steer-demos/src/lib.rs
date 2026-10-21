@@ -16,6 +16,7 @@ mod pursuit;
 mod seek_flee;
 mod soccer;
 mod view;
+mod wall_following;
 mod wander;
 
 use serde::Serialize;
@@ -34,6 +35,7 @@ pub use pursuit::Pursuit;
 pub use seek_flee::SeekFlee;
 pub use soccer::Soccer;
 pub use view::{ActionView, FrameView, LabelView, LineView, ParamView, TrailView, VehicleView};
+pub use wall_following::WallFollowing;
 pub use wander::Wander;
 
 /// A demo the web app can select, in sidebar order.
