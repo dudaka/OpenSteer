@@ -8,6 +8,7 @@ pub mod navmesh;
 pub mod object;
 mod reader;
 pub mod region;
+pub mod walls;
 
 use std::path::PathBuf;
 use std::sync::Arc;

@@ -10,3 +10,7 @@ Copied: `Cargo.toml`, `src/{lib,reader,region,object,navmesh,heights}.rs`, uncha
 
 Left out: nothing else in caravan (protocol, import, daemon). Tests that need the game data skip
 when it is missing, so CI stays green. Our own additions (step D wall queries) go in new modules.
+
+Our additions (not in caravan):
+- `src/walls.rs` (step D2): blocked edges as wall segments with floor heights, following
+  sro-polyanya's `navmeshTriangulation.cpp` with simplifications listed in its module doc.
