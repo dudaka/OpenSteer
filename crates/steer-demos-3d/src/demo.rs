@@ -3,14 +3,15 @@
 use steer_demos::DemoInfo;
 
 use crate::view::Frame3View;
-use crate::{OneTurning3, Pursuit3, SeekFlee3, Wander3};
+use crate::{Obstacles3, OneTurning3, Pursuit3, SeekFlee3, Wander3};
 
 /// Every 3D demo in sidebar order (after the 2D ones): id and name.
-const DEMOS: [(&str, &str); 4] = [
+const DEMOS: [(&str, &str); 5] = [
     ("3d-one-turning", "3D One Turning"),
     ("3d-seek-flee", "3D Seek and Flee"),
     ("3d-wander", "3D Wander"),
     ("3d-pursuit", "3D Pursuit and Evasion"),
+    ("3d-obstacles", "3D Obstacle Avoidance"),
 ];
 
 #[derive(Debug, Clone)]
@@ -19,6 +20,7 @@ pub enum Demo3 {
     SeekFlee(SeekFlee3),
     Wander(Wander3),
     Pursuit(Pursuit3),
+    Obstacles(Obstacles3),
 }
 
 impl Demo3 {
@@ -29,6 +31,7 @@ impl Demo3 {
             "3d-seek-flee" => Some(Demo3::SeekFlee(SeekFlee3::default())),
             "3d-wander" => Some(Demo3::Wander(Wander3::default())),
             "3d-pursuit" => Some(Demo3::Pursuit(Pursuit3::default())),
+            "3d-obstacles" => Some(Demo3::Obstacles(Obstacles3::default())),
             _ => None,
         }
     }
@@ -39,6 +42,7 @@ impl Demo3 {
             Demo3::SeekFlee(d) => d.update(dt),
             Demo3::Wander(d) => d.update(dt),
             Demo3::Pursuit(d) => d.update(dt),
+            Demo3::Obstacles(d) => d.update(dt),
         }
     }
 
@@ -48,6 +52,7 @@ impl Demo3 {
             Demo3::SeekFlee(d) => d.view(),
             Demo3::Wander(d) => d.view(),
             Demo3::Pursuit(d) => d.view(),
+            Demo3::Obstacles(d) => d.view(),
         }
     }
 
@@ -58,6 +63,7 @@ impl Demo3 {
             Demo3::SeekFlee(d) => d.action(id),
             Demo3::Wander(d) => d.action(id),
             Demo3::Pursuit(d) => d.action(id),
+            Demo3::Obstacles(d) => d.action(id),
         }
     }
 
@@ -66,6 +72,7 @@ impl Demo3 {
         match self {
             Demo3::Wander(d) => d.param(id, value),
             Demo3::Pursuit(d) => d.param(id, value),
+            Demo3::Obstacles(d) => d.param(id, value),
             Demo3::OneTurning(_) | Demo3::SeekFlee(_) => {}
         }
     }
