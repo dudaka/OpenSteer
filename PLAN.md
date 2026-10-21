@@ -14,9 +14,9 @@ Later stage (not planned yet): research 2.5D / 3D with terrain and navmesh.
   Next: the user reviews the demos in the browser (none of steps 9-20 were viewed yet) and the
   "Open questions"; return to holding each behavior until they understand it.
 - 2026-10-21: Phase 6 (Reynolds 1999 behaviors not in OpenSteer), in the user's order: step 21
-  Leader Following built (branch `feat/leader-following`, no PR yet); next 22 Wall Following,
-  23 Containment, each held for the user.
-- Tests: 144 Rust tests (12 C++ oracles: `oracle_one_turning`, `oracle_seek_flee`, `oracle_wander`, `oracle_pursuit`, `oracle_obstacles`, `oracle_pathway`, `oracle_path_following`, `oracle_boids`, `oracle_neighbors`, `oracle_capture_the_flag`, `oracle_pedestrians`, `oracle_soccer`).
+  Leader Following merged (#20); step 22 Wall Following built (branch `feat/wall-following`,
+  no PR yet); next 23 Containment, each held for the user.
+- Tests: 150 Rust tests (12 C++ oracles: `oracle_one_turning`, `oracle_seek_flee`, `oracle_wander`, `oracle_pursuit`, `oracle_obstacles`, `oracle_pathway`, `oracle_path_following`, `oracle_boids`, `oracle_neighbors`, `oracle_capture_the_flag`, `oracle_pedestrians`, `oracle_soccer`).
 
 ## Setup, mirrored from `~/Workspace/silkroad/caravan`
 
@@ -135,7 +135,7 @@ in a sidebar, mirroring OpenSteerDemo's plug-in selection.
 Built from the ported, oracle-checked pieces; tests pin hand-computed cases and measured facts.
 
 21. [done] Demo "Leader Following" (`steer_core::leader`, `steer_demos::LeaderFollowing`): followers `arrive` (slowing radius 3) at a point `behind` the leader plus weighted `separation` (2 units, rear cone excluded) from the others and the leader; inside the leader's path (4 ahead, leader radius + a follower diameter to each side) they instead want max speed sideways out of it. Leader: the Wander demo's push (max speed 1.5), followers max speed 3. Sliders: followers 1-20 (8), distance behind 1-8 (3), separation weight 0-5 (2). Mutation (step aside the wrong way) fails a core and a demo test.
-22. Demo "Wall Following": seek a point offset from a wall ahead of the predicted position; needs a 2D wall segment type.
+22. [done] Demo "Wall Following" (`steer_core::wall`, `steer_demos::WallFollowing`): `Wall` is a closed counter-clockwise polygon (`edges`, `distance`, `offset` with miter corners: edges stay exactly the offset away, a right-angle outer corner is offset x sqrt 2); `wall_path` makes the offset outline a cyclic `Pathway` (reversed for clockwise, so direction is always +1 and the cyclic `fmod` quirk at negative distances never applies). Wall following is then the ported `follow_path`: three walkers (max speed 2, max force 8) steer with `forward + steerToFollowPath` around an L-shaped building, band radius 0.5. Buttons: counter-clockwise / clockwise; sliders: offset 0.5-6 (2), look-ahead 0.25-3 s (1). Mutation (inward normal) fails 3 core tests and the demo measurement.
 23. Demo "Containment": probe ahead, steer along the inward normal when a probe leaves the region; reuses the wall type.
 
 ## Open questions (for the user, after the batch)
@@ -167,6 +167,7 @@ Built from the ported, oracle-checked pieces; tests pin hand-computed cases and 
 - **Soccer players avoid only earlier players.** Each `Player` copies `m_AllPlayers` by value when built, so team A's first player avoids nobody and team B's last avoids 15.
 - **Separation is 0/0 for two vehicles on the same spot.** `steerForSeparation` divides each offset by its squared length. Leader Following with separation weight 0: followers pile onto the point behind and at step 1510 two are bit-identical, so separation (times 0) turned NaN. `follow_leader` skips separation at weight 0; the ported `separation` is unchanged.
 - **Leader Following: separation spreads followers but they still overlap.** 8 followers, 60 s: weight 2 -> mean 3.88 from the point behind, 672 of 3600 steps with an overlap, 3.1% of follower-steps stepping aside; weight 0 -> 3.21, 3524 steps, 0.14%.
+- **Wall following overshoots every 90-degree corner by about 1.4.** Offset 2, band +-0.5, look-ahead 1 s, 15-60 s: distance from the wall min 0.585, mean 2.306, max 3.385 (clockwise 0.814 / 2.348 / 3.405). Located by logging: the minimum is just after the inner corner (walkers run past the outline's turn at (1, 2) to x = -0.41, 0.59 from the wall edge x = -1), the maximum just after the outer corners (x = 9.37 vs the outline at 8). Path following only reacts once the predicted position leaves the band. Look-ahead 3 s cuts corners and rides closer (0.527 / 1.485 / 3.476); offset 4: 2.642 / 4.406 / 5.790.
 - **Flee has no "far enough"**: it runs away forever at max_speed.
 - **One Turning:** speed dips from 1.5 to 0.963 at 2.80 s (0.832 at 4.25 s with the low-speed rule off), reaches max speed 5 at 20.7 s. The smoothed acceleration matches the capped push except during the first ~0.5 s (smoothing, 15% per step at 60 Hz) and ~2.5-4.5 s (low-speed rule).
 - **Integrator per step**: low-speed bend -> cap at max_force -> /mass -> blend 15% (clip(9*dt, 0.15, 0.4)) into smoothed acceleration -> velocity += acc*dt, cap at max_speed -> position += velocity*dt -> forward = velocity direction.
