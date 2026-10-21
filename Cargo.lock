@@ -635,6 +635,7 @@ version = "0.1.0"
 dependencies = [
  "fastrand",
  "serde",
+ "silkroad-navmesh",
  "steer-core-3d",
  "steer-demos",
  "ts-rs",

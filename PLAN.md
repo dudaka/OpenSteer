@@ -21,15 +21,15 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
   (2026-10-21). The 2D demos of steps 9-23 were never explicitly confirmed in the browser.
 - Rhythm: one behavior at a time, held until the user understands it, and ask before each PR;
   batches (no holding, merge on green CI) only when the user asks for one.
-- Next: step C2 (C1 done; the Phase 7 C questions were settled 2026-10-21, see "Open questions").
-- Tests: 255 Rust tests (9 in `silkroad-navmesh`), 20 C++ oracles. 2D: `oracle_one_turning`, `oracle_seek_flee`,
+- Next: C2's object floors; terrain heights and "3D Seek on Silkroad" are on `feat/silkroad-ground`, waiting for the user to look.
+- Tests: 260 Rust tests (9 in `silkroad-navmesh`), 20 C++ oracles. 2D: `oracle_one_turning`, `oracle_seek_flee`,
   `oracle_wander`, `oracle_pursuit`, `oracle_obstacles`, `oracle_pathway`,
   `oracle_path_following`, `oracle_boids`, `oracle_neighbors` (in `steer-core`),
   `oracle_capture_the_flag`, `oracle_pedestrians`, `oracle_soccer` (in `steer-demos`). 3D (in
   `steer-core-3d`): `oracle_vehicle_3d`, `oracle_seek_flee_3d`, `oracle_wander_3d`,
   `oracle_pursuit_3d`, `oracle_obstacles_3d`, `oracle_path_following_3d`, `oracle_boids_3d`,
   `oracle_neighbors_3d`.
-- Sidebar: 14 2D demos, then 14 3D demos (ids `3d-...`).
+- Sidebar: 14 2D demos, then 15 3D demos (ids `3d-...`; the last is "3D Seek on Silkroad").
 
 ## Setup, mirrored from `~/Workspace/silkroad/caravan`
 
@@ -203,10 +203,15 @@ Steps C, D (next; settle "Open questions" with the user first, then one small st
     overrides). 9 tests pass with the data (Jangan heights and objects match sro-polyanya), the 5
     data tests skip without it; the 2 ignored full-data tests (every region file, every object)
     pass in release. No steering yet.
-  - C2. Load a few regions (e.g. around Jangan) and answer "ground height at (x, z)" for a vehicle;
-    a ground demo (e.g. Pedestrians or Seek) whose vehicles stand on the surface (y from
-    `height_at`). Decide how terrain reaches the browser (Rust sends a terrain mesh view model, or
-    the browser loads caravan's `~/.caravan/map` assets like caravan does).
+  - C2. [terrain done, floors next] `steer_demos_3d::world::World` loads Jangan and its 8
+    neighbors (< 0.1 s in debug) and answers `terrain_height(x, z)` in Jangan's frame (game
+    units). Demo "3D Seek on Silkroad" (`3d-silkroad-seek`): the world scaled by 1/10, the 3D Seek
+    vehicle (force 1, speed 3) seeks the target at its own height (a level seek), then is set onto
+    the terrain each step. Four targets around a hill south of Jangan; without the game data the
+    ground is flat. Tests: the xz track equals the flat run bit for bit; highest ground per leg
+    -3.40 / -0.02 / -4.40 / 0.34. Mutations (seek the target's real height and flatten; skip the
+    height) fail. Next in C2: object floors (the Jangan plaza), standing on the floor nearest the
+    current height (`heights::surface_heights`).
   - C3. Draw the terrain in `Scene3D`; camera and units sized for 1920-unit regions.
 - D. Walls from the navmesh's blocked region/object edges: obstacle avoidance, containment (the
   walkable area as the region) and wall following against real walls. Needs a wall-query port
@@ -288,6 +293,11 @@ Phase 6 (1999 behaviors, 2D):
 - **3D Leader Following: far fewer overlaps than 2D.** 8 followers, 60 s, separation weight 2: mean 4.23 from the point behind, bodies overlapping on 57 of 3600 steps (2D: 672), 3.3% stepping aside; weight 0: 3.96, 3523 steps, 0.7%. Likely because followers also spread vertically (not proven).
 - **3D wall following never touches the wall.** Floating 12 x 6 x 8 block, three walkers, 15-60 s: gap 2 -> 1.68..3.37 (mean 2.37); 3 s look-ahead -> 1.16..2.57; gap 4 -> 3.82..4.87; gap 1 -> 0.62..2.52. Seeking the nearest point of the rounded offset surface turns corners smoothly, unlike the 2D outline version (overshoot ~1.4 per corner).
 - **3D containment in a box room needs no braking.** 5 wanderers, 60 s: look-ahead 1 s -> 0 escapes with or without braking; 0.5 s with brake 4 -> 0; 0.5 s without braking -> 14 escapes, 812 wanderer-steps outside, at most 0.39 out, all back by the end. The room is convex (the 2D L-shaped room's inner corner is what needed braking) and the up/down probes add turning room.
+
+Silkroad world:
+- **The terrain under Jangan's town is not the ground.** On a 320-unit grid the terrain inside Jangan has pits of -33 to -65 under the buildings (the walkable floor is the object above; the plaza is 21.5 higher than its terrain, as in caravan). The 3x3 around Jangan spans -79.8..114.8 game units, steepest 3.8 per unit (cliffs). Terrain-only demos stay outside the town.
+- **A target straight behind a resting vehicle is never reached.** At rest the low-speed rule limits the force to a zero-width cone around forward; a force exactly backward has no sideways part, so it becomes a pure forward push, and the vehicle drives away at 0.58 (the orbit speed of the Seek finding) for good. Found by starting "3D Seek on Silkroad" with the first target straight behind; the start was moved.
+- **Seeking a target above or below weakens a level push.** Seeking the target's real height and flattening the push lets the vertical offset use up part of the capped desired speed, so the track differs from the flat run; seeking the target at the vehicle's own height keeps the track bit-identical to the flat one.
 
 ## Gaps and known issues
 
