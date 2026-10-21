@@ -23,7 +23,7 @@ cargo fmt --all && cargo clippy --all-targets -- -D warnings
 npm run typecheck && npm run build
 ```
 
-Oracles: each `oracle/*.cpp` has its build line at the top (`c++ ... oracle/<name>.cpp oracle/annotation_stubs.cpp src/SimpleVehicle.cpp src/Vec3.cpp src/Vec3Utilities.cpp src/Color.cpp`). They compile OpenSteer's own vehicle code headless; `annotation_stubs.cpp` replaces the OpenGL annotation hooks.
+Oracles: each `oracle/*.cpp` has its build line at the top (`c++ ... oracle/<name>.cpp oracle/annotation_stubs.cpp src/SimpleVehicle.cpp src/Vec3.cpp src/Vec3Utilities.cpp src/Color.cpp`). They compile OpenSteer's own vehicle code headless; `annotation_stubs.cpp` replaces the OpenGL annotation hooks. Randomness: build with `-Drand=oracle_rand` (an LCG the Rust test replays). Chaotic scenes (flocks, crowds, soccer): build with `-ffp-contract=off`, since clang on arm64 fuses multiply-adds and Rust does not.
 
 ## The Rust + React port
 
@@ -31,7 +31,7 @@ Oracles: each `oracle/*.cpp` has its build line at the top (`c++ ... oracle/<nam
 - Port faithfully and prove it: `oracle/*.cpp` run OpenSteer's own C++ headless; their output is pinned in `crates/*/tests/oracle_*.rs` (tolerance 1e-4, values stored as f64). A difference is a bug in the port until proven otherwise. After adding an oracle test, break the port on purpose once (a change that really alters behavior) and confirm the test fails.
 - Crates: `steer-core` (math, vehicle, behaviors; no tokio/serde/IO) <- `steer-demos` (one module per demo, `Demo` enum, view models) <- `steerd` (daemon, port 7400). Depend only downward.
 - Rendering is three.js with an orthographic top-down camera; Rust 2D `(x, y)` is drawn on the three.js ground plane as `(x, 0, y)`, so +x is right and +y is down the screen.
-- The frontend holds no steering logic: Rust computes every position, annotation, label text, legend entry and the camera focus into view models; the browser draws and sends typed calls (`demo.select|click|action`, `sim.play|pause|step|reset`). Never hand-write a wire type in TypeScript.
+- The frontend holds no steering logic: Rust computes every position, annotation, label text, legend entry and the camera focus into view models; the browser draws and sends typed calls (`demo.select|click|action|param`, `sim.play|pause|step|reset`). Never hand-write a wire type in TypeScript.
 - Annotation colors have one meaning in every demo (`steer_demos::annotation::color`): **red = push** (steering force), **green = want** (desired velocity), **pink = have** (current velocity), **blue = change** (smoothed acceleration), yellow = target, gray = trail, neutral gray = text labels. Every frame carries a `legend`; a test fails if a demo draws a line color its legend does not explain. A new demo adds its colors to its legend, never reuses red/green for something else.
 - A new demo: a module in `steer-demos` with `Default`, `update(dt)`, `view() -> FrameView`, optional `click`/`action`; add it to `Demo` (match arms) and the `DEMOS` catalog in `demo.rs`.
 
@@ -64,7 +64,8 @@ cmake --build build
 - The low-speed rule in `adjustRawSteeringForce` (below `0.2 * maxSpeed`, bend the force toward forward) shapes everything slow: it makes seek orbit its target instead of stopping. Test any "comes to rest" claim (Arrive) with it on.
 - `steerForWander` returns a pure lateral force (`side*WanderSide + up*WanderUp`) driven by `scalarRandomWalk`; it is meant to be added to a forward force, not used alone. Its randomness is `frandom01() = rand() / RAND_MAX`, so an oracle must share the random draws.
 - `steerForPursuit` uses a 3x3 table of time factors (quarry ahead/aside/behind x parallel/perpendicular/anti-parallel) to estimate intercept time.
-- Most demos run on the XZ ground plane (`setYtoZero`), so a 2D port maps C++ `(x, z)` to `(x, y)`; C++ side `(-z, x)` is `Vec2::perp`.
+- Most demos run on the XZ ground plane (`setYtoZero`), so a 2D port maps C++ `(x, z)` to `(x, y)`; C++ side is about `(-z, x)` = `Vec2::perp`, but not exactly: see the next point.
+- Bit-level fidelity matters in chaotic scenes; a 1-ulp difference grows past 1e-4. Two such causes found by tracing to the first differing bit: C++ `pow(float, int)` is the double `pow` (port: `f64::powf`), and OpenSteer keeps `side`/`up` as state rebuilt by `regenerateOrthonormalBasisUF`, so `side` is `normalize(cross(forward, up))` with `up` drifting from 1 (port: `Vehicle::up`, `regenerate_basis`; never assign `forward` directly). When an oracle drifts, trace both sides every step and compare bits before touching the tolerance.
 
 ## Tooling gotchas (each cost time once)
 

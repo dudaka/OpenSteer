@@ -7,7 +7,8 @@ use crate::Vec2;
 #[derive(Debug, Clone, PartialEq)]
 pub struct Vehicle {
     pub position: Vec2,
-    /// Unit heading; realigned with the velocity after every step.
+    /// Unit heading; realigned with the velocity after every step. Change it with
+    /// `regenerate_basis` so `side` follows as in OpenSteer.
     pub forward: Vec2,
     pub speed: f32,
     pub mass: f32,
@@ -18,6 +19,10 @@ pub struct Vehicle {
     pub max_speed: f32,
     /// Acceleration smoothed over recent steps, used for motion and annotation.
     pub smoothed_acceleration: Vec2,
+    /// The y of OpenSteer's `up` vector that the current `side` was derived from. On the
+    /// ground `up` stays (0, u, 0), with u drifting from 1 by rounding; `side` inherits that
+    /// rounding, which chaotic scenes (boids, soccer) amplify.
+    pub up: f32,
 }
 
 impl Default for Vehicle {
@@ -32,6 +37,7 @@ impl Default for Vehicle {
             max_force: 0.1,
             max_speed: 1.0,
             smoothed_acceleration: Vec2::ZERO,
+            up: 1.0,
         }
     }
 }
@@ -46,14 +52,23 @@ impl Vehicle {
         self.position + self.velocity() * time
     }
 
-    /// Unit vector 90 degrees from `forward`, as OpenSteer's `side()`.
+    /// Unit vector 90 degrees from `forward`, as OpenSteer's `side()`:
+    /// `normalize(cross(forward, up))`, so it carries the same rounding.
     pub fn side(&self) -> Vec2 {
-        self.forward.perp()
+        Vec2::new(-(self.forward.y * self.up), self.forward.x * self.up).normalize()
+    }
+
+    /// Turns to a new unit `forward` (`regenerateOrthonormalBasisUF`): first `up` becomes
+    /// `cross(side, forward)` of the old basis, then the new `side` follows from it.
+    pub fn regenerate_basis(&mut self, forward: Vec2) {
+        let s = self.side();
+        self.up = s.y * self.forward.x - s.x * self.forward.y;
+        self.forward = forward;
     }
 
     /// Integrates a steering `force` over `dt` seconds (`applySteeringForce`): clip to
     /// `max_force`, smooth the acceleration, clip velocity to `max_speed`, Euler-integrate
-    /// position, then turn `forward` to the new velocity.
+    /// position, then turn to the new velocity.
     pub fn apply_steering_force(&mut self, force: Vec2, dt: f32) {
         let clipped = self
             .adjust_raw_steering_force(force)
@@ -68,7 +83,7 @@ impl Vehicle {
         self.speed = velocity.length();
         self.position += velocity * dt;
         if self.speed > 0.0 {
-            self.forward = velocity / self.speed;
+            self.regenerate_basis(velocity / self.speed);
         }
     }
 
