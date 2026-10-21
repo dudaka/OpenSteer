@@ -18,8 +18,8 @@ that `~/Workspace/silkroad/caravan` and `sro-polyanya` share. The 2D version sta
   Leader Following (#20), Wall Following (#21) and Containment (#22) merged: Phase 6 complete.
 - 2026-10-21: Phase 7 (3D) planned with the user (see below); working on step 24 (3D vector and
   vehicle) merged (#23); 3D seek and flee merged (#24); 3D wander and target speed merged
-  (#25); step 27 (3D view, brought forward) built on `feat/3d-view`: the user restarts
-  `scripts/dev.sh` and looks at the three 3D demos before the PR.
+  (#25); step 27 (3D view, brought forward) viewed by the user and merged. Next: 3D pursuit
+  and evasion, each new 3D behavior with its 3D demo.
 - Tests: 190 Rust tests (15 C++ oracles: `oracle_vehicle_3d`, `oracle_seek_flee_3d`, `oracle_wander_3d`, `oracle_one_turning`, `oracle_seek_flee`, `oracle_wander`, `oracle_pursuit`, `oracle_obstacles`, `oracle_pathway`, `oracle_path_following`, `oracle_boids`, `oracle_neighbors`, `oracle_capture_the_flag`, `oracle_pedestrians`, `oracle_soccer`).
 
 ## Setup, mirrored from `~/Workspace/silkroad/caravan`
@@ -165,7 +165,7 @@ Steps (each held for the user, as before):
 - B. 3D view: a perspective, orbiting camera in the web app; 3D demos in an empty arena.
   Brought forward on 2026-10-21 (before the remaining behaviors) so each 3D behavior gets its
   demo as it is ported.
-  - 27. [done, not yet viewed in a browser] Crate `steer-demos-3d` (`Frame3View` and friends,
+  - 27. [done, viewed by the user 2026-10-21] Crate `steer-demos-3d` (`Frame3View` and friends,
     `Demo3`, catalog after the 2D demos); steerd sends `SceneFrame::{Flat, Space}`; web
     `Scene3D` (PerspectiveCamera 45, OrbitControls without pan, grid at y = 0, vehicles as a
     triangle with a mast along `up`, labels). Demos: "3D One Turning" (climbing turn / banking
@@ -243,7 +243,7 @@ Built from the ported, oracle-checked pieces; tests pin hand-computed cases and 
 
 - `steerd` does not serve the built web app (`apps/web/dist`); only Vite does (`scripts/dev.sh`).
 - One shared sim for all browser clients: one current demo and one running state.
-- steerd's port (7400) and Vite's (5173) are fixed, so a second copy cannot run beside the user's `dev.sh`; the 3D view was checked by tests, typecheck and build only.
+- steerd's port (7400) and Vite's (5173) are fixed, so a second copy cannot run beside the user's `dev.sh`; the user checks views in their own browser.
 - Annotation lines are 1 px (WebGL `LineSegments`); three's `Line2` fat lines if too faint.
 - Sidebar is a fixed 180 px column (not phone-friendly); labels overlap when the car is near the target; the page has no favicon (404 in the console).
 - No annotation toggles yet. Sliders exist (`params` / `demo.param`).
