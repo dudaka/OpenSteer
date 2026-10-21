@@ -21,8 +21,8 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
   (2026-10-21). The 2D demos of steps 9-23 were never explicitly confirmed in the browser.
 - Rhythm: one behavior at a time, held until the user understands it, and ask before each PR;
   batches (no holding, merge on green CI) only when the user asks for one.
-- Next: settle the Phase 7 C questions with the user (see "Open questions"), then step C1.
-- Tests: 246 Rust tests, 20 C++ oracles. 2D: `oracle_one_turning`, `oracle_seek_flee`,
+- Next: step C2 (C1 done; the Phase 7 C questions were settled 2026-10-21, see "Open questions").
+- Tests: 255 Rust tests (9 in `silkroad-navmesh`), 20 C++ oracles. 2D: `oracle_one_turning`, `oracle_seek_flee`,
   `oracle_wander`, `oracle_pursuit`, `oracle_obstacles`, `oracle_pathway`,
   `oracle_path_following`, `oracle_boids`, `oracle_neighbors` (in `steer-core`),
   `oracle_capture_the_flag`, `oracle_pedestrians`, `oracle_soccer` (in `steer-demos`). 3D (in
@@ -198,9 +198,11 @@ values - position, forward, side, up, speed - at step 1 and at regular steps):
 
 Steps C, D (next; settle "Open questions" with the user first, then one small step at a time):
 - C. The world. Proposed order:
-  - C1. Copy `caravan-navmesh` into `crates/` (with a source note: caravan commit, files, what was
-    left out), build it in CI, run its tests (data-dependent ones skip without
-    `~/Workspace/silkroad/Data`). No steering yet.
+  - C1. [done] `crates/silkroad-navmesh`: caravan-navmesh at `0ad7987`, source note in
+    `SOURCE.md` (renamed; test data defaults to `~/Workspace/silkroad/Data`, `CARAVAN_GAME_DATA`
+    overrides). 9 tests pass with the data (Jangan heights and objects match sro-polyanya), the 5
+    data tests skip without it; the 2 ignored full-data tests (every region file, every object)
+    pass in release. No steering yet.
   - C2. Load a few regions (e.g. around Jangan) and answer "ground height at (x, z)" for a vehicle;
     a ground demo (e.g. Pedestrians or Seek) whose vehicles stand on the surface (y from
     `height_at`). Decide how terrain reaches the browser (Rust sends a terrain mesh view model, or
@@ -225,9 +227,12 @@ in a sidebar, mirroring OpenSteerDemo's plug-in selection.
 
 ## Open questions (for the user)
 
-- World (step C): which regions first (Jangan?); which demos go onto terrain first; terrain to the
-  browser as a Rust view model or as caravan's prebuilt `~/.caravan/map` assets; where the copied
-  `caravan-navmesh` lives (`crates/silkroad-navmesh`?) and how it is kept in step with caravan.
+- World (step C): decided with the user 2026-10-21. Regions: Jangan (0x61a8) and its 8 neighbors.
+  First demo on terrain: 3D Seek on the ground (one vehicle, y from the ground height). Terrain
+  reaches the browser as a Rust view model (an untextured mesh sent once per demo), not caravan's
+  `~/.caravan/map` assets. The navmesh copy lives in `crates/silkroad-navmesh`, frozen at caravan
+  `0ad7987` with a source note; re-copied only for a needed fix (recorded in the note); our
+  additions (step D wall queries) go in our crate.
 - Arrive: keep the faithful "orbits unless braking is tuned" result, or add a non-OpenSteer stop rule?
 - Obstacles: keep the faithful container widening (body crosses the arena wall by ~0.5), or shrink containers?
 - Pedestrians: port the tilted rectangle as a 2D wall obstacle?
