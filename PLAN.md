@@ -21,8 +21,8 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
   (2026-10-21). The 2D demos of steps 9-23 were never explicitly confirmed in the browser.
 - Rhythm: one behavior at a time, held until the user understands it, and ask before each PR;
   batches (no holding, merge on green CI) only when the user asks for one.
-- Next: the user looks at D2 (the wall query, on `feat/silkroad-walls`); then a PR; then D3 (the Plaza with walls).
-- Tests: 271 Rust tests (11 in `silkroad-navmesh`), 21 C++ oracles. 2D: `oracle_one_turning`, `oracle_seek_flee`,
+- Next: the user looks at D3 ("3D Seek on Silkroad" with walls, on `feat/silkroad-plaza-walls`); then a PR.
+- Tests: 273 Rust tests (13 in `silkroad-navmesh`), 21 C++ oracles. 2D: `oracle_one_turning`, `oracle_seek_flee`,
   `oracle_wander`, `oracle_pursuit`, `oracle_obstacles`, `oracle_pathway`,
   `oracle_path_following`, `oracle_boids`, `oracle_neighbors` (in `steer-core`),
   `oracle_capture_the_flag`, `oracle_pedestrians`, `oracle_soccer` (in `steer-demos`). 3D (in
@@ -242,7 +242,7 @@ Steps C, D (next; settle "Open questions" with the user first, then one small st
     single poses (an upright 6x2 wall seen from outside, inside, both; Pedestrian.cpp's tilted 7x7
     rectangle) and a seek back and forth across both, 1800 steps. Mutations (no radius widening,
     normal from the wrong side, no "toward the edge" hint) fail both oracle tests.
-  - D2. [done, waiting for the user] `silkroad_navmesh::walls::{walls, terrain_walls,
+  - D2. [done, #42] `silkroad_navmesh::walls::{walls, terrain_walls,
     object_walls, Wall}`: blocked edges as segments (a, b as (x, height, z)) in one region's
     frame, by sro-polyanya's rules (read with a helper; caravan's debug overlay agrees):
     terrain internal edges with a block bit, skipping those on the region border; object outline
@@ -252,8 +252,19 @@ Steps C, D (next; settle "Open questions" with the user first, then one small st
     tiles), 762 object walls (664 + 21 + 77); 3x3: 547 objects. The plaza hole along z = 854 is
     fenced by walls at x 878.9 and 1072.3, height -32.6. Mutations (no border skip, no bridge
     rims, a wall from one vertex twice) fail.
-  - D3. The Plaza with walls: walls near the walker's floor as rectangles, seek + avoidance; walls
-    drawn as lines; measure that the walker never crosses a wall or drops into the hole.
+  - D3. [done, waiting for the user] "3D Seek on Silkroad" with walls. `World` keeps the walls,
+    straight runs merged (`walls::merge_straight_runs`: shared endpoint, within 5 degrees in 3D;
+    6481 -> 5887). Each step, the walls within 12.5 whose height range holds the walker's (give
+    or take the 0.5 step) become upright rectangles (8 tall, seen from both sides); avoidance
+    (look-ahead 6 s, Pedestrian.cpp's `oTime`) wins when nonzero, the push flattened; otherwise
+    the level seek. The walker has Pedestrian.cpp's limits (force 8, speed 2). Walls within 20 of
+    the walker's floor are drawn (`color::OBSTACLE`). The Plaza's second target is straight
+    across the hole. Tests (four 40 s legs): the track equals the flat seek's until the first
+    avoiding step (hill 5257, plaza 2655); hill: highest ground per leg, avoiding only at a
+    sunken slab (124 steps), body over a wall 40 steps, closest 0.363; plaza: never drops
+    (-3.261 on legs 2-4), avoids the hole 565 steps and reaches the far side, body over a wall
+    299 steps, closest 0.0019 (a corner of the hole). Mutations (unmerged walls, walls of every
+    height, push not flattened) fail. ~0.6-0.9 ms per step in debug; the demo tests take ~14 s.
 
 ## Each demo page
 
@@ -343,6 +354,9 @@ Silkroad world:
 - **The plaza floor has holes, and walls are not modeled yet.** Along z = 854 the plaza floor is missing from x 880 to 1070 (a building or fountain, 200 units, past caravan's 60-unit bridging); a walker there drops 21 units onto the terrain. The demo's plaza legs avoid it; walls come in step D.
 - **`min_by` distance to `f32::MAX` cannot pick the highest.** `f32::MAX - h` rounds to `f32::MAX` for every h, so all surfaces tie and the first (the terrain) wins; the highest is taken with `max`.
 - **Most blocked terrain edges lie on region borders, and are not walls.** Jangan's 23 blocked terrain edges are all one-way (0x02); 15 lie on its border (z = 0 or 1920) and are skipped as sro-polyanya does, the other 8 fence the region's two closed tiles. The town's walls are object edges: 664 blocked outline edges, 21 bridge rims, 77 blocked inline edges.
+- **Rectangle avoidance steers into the joints of chained walls.** The navmesh splits a straight wall into short edges; OpenSteer's rectangle hint points toward the crossing's nearer end of each rectangle, and where two pieces meet both point at the joint. Traced on the plaza (walker aimed across the hole): two rectangles met at z = 84.28, both hit at the same distance within 1e-5 with opposite hints, the nearest switched by a hair and the push flipped between z = -8 and +8 until the walker crossed and dropped 2.2 into the hole. Merging straight runs fixed it (the hole's west side became one wall, 81.7..89.6); concave corners could still trap a walker (not seen yet).
+- **The 3D Seek vehicle is too weak for walls.** With max force 1 at speed 3 (turning radius about 9) it pushed at full force for 2.4 units and turned 13 degrees before hitting a slab's wall; with Pedestrian.cpp's force 8, speed 2 and 6 s look-ahead it never crossed.
+- **Avoidance only looks along the heading, so bodies scrape walls.** Passing a wall or a corner, the forward line no longer meets it and the seek pulls the walker in: on the plaza the body (radius 0.5) is over a wall on 299 of 9600 steps, and once the center comes within 0.0019 of a corner of the hole (it moves past the tip). Never through a wall into the hole.
 
 ## Gaps and known issues
 
@@ -358,6 +372,7 @@ Silkroad world:
 - 3D Boids looks at every other boid (no 3D proximity grid yet): 100 boids cost about 7 ms per step in the debug build `dev.sh` runs, so the slider stops at 150.
 - 3D `Vehicle::regenerate_basis` cannot turn to a forward parallel to the current `up` (the cross product is zero, so `side` and `up` become zero), as in the C++. Random 3D headings never hit it exactly; a straight-up or straight-down heading from the default basis would.
 - The 3D ground composites (Capture the Flag, Pedestrians, Soccer) are the 2D runs lifted onto a flat plane; they have no 3D physics of their own.
+- Silkroad walls: one-way ledges are walls both ways; outline 0x08 (object stitch) is open; region-border walls from closed tiles are not built; bodies scrape walls and corners (avoidance looks only ahead); building floors are not drawn; the demo's tests take ~14 s in debug.
 - 3D Wall Following and Containment only know an axis-aligned box (`wall::Block`); there is no concave 3D room (the 2D L-room case) and no navmesh wall yet (step D).
 - Unproven causes, stated as "likely" in Findings: the 3D wanderer's larger speed overshoot, 3D path-following excursions, 3D Leader Following's fewer overlaps.
 
