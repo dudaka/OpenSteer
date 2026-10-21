@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use silkroad_navmesh::heights;
 use silkroad_navmesh::navmesh::Navmesh;
 use silkroad_navmesh::region::{region_id, sectors};
+use silkroad_navmesh::walls::{self, Wall};
 use silkroad_navmesh::{DataDir, Error};
 
 /// Jangan's region id.
@@ -35,10 +36,11 @@ pub struct HeightGrid {
     pub heights: Vec<f32>,
 }
 
-/// The navmesh of Jangan and its 8 neighbors.
+/// The navmesh of Jangan and its 8 neighbors, and its walls (straight runs merged).
 #[derive(Debug)]
 pub struct World {
     navmesh: Navmesh,
+    walls: Vec<Wall>,
 }
 
 impl World {
@@ -48,7 +50,13 @@ impl World {
             .flat_map(|dz| (-1..=1).map(move |dx| region_id(x + dx, z + dz)))
             .collect();
         let navmesh = Navmesh::load(&DataDir::folder(data), &regions)?;
-        Ok(World { navmesh })
+        let walls = walls::merge_straight_runs(&walls::walls(&navmesh, JANGAN));
+        Ok(World { navmesh, walls })
+    }
+
+    /// Every wall in Jangan's frame, straight runs merged into one wall each.
+    pub fn walls(&self) -> &[Wall] {
+        &self.walls
     }
 
     /// The terrain's heights at every `step`-th height point (a point every `20 * step` game
