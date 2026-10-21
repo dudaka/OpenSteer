@@ -21,8 +21,8 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
   (2026-10-21). The 2D demos of steps 9-23 were never explicitly confirmed in the browser.
 - Rhythm: one behavior at a time, held until the user understands it, and ask before each PR;
   batches (no holding, merge on green CI) only when the user asks for one.
-- Next: the user learns D1 (rectangle obstacles, on `feat/rectangle-obstacle`); then a PR; then D2 (the wall query).
-- Tests: 269 Rust tests (9 in `silkroad-navmesh`), 21 C++ oracles. 2D: `oracle_one_turning`, `oracle_seek_flee`,
+- Next: the user looks at D2 (the wall query, on `feat/silkroad-walls`); then a PR; then D3 (the Plaza with walls).
+- Tests: 271 Rust tests (11 in `silkroad-navmesh`), 21 C++ oracles. 2D: `oracle_one_turning`, `oracle_seek_flee`,
   `oracle_wander`, `oracle_pursuit`, `oracle_obstacles`, `oracle_pathway`,
   `oracle_path_following`, `oracle_boids`, `oracle_neighbors` (in `steer-core`),
   `oracle_capture_the_flag`, `oracle_pedestrians`, `oracle_soccer` (in `steer-demos`). 3D (in
@@ -235,15 +235,23 @@ Steps C, D (next; settle "Open questions" with the user first, then one small st
   all on tile lines (2640 game units); 2 of 9216 tiles disabled; 62 objects with 664 blocked
   outline edges and 77 blocked inline edges, so in town the walls are object outlines.
   Proposed order, one small step at a time:
-  - D1. [done, waiting for the user] `obstacle::{Rectangle, Obstacle}`: OpenSteer's
+  - D1. [done, #41] `obstacle::{Rectangle, Obstacle}`: OpenSteer's
     `RectangleObstacle` (`PlaneObstacle::findIntersectionWithVehiclePath` with
     `xyPointInsideShape`, in the rectangle's local space); `nearest_intersection` and
     `avoid_obstacles` take any `Obstacle` (spheres unchanged). `oracle/rectangle_3d.cpp`: 192
     single poses (an upright 6x2 wall seen from outside, inside, both; Pedestrian.cpp's tilted 7x7
     rectangle) and a seek back and forth across both, 1800 steps. Mutations (no radius widening,
     normal from the wrong side, no "toward the edge" hint) fail both oracle tests.
-  - D2. `silkroad_navmesh::walls`: blocked terrain and object edges as world segments with the
-    floor height on each side; tests pin the Jangan counts and a wall at the plaza's hole.
+  - D2. [done, waiting for the user] `silkroad_navmesh::walls::{walls, terrain_walls,
+    object_walls, Wall}`: blocked edges as segments (a, b as (x, height, z)) in one region's
+    frame, by sro-polyanya's rules (read with a helper; caravan's debug overlay agrees):
+    terrain internal edges with a block bit, skipping those on the region border; object outline
+    edges 0x03 / bridge rim 0x10 / siege 0x80; object inline edges with a block bit. Simplified:
+    one-way ledges are walls both ways; outline 0x08 (stitched to another object) is open;
+    region-border walls from closed tiles are not built. Jangan: 8 terrain walls (two closed
+    tiles), 762 object walls (664 + 21 + 77); 3x3: 547 objects. The plaza hole along z = 854 is
+    fenced by walls at x 878.9 and 1072.3, height -32.6. Mutations (no border skip, no bridge
+    rims, a wall from one vertex twice) fail.
   - D3. The Plaza with walls: walls near the walker's floor as rectangles, seek + avoidance; walls
     drawn as lines; measure that the walker never crosses a wall or drops into the hole.
 
@@ -334,6 +342,7 @@ Silkroad world:
 - **Standing on the nearest surface fails at every floor just above the terrain.** The game lists the terrain as walkable under the gate (floor 0.97 above it) and under the plaza (floor -32.6, terrain -33.2 to -54): a walker on the terrain keeps the terrain as the nearest surface and follows it down into the moat under the gate (first failure traced at x = 446, game units), then into the pits under the plaza. A coarse 10-unit line walk hid it (the terrain dropped 7 at once, so the floor became nearest). The step-up rule (highest surface at most 5 game units above the feet, else the nearest) keeps the gate, the ramp and the plaza (-32.6 on every leg).
 - **The plaza floor has holes, and walls are not modeled yet.** Along z = 854 the plaza floor is missing from x 880 to 1070 (a building or fountain, 200 units, past caravan's 60-unit bridging); a walker there drops 21 units onto the terrain. The demo's plaza legs avoid it; walls come in step D.
 - **`min_by` distance to `f32::MAX` cannot pick the highest.** `f32::MAX - h` rounds to `f32::MAX` for every h, so all surfaces tie and the first (the terrain) wins; the highest is taken with `max`.
+- **Most blocked terrain edges lie on region borders, and are not walls.** Jangan's 23 blocked terrain edges are all one-way (0x02); 15 lie on its border (z = 0 or 1920) and are skipped as sro-polyanya does, the other 8 fence the region's two closed tiles. The town's walls are object edges: 664 blocked outline edges, 21 bridge rims, 77 blocked inline edges.
 
 ## Gaps and known issues
 
