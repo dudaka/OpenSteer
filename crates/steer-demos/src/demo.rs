@@ -4,12 +4,12 @@ use steer_core::Vec2;
 
 use crate::view::FrameView;
 use crate::{
-    Boids, CaptureTheFlag, Crossing, DemoInfo, Obstacles, OneTurning, PathFollowing, Pursuit,
-    SeekFlee, Wander,
+    Boids, CaptureTheFlag, Crossing, DemoInfo, Obstacles, OneTurning, PathFollowing, Pedestrians,
+    Pursuit, SeekFlee, Wander,
 };
 
 /// Every demo in sidebar order (OpenSteerDemo's `selectionOrderSortKey`): id and name.
-const DEMOS: [(&str, &str); 9] = [
+const DEMOS: [(&str, &str); 10] = [
     ("one-turning", "One Turning Away"),
     ("seek-flee", "Seek and Flee"),
     ("wander", "Wander"),
@@ -19,6 +19,7 @@ const DEMOS: [(&str, &str); 9] = [
     ("boids", "Boids"),
     ("crossing", "Pedestrians Crossing"),
     ("capture-the-flag", "Capture the Flag"),
+    ("pedestrians", "Pedestrians"),
 ];
 
 /// The demo selected at start.
@@ -35,6 +36,7 @@ pub enum Demo {
     Boids(Boids),
     Crossing(Crossing),
     CaptureTheFlag(Box<CaptureTheFlag>),
+    Pedestrians(Pedestrians),
 }
 
 impl Demo {
@@ -50,6 +52,7 @@ impl Demo {
             "boids" => Some(Demo::Boids(Boids::default())),
             "crossing" => Some(Demo::Crossing(Crossing::default())),
             "capture-the-flag" => Some(Demo::CaptureTheFlag(Box::default())),
+            "pedestrians" => Some(Demo::Pedestrians(Pedestrians::default())),
             _ => None,
         }
     }
@@ -65,6 +68,7 @@ impl Demo {
             Demo::Boids(d) => d.update(dt),
             Demo::Crossing(d) => d.update(dt),
             Demo::CaptureTheFlag(d) => d.update(dt),
+            Demo::Pedestrians(d) => d.update(dt),
         }
     }
 
@@ -79,6 +83,7 @@ impl Demo {
             Demo::Boids(d) => d.view(),
             Demo::Crossing(d) => d.view(),
             Demo::CaptureTheFlag(d) => d.view(),
+            Demo::Pedestrians(d) => d.view(),
         }
     }
 
@@ -101,7 +106,7 @@ impl Demo {
             Demo::PathFollowing(d) => d.action(id),
             Demo::Crossing(d) => d.action(id),
             Demo::CaptureTheFlag(d) => d.action(id),
-            Demo::OneTurning(_) | Demo::Boids(_) => {}
+            Demo::OneTurning(_) | Demo::Boids(_) | Demo::Pedestrians(_) => {}
         }
     }
 
@@ -115,6 +120,7 @@ impl Demo {
             Demo::PathFollowing(d) => d.param(id, value),
             Demo::Boids(d) => d.param(id, value),
             Demo::Crossing(d) => d.param(id, value),
+            Demo::Pedestrians(d) => d.param(id, value),
             Demo::OneTurning(_) | Demo::CaptureTheFlag(_) => {}
         }
     }
