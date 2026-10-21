@@ -3,6 +3,7 @@
 
 mod annotation;
 mod demo;
+mod obstacles;
 mod one_turning;
 mod pursuit;
 mod seek_flee;
@@ -10,6 +11,7 @@ mod view;
 mod wander;
 
 pub use demo::{catalog, Demo3};
+pub use obstacles::Obstacles3;
 pub use one_turning::OneTurning3;
 pub use pursuit::Pursuit3;
 pub use seek_flee::SeekFlee3;

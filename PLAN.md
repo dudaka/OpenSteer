@@ -18,9 +18,9 @@ that `~/Workspace/silkroad/caravan` and `sro-polyanya` share. The 2D version sta
   Leader Following (#20), Wall Following (#21) and Containment (#22) merged: Phase 6 complete.
 - 2026-10-21: Phase 7 (3D) planned with the user (see below); working on step 24 (3D vector and
   vehicle) merged (#23); 3D seek and flee merged (#24); 3D wander and target speed merged
-  (#25); 3D view merged (#26); step 28 (3D pursuit and evasion with its demo) built on
-  `feat/3d-pursuit`, held for the user.
-- Tests: 198 Rust tests (16 C++ oracles: `oracle_vehicle_3d`, `oracle_seek_flee_3d`, `oracle_wander_3d`, `oracle_pursuit_3d`, `oracle_one_turning`, `oracle_seek_flee`, `oracle_wander`, `oracle_pursuit`, `oracle_obstacles`, `oracle_pathway`, `oracle_path_following`, `oracle_boids`, `oracle_neighbors`, `oracle_capture_the_flag`, `oracle_pedestrians`, `oracle_soccer`).
+  (#25); 3D view merged (#26); 3D pursuit and evasion merged (#27); step 29 (3D obstacle
+  avoidance with its demo) built on `feat/3d-obstacles`, held for the user.
+- Tests: 207 Rust tests (17 C++ oracles: `oracle_vehicle_3d`, `oracle_seek_flee_3d`, `oracle_wander_3d`, `oracle_pursuit_3d`, `oracle_obstacles_3d`, `oracle_one_turning`, `oracle_seek_flee`, `oracle_wander`, `oracle_pursuit`, `oracle_obstacles`, `oracle_pathway`, `oracle_path_following`, `oracle_boids`, `oracle_neighbors`, `oracle_capture_the_flag`, `oracle_pedestrians`, `oracle_soccer`).
 
 ## Setup, mirrored from `~/Workspace/silkroad/caravan`
 
@@ -167,6 +167,15 @@ Steps (each held for the user, as before):
     evader and a hunter (both vehicles checked, 600 steps), plus every cell of the 3x3 time-factor
     table (the two runs only reach 5 of 9: a "behind, parallel" change passed them and fails the
     cells test). Mutation ("ahead, parallel" 4 -> 2) fails all three.
+  - 29. [done] `steer_core_3d::obstacle::{Sphere, SeenFrom, intersect_path,
+    nearest_intersection, avoid_obstacles}` and `Vehicle::localize_position`; the intersection is
+    computed in the vehicle's local space as the C++ (the 2D port used world offsets). Demo
+    "3D Obstacle Avoidance" (container sphere 15 with three rocks at different heights, Add a
+    rock / Remove added rocks, min time slider; spheres drawn as three great circles, the
+    look-ahead as four lines along the side and up edges). `oracle/obstacles_3d.cpp` +
+    `oracle_obstacles_3d.rs`: 1800 steps, all 13 values and the avoiding count at step 1 and
+    every 90. Mutation (no vehicle radius in the widening) fails; world offsets instead of local
+    space pass (bit-level only, as in 2D).
   - Then the remaining behaviors in OpenSteer's order, each with its oracle and 3D demo.
 - B. 3D view: a perspective, orbiting camera in the web app; 3D demos in an empty arena.
   Brought forward on 2026-10-21 (before the remaining behaviors) so each 3D behavior gets its
@@ -241,6 +250,7 @@ Built from the ported, oracle-checked pieces; tests pin hand-computed cases and 
 - **3D seek orbits like 2D seek, in a tilted plane.** From rest, max force 1, max speed 3, after 30 s: target (-3, 0, 4) on the ground gives distance 0.459, speed 0.583, y = 0 throughout (the 2D digits exactly); target (6, 2, -4) gives 0.460 and 0.583 on a circle tilted 18.4 degrees (plane normal (-0.316, 0.949, 0); y between 1.85 and 2.14).
 - **The 3D wanderer overshoots its target speed more than the 2D one, and drifts in height.** Target speed 1.5, mean speed 10-60 s (2D in brackets): weight 0 -> 1.500 (1.500), 3 -> 1.827 (1.669), 5 -> 2.191 (1.901). Over 60 s at weight 3 its height ranges -5.02..7.78, and its `up` has rolled to y = 0.446 without banking (the basis keeps `up` as close as it can, but climbing turns still roll it). Cause of the larger overshoot not yet proven (the 2D cause was smoothing lag of the sideways force; 3D has two lateral parts).
 - **3D pursuit: 20 catches a minute; the evader is caught at 3.87 s.** 30 pursuers on a 20-30 shell around the 3D wanderer catch it 20 times in 60 s. Pursuit vs evasion (evader max speed 2, hunter 3, from (-5, -2, -5)): the hunter touches the evader at step 232, since plain flee slows near the menace (the 2D finding). The scenario runs only use 5 of the 9 time-factor cells (pursuit: ahead/aside parallel; evasion adds ahead/aside perpendicular and behind perpendicular).
+- **3D obstacle avoidance repeats the 2D container finding.** Wanderer in a container sphere 15 with three rocks, 2 min: the center reaches 15.022 from the container's center (widened by the vehicle radius, as in 2D: 15.02); rock clearance stays at least 0.860 (body radius 0.5); avoiding 1142 of 7200 steps. Local-space versus world-offset intersection differs only below 1e-4 over 1800 steps.
 - **A wrong-handed basis hides on even steps.** With `side = up x forward` both `side` and `up` change sign every step, so checkpoints every 60 steps matched the C++ for a constant push; only the banking run (which uses `up`) caught it. The 3D oracle now also checks step 1.
 - **Flee has no "far enough"**: it runs away forever at max_speed.
 - **One Turning:** speed dips from 1.5 to 0.963 at 2.80 s (0.832 at 4.25 s with the low-speed rule off), reaches max speed 5 at 20.7 s. The smoothed acceleration matches the capped push except during the first ~0.5 s (smoothing, 15% per step at 60 Hz) and ~2.5-4.5 s (low-speed rule).

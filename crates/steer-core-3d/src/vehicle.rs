@@ -55,6 +55,17 @@ impl Vehicle {
         self.position + self.velocity() * time
     }
 
+    /// `global` in this vehicle's local space (`localizePosition`): the offset from `position`
+    /// dotted with side, up and forward, as `(x, y, z)`.
+    pub fn localize_position(&self, global: Vec3) -> Vec3 {
+        let offset = global - self.position;
+        Vec3::new(
+            offset.dot(self.side),
+            offset.dot(self.up),
+            offset.dot(self.forward),
+        )
+    }
+
     /// Turns to a new unit `forward` (`regenerateOrthonormalBasisUF`): `side` from the new
     /// forward and the old up, then `up` from the new side and forward.
     pub fn regenerate_basis(&mut self, forward: Vec3) {
@@ -134,6 +145,16 @@ mod tests {
         v.regenerate_basis(Vec3::new(1.0, 0.0, 0.0));
         assert_eq!(v.side, Vec3::new(0.0, 0.0, 1.0));
         assert_eq!(v.up, Vec3::UP);
+    }
+
+    /// Facing +z with side -x: a point 2 ahead, 1 up and 3 to the +x is (side -3, up 1, ahead 2).
+    #[test]
+    fn localize_position_uses_side_up_forward() {
+        let v = Vehicle::default();
+        assert_eq!(
+            v.localize_position(Vec3::new(3.0, 1.0, 2.0)),
+            Vec3::new(-3.0, 1.0, 2.0)
+        );
     }
 
     #[test]

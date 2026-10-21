@@ -48,6 +48,24 @@ pub fn cross(at: Vec3, size: f32, color: u32) -> [Line3View; 3] {
     axes.map(|a| line(at - a, at + a, color))
 }
 
+/// A sphere drawn as three great circles (in the XZ, XY and YZ planes), 32 segments each.
+pub fn sphere(center: Vec3, radius: f32, color: u32) -> Vec<Line3View> {
+    const SEGMENTS: usize = 32;
+    let on = |i: usize, plane: usize| {
+        let angle = i as f32 * std::f32::consts::TAU / SEGMENTS as f32;
+        let (a, b) = (angle.cos() * radius, angle.sin() * radius);
+        center
+            + match plane {
+                0 => Vec3::new(a, 0.0, b),
+                1 => Vec3::new(a, b, 0.0),
+                _ => Vec3::new(0.0, a, b),
+            }
+    };
+    (0..3)
+        .flat_map(|plane| (0..SEGMENTS).map(move |i| line(on(i, plane), on(i + 1, plane), color)))
+        .collect()
+}
+
 /// A vertical line from `at` down (or up) to the ground at y = 0, so heights read in 3D.
 pub fn stem(at: Vec3) -> Line3View {
     line(at, at.set_y_to_zero(), color::EDGE)
