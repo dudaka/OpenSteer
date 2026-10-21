@@ -1,6 +1,7 @@
 //! 3D steering behaviors ported from OpenSteer as it is (`Vec3`, a forward/side/up basis), next
 //! to the 2D port in `steer-core`. Pure computation, no IO.
 
+pub mod flock;
 pub mod obstacle;
 pub mod pathway;
 pub mod steer;

@@ -2,6 +2,7 @@
 //! browser, next to the 2D ones in `steer-demos`.
 
 mod annotation;
+mod boids;
 mod demo;
 mod obstacles;
 mod one_turning;
@@ -11,6 +12,7 @@ mod seek_flee;
 mod view;
 mod wander;
 
+pub use boids::Boids3;
 pub use demo::{catalog, Demo3};
 pub use obstacles::Obstacles3;
 pub use one_turning::OneTurning3;
