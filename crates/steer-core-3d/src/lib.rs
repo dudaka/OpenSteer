@@ -2,6 +2,7 @@
 //! to the 2D port in `steer-core`. Pure computation, no IO.
 
 pub mod flock;
+pub mod neighbors;
 pub mod obstacle;
 pub mod pathway;
 pub mod steer;

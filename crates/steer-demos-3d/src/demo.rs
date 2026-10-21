@@ -3,10 +3,12 @@
 use steer_demos::DemoInfo;
 
 use crate::view::Frame3View;
-use crate::{Boids3, Obstacles3, OneTurning3, PathFollowing3, Pursuit3, SeekFlee3, Wander3};
+use crate::{
+    Boids3, Crossing3, Obstacles3, OneTurning3, PathFollowing3, Pursuit3, SeekFlee3, Wander3,
+};
 
 /// Every 3D demo in sidebar order (after the 2D ones): id and name.
-const DEMOS: [(&str, &str); 7] = [
+const DEMOS: [(&str, &str); 8] = [
     ("3d-one-turning", "3D One Turning"),
     ("3d-seek-flee", "3D Seek and Flee"),
     ("3d-wander", "3D Wander"),
@@ -14,6 +16,7 @@ const DEMOS: [(&str, &str); 7] = [
     ("3d-obstacles", "3D Obstacle Avoidance"),
     ("3d-path-following", "3D Path Following"),
     ("3d-boids", "3D Boids"),
+    ("3d-crossing", "3D Crossing"),
 ];
 
 #[derive(Debug, Clone)]
@@ -25,6 +28,7 @@ pub enum Demo3 {
     Obstacles(Obstacles3),
     PathFollowing(PathFollowing3),
     Boids(Boids3),
+    Crossing(Crossing3),
 }
 
 impl Demo3 {
@@ -38,6 +42,7 @@ impl Demo3 {
             "3d-obstacles" => Some(Demo3::Obstacles(Obstacles3::default())),
             "3d-path-following" => Some(Demo3::PathFollowing(PathFollowing3::default())),
             "3d-boids" => Some(Demo3::Boids(Boids3::default())),
+            "3d-crossing" => Some(Demo3::Crossing(Crossing3::default())),
             _ => None,
         }
     }
@@ -51,6 +56,7 @@ impl Demo3 {
             Demo3::Obstacles(d) => d.update(dt),
             Demo3::PathFollowing(d) => d.update(dt),
             Demo3::Boids(d) => d.update(dt),
+            Demo3::Crossing(d) => d.update(dt),
         }
     }
 
@@ -63,6 +69,7 @@ impl Demo3 {
             Demo3::Obstacles(d) => d.view(),
             Demo3::PathFollowing(d) => d.view(),
             Demo3::Boids(d) => d.view(),
+            Demo3::Crossing(d) => d.view(),
         }
     }
 
@@ -76,6 +83,7 @@ impl Demo3 {
             Demo3::Obstacles(d) => d.action(id),
             Demo3::PathFollowing(d) => d.action(id),
             Demo3::Boids(_) => {}
+            Demo3::Crossing(d) => d.action(id),
         }
     }
 
@@ -87,6 +95,7 @@ impl Demo3 {
             Demo3::Obstacles(d) => d.param(id, value),
             Demo3::PathFollowing(d) => d.param(id, value),
             Demo3::Boids(d) => d.param(id, value),
+            Demo3::Crossing(d) => d.param(id, value),
             Demo3::OneTurning(_) | Demo3::SeekFlee(_) => {}
         }
     }
