@@ -4,8 +4,9 @@ Goal: re-implement OpenSteer steering behaviors in Rust, with a React page demon
 behavior, faithful to the C++ and proven by C++ oracles. Each step is small and ends with a check.
 
 - Stage 1, 2D (Phases 0-6): done.
-- Stage 2, 3D (Phase 7): the empty-arena part (steps A, B, E) is done; the Silkroad world (steps C,
-  D) is next and needs the user's direction. The 2D crates and demos stay alongside the 3D ones.
+- Stage 2, 3D (Phase 7): done so far: the empty arena (steps A, B, E) and the Silkroad world (steps
+  C, D: terrain, floors, walls around Jangan). The 2D crates and demos stay alongside the 3D ones.
+  What comes next is the user's choice (see Status, "Next").
 
 ## Status (2026-10-21)
 
@@ -15,14 +16,25 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
 | Phases 2-5: 2D behaviors and composites | 9-20 | #10-#19 | done (steps 10-20 built as a batch) |
 | Phase 6: Reynolds 1999 behaviors in 2D | 21-23 | #20-#22 | done |
 | Phase 7 A/B/E: 3D core, 3D view, 3D demos | 24-37 | #23-#36 | done (steps 30-37 built as a batch) |
-| Phase 7 C/D: the Silkroad world | - | - | next; wait for the user |
+| Phase 7 C: the Silkroad world (navmesh copy, standing on the ground, terrain view) | C1-C3 | #38-#40 | done |
+| Phase 7 D: walls (rectangle obstacle, wall query, the plaza with walls) | D1-D3 | #41-#43 | done |
 
 - The user looked at the 3D view (#26) and at the whole 3D batch and reported both "looking good"
-  (2026-10-21). The 2D demos of steps 9-23 were never explicitly confirmed in the browser.
+  (2026-10-21); C2 (the walker on the ground) and C3 (the drawn terrain, "looks right") too; D3
+  was approved for its PR (no explicit browser report). The 2D demos of steps 9-23 were never explicitly
+  confirmed in the browser.
 - Rhythm: one behavior at a time, held until the user understands it, and ask before each PR;
   batches (no holding, merge on green CI) only when the user asks for one.
-- Next: the user looks at D3 ("3D Seek on Silkroad" with walls, on `feat/silkroad-plaza-walls`); then a PR.
-- Tests: 273 Rust tests (13 in `silkroad-navmesh`), 21 C++ oracles. 2D: `oracle_one_turning`, `oracle_seek_flee`,
+- Next (ask the user which; offered 2026-10-21, none chosen yet):
+  1. Stop bodies scraping walls: add the containment side probes (Phase 6 / step 37 design) to the
+     Silkroad walker, so walls it runs along or corners it rounds push it off (Findings: 299 of
+     9600 plaza steps over a wall, closest 0.0019).
+  2. Draw building floors (object navmesh cells) so the plaza walker does not float over pits.
+  3. One-way ledges: drop off, never climb (now walls both ways; sro-polyanya keeps a blocked side).
+  4. Other ground demos on the terrain (Pedestrians, Capture the Flag) with the same `World`.
+- Tests: 273 Rust tests (13 in `silkroad-navmesh`, + 3 ignored full-data ones), 21 C++ oracles.
+  Tests needing the game data skip without it (CI has none); with it, the Silkroad demo's tests
+  take ~14 s in debug. 2D: `oracle_one_turning`, `oracle_seek_flee`,
   `oracle_wander`, `oracle_pursuit`, `oracle_obstacles`, `oracle_pathway`,
   `oracle_path_following`, `oracle_boids`, `oracle_neighbors` (in `steer-core`),
   `oracle_capture_the_flag`, `oracle_pedestrians`, `oracle_soccer` (in `steer-demos`). 3D (in
@@ -53,20 +65,27 @@ crates/steer-core       L1 pure 2D: Vec2, util, Vehicle + apply_steering_force, 
                         obstacle, pathway, proximity (grid), flock, neighbors, leader, wall,
                         containment. No tokio, no serde, no IO.
 crates/steer-core-3d    L1 pure 3D: Vec3, util, Vehicle (stored forward/side/up, banking),
-                        steer, obstacle (spheres, local space), pathway (tube), flock, neighbors,
-                        leader (cylinder), wall (Block, surface following), containment (box).
+                        steer, obstacle (Obstacle trait: Sphere and Rectangle, local space),
+                        pathway (tube), flock, neighbors, leader (cylinder), wall (Block, surface
+                        following), containment (box).
+crates/silkroad-navmesh L1 game data: caravan-navmesh frozen at caravan 0ad7987 (SOURCE.md), only
+                        thiserror; plus our walls.rs (blocked edges as walls, merge_straight_runs).
 crates/steer-demos      L2 one module per 2D demo: world setup, update(dt), click/action/param
                         input and its FrameView (serde + ts-rs). Demo enum, catalog, annotation
                         helpers, shared color meanings (`color`), `legend`, `controls`.
 crates/steer-demos-3d   L2 one module per 3D demo -> Frame3View; Demo3 enum and catalog; reuses
                         steer-demos' color, legend, controls and view types for buttons/sliders;
-                        `ground::Ground` lifts a 2D demo onto the 3D ground plane.
+                        `ground::Ground` lifts a 2D demo onto the 3D ground plane; `world::World`
+                        (Jangan 3x3: surfaces, terrain grid, merged walls) for "3D Seek on
+                        Silkroad" (`silkroad_seek`), which also sends a TerrainView.
 crates/steerd           L3 daemon on 127.0.0.1:7400 (caravand uses 7300): axum 0.8 `/ws` only,
                         tokio, rmp-serde. contract.rs: Request { id, call }, Call (tag "method" /
                         content "params"), Reply (tag "type" / content "value"), HostFrame (tag "t"),
                         SceneFrame (tag "kind": flat | space). sim.rs: one Sim (2D or 3D demo +
                         running) owned by the sim task, fixed 1/60 s steps, commands in over mpsc,
-                        latest frame out over a watch channel; catalog() = 2D then 3D.
+                        latest frame out over a watch channel, the demo's ground
+                        (HostFrame::Terrain) over a second watch channel when another demo is
+                        chosen and on connect; catalog() = 2D then 3D.
                         origin.rs: caravan's LoopbackGuard (Host + Origin check, 403 otherwise).
                         Does NOT serve apps/web/dist yet: browse through Vite (scripts/dev.sh).
 
@@ -77,12 +96,13 @@ packages/core           @opensteer/core: MessagePack transport (@msgpack/msgpack
 apps/web                @opensteer/web: React 19 + Vite + react-redux; Vite proxies /ws to
                         127.0.0.1:7400. three.js (as caravan), lazily loaded: `Scene` (2D,
                         orthographic top-down, world (x, y) at (x, 0, y)) or `Scene3D` (3D,
-                        PerspectiveCamera 45 + OrbitControls, +y up, grid at y = 0), chosen by
-                        the frame's `kind`. Sidebar, controls, actions, sliders, legend overlay.
+                        PerspectiveCamera 45 + OrbitControls, +y up, grid at y = 0, or the
+                        demo's terrain as a lit mesh when the host sent one), chosen by the
+                        frame's `kind`. Sidebar, controls, actions, sliders, legend overlay.
 ```
 
-Dependency graph: `steer-core` <- `steer-demos` <- `steerd`; `steer-core-3d` <- `steer-demos-3d`
-(which also uses `steer-demos`) <- `steerd`.
+Dependency graph: `steer-core` <- `steer-demos` <- `steerd`; `steer-core-3d` and
+`silkroad-navmesh` <- `steer-demos-3d` (which also uses `steer-demos`) <- `steerd`.
 
 Rules carried over from caravan:
 - A crate depends only on crates below it.
@@ -103,6 +123,7 @@ cargo test                              # all Rust tests, regenerates contract t
 cargo test -p steer-core seek           # one test by name filter
 cargo test -p steer-core --test oracle_seek_flee      # one 2D oracle comparison
 cargo test -p steer-core-3d --test oracle_boids_3d    # one 3D oracle comparison
+cargo test -p silkroad-navmesh          # navmesh + walls (data tests skip without the game data)
 cargo run -p steerd                     # backend only, ws://127.0.0.1:7400/ws
 npm install && npm run dev              # Vite on :5173, proxies /ws to steerd
 npm run build && npm run typecheck
@@ -159,7 +180,8 @@ Built from the ported, oracle-checked pieces; tests pin hand-computed cases and 
 Decided with the user 2026-10-21: keep the 2D crates and demos; add 3D alongside. Arena first,
 then the Silkroad world. The four 1999 behaviors get full 3D versions. The world's navmesh code is
 copied into this repo (not a path or git dependency), so CI builds it; tests needing the game data
-(`~/Workspace/silkroad/Data`, 577 MB) skip when it is missing, as caravan's do.
+(`~/Workspace/silkroad/Data`, 2.9 GB, of which `navmesh/` is 577 MB; `CARAVAN_GAME_DATA` overrides
+the path) skip when it is missing, as caravan's do.
 
 Research (2026-10-21, caravan and sro-polyanya read-only):
 - The Silkroad world is 2.5D: per 1920-unit region (region id = `x | z << 8`) a 97x97 height grid
@@ -196,9 +218,10 @@ values - position, forward, side, up, speed - at step 1 and at regular steps):
 36. [done, E] `wall::{Block, SurfacePoint, follow_surface(_target)}`: wall following as the paper describes it (predict, nearest surface point, out along the normal by the gap, seek), since a 3D surface has no closed outline to follow. Demo "3D Wall Following": three walkers hug a floating block (`forward + follow_surface`), gap and look-ahead sliders. Mutation (normal flipped: the target inside the block) fails.
 37. [done, E] `containment::{probes, contain, room}`: the 2D design in 3D, five probes (ahead, and 45 degrees toward +-side and +-up), push toward the roomiest side probe while the ahead probe is outside. Demo "3D Containment": five wanderers in a 24 x 12 x 16 box room, braking while containing; wanderers, look-ahead and brake sliders. Mutation (turn toward the least room) fails 2 core tests and the demo measurement.
 
-Steps C, D (next; settle "Open questions" with the user first, then one small step at a time):
-- C. The world. Proposed order:
-  - C1. [done] `crates/silkroad-navmesh`: caravan-navmesh at `0ad7987`, source note in
+Steps C, D (done 2026-10-21, one small step and PR each). Units: the demo is the game world scaled
+by 1/10 (a region is 192 demo units); game units are used inside `World` and `silkroad-navmesh`.
+- C. The world:
+  - C1. [done, #38] `crates/silkroad-navmesh`: caravan-navmesh at `0ad7987`, source note in
     `SOURCE.md` (renamed; test data defaults to `~/Workspace/silkroad/Data`, `CARAVAN_GAME_DATA`
     overrides). 9 tests pass with the data (Jangan heights and objects match sro-polyanya), the 5
     data tests skip without it; the 2 ignored full-data tests (every region file, every object)
@@ -215,7 +238,8 @@ Steps C, D (next; settle "Open questions" with the user first, then one small st
     run bit for bit at both places; hill highest ground per leg -3.40 / -0.02 / -4.40 / 0.34;
     plaza: gate 0.097, then -3.26 on every leg, no step down more than 0.5. Mutations (seek the
     target's real height; skip the height; nearest surface instead of step-up; step 0; mirrored
-    lookup) fail. ~0.24 ms per step on the plaza in debug.
+    lookup) fail. ~0.24 ms per step on the plaza in debug. (D3 later changed the walker's limits,
+    the Plaza targets and the pinned numbers; see D3.)
   - C3. [done, #40; viewed by the user] The terrain reaches the browser once per demo, not every
     frame: `World::terrain_grid(step)` (the regions' height points every `step`-th, shared edges
     taken once; neighbors' edge heights are equal), `TerrainView` (origin, spacing, size, heights,
@@ -252,7 +276,7 @@ Steps C, D (next; settle "Open questions" with the user first, then one small st
     tiles), 762 object walls (664 + 21 + 77); 3x3: 547 objects. The plaza hole along z = 854 is
     fenced by walls at x 878.9 and 1072.3, height -32.6. Mutations (no border skip, no bridge
     rims, a wall from one vertex twice) fail.
-  - D3. [done, waiting for the user] "3D Seek on Silkroad" with walls. `World` keeps the walls,
+  - D3. [done, #43] "3D Seek on Silkroad" with walls. `World` keeps the walls,
     straight runs merged (`walls::merge_straight_runs`: shared endpoint, within 5 degrees in 3D;
     6481 -> 5887). Each step, the walls within 12.5 whose height range holds the walker's (give
     or take the 0.5 step) become upright rectangles (8 tall, seen from both sides); avoidance
@@ -279,18 +303,25 @@ in a sidebar, mirroring OpenSteerDemo's plug-in selection.
 - [done] 3D view: drag to orbit, scroll to zoom; the camera is placed afresh per demo and then follows `focus`.
 - Annotation toggles: when a demo needs them.
 
-## Open questions (for the user)
+## Decisions and open questions
 
-- World (step C): decided with the user 2026-10-21. Regions: Jangan (0x61a8) and its 8 neighbors.
-  First demo on terrain: 3D Seek on the ground (one vehicle, y from the ground height). Terrain
-  reaches the browser as a Rust view model (an untextured mesh sent once per demo), not caravan's
-  `~/.caravan/map` assets. The navmesh copy lives in `crates/silkroad-navmesh`, frozen at caravan
-  `0ad7987` with a source note; re-copied only for a needed fix (recorded in the note); our
-  additions (step D wall queries) go in our crate.
-- Walls (step D): decided with the user 2026-10-21, see Phase 7 step D.
+Decided with the user (2026-10-21):
+- World (step C): Jangan (0x61a8) and its 8 neighbors; first demo 3D Seek on the ground; terrain
+  to the browser as a Rust view model (untextured mesh, sent once per demo), not caravan's
+  `~/.caravan/map` assets; the navmesh copy in `crates/silkroad-navmesh`, frozen at caravan
+  `0ad7987` (re-copied only for a needed fix, recorded in `SOURCE.md`); our additions in new
+  modules there.
+- Walls (step D): OpenSteer `RectangleObstacle`s with the ported avoidance; a walker reacts only
+  to walls of its own floor; the wall query in `silkroad_navmesh::walls`; the first demo is the
+  Plaza. When chained wall pieces broke the rectangle hints, the user chose merging straight runs
+  (over sliding along walls or switching to containment).
+
+Open (ask before acting):
+- What comes after step D (Status, "Next").
 - Arrive: keep the faithful "orbits unless braking is tuned" result, or add a non-OpenSteer stop rule?
 - Obstacles: keep the faithful container widening (body crosses the arena wall by ~0.5), or shrink containers?
-- Pedestrians: port the tilted rectangle as a 2D wall obstacle?
+- Pedestrians (2D): add the plug-in's tilted rectangle as a 2D wall obstacle? (`Rectangle` now
+  exists in 3D, oracle-checked; 2D has none.)
 
 ## Findings (verified, with numbers)
 
@@ -351,7 +382,7 @@ Silkroad world:
 - **A target straight behind a resting vehicle is never reached.** At rest the low-speed rule limits the force to a zero-width cone around forward; a force exactly backward has no sideways part, so it becomes a pure forward push, and the vehicle drives away at 0.58 (the orbit speed of the Seek finding) for good. Found by starting "3D Seek on Silkroad" with the first target straight behind; the start was moved.
 - **Seeking a target above or below weakens a level push.** Seeking the target's real height and flattening the push lets the vertical offset use up part of the capped desired speed, so the track differs from the flat run; seeking the target at the vehicle's own height keeps the track bit-identical to the flat one.
 - **Standing on the nearest surface fails at every floor just above the terrain.** The game lists the terrain as walkable under the gate (floor 0.97 above it) and under the plaza (floor -32.6, terrain -33.2 to -54): a walker on the terrain keeps the terrain as the nearest surface and follows it down into the moat under the gate (first failure traced at x = 446, game units), then into the pits under the plaza. A coarse 10-unit line walk hid it (the terrain dropped 7 at once, so the floor became nearest). The step-up rule (highest surface at most 5 game units above the feet, else the nearest) keeps the gate, the ramp and the plaza (-32.6 on every leg).
-- **The plaza floor has holes, and walls are not modeled yet.** Along z = 854 the plaza floor is missing from x 880 to 1070 (a building or fountain, 200 units, past caravan's 60-unit bridging); a walker there drops 21 units onto the terrain. The demo's plaza legs avoid it; walls come in step D.
+- **The plaza floor has holes.** Along z = 854 the plaza floor is missing from x 880 to 1070 game units (a building or fountain, 200 units, past caravan's 60-unit bridging); without walls a walker there drops 21 units onto the terrain. Walls fence it (x 878.9 and 1072.3 at -32.6, step D2); since D3 the Plaza's second leg is aimed straight across it and the walker goes around.
 - **`min_by` distance to `f32::MAX` cannot pick the highest.** `f32::MAX - h` rounds to `f32::MAX` for every h, so all surfaces tie and the first (the terrain) wins; the highest is taken with `max`.
 - **Most blocked terrain edges lie on region borders, and are not walls.** Jangan's 23 blocked terrain edges are all one-way (0x02); 15 lie on its border (z = 0 or 1920) and are skipped as sro-polyanya does, the other 8 fence the region's two closed tiles. The town's walls are object edges: 664 blocked outline edges, 21 bridge rims, 77 blocked inline edges.
 - **Rectangle avoidance steers into the joints of chained walls.** The navmesh splits a straight wall into short edges; OpenSteer's rectangle hint points toward the crossing's nearer end of each rectangle, and where two pieces meet both point at the joint. Traced on the plaza (walker aimed across the hole): two rectangles met at z = 84.28, both hit at the same distance within 1e-5 with opposite hints, the nearest switched by a hair and the push flipped between z = -8 and +8 until the walker crossed and dropped 2.2 into the hole. Merging straight runs fixed it (the hole's west side became one wall, 81.7..89.6); concave corners could still trap a walker (not seen yet).
@@ -372,8 +403,8 @@ Silkroad world:
 - 3D Boids looks at every other boid (no 3D proximity grid yet): 100 boids cost about 7 ms per step in the debug build `dev.sh` runs, so the slider stops at 150.
 - 3D `Vehicle::regenerate_basis` cannot turn to a forward parallel to the current `up` (the cross product is zero, so `side` and `up` become zero), as in the C++. Random 3D headings never hit it exactly; a straight-up or straight-down heading from the default basis would.
 - The 3D ground composites (Capture the Flag, Pedestrians, Soccer) are the 2D runs lifted onto a flat plane; they have no 3D physics of their own.
-- Silkroad walls: one-way ledges are walls both ways; outline 0x08 (object stitch) is open; region-border walls from closed tiles are not built; bodies scrape walls and corners (avoidance looks only ahead); building floors are not drawn; the demo's tests take ~14 s in debug.
-- 3D Wall Following and Containment only know an axis-aligned box (`wall::Block`); there is no concave 3D room (the 2D L-room case) and no navmesh wall yet (step D).
+- Silkroad world: one-way ledges are walls both ways; outline 0x08 (object stitch) is treated as open but Jangan has none, so it is untested; region-border walls from closed tiles are not built; bodies scrape walls and corners (avoidance looks only ahead); concave wall corners never tested; building floors are not drawn (the plaza walker seems to float over the terrain pits); the terrain mesh has a point every 80 game units while the walker's height uses the 20-unit tiles, so the body can sit a little above or below the drawn mesh; every step scans all 5887 walls (0.6-0.9 ms in debug) and `World` reloads (~0.1 s) on every select and reset; the demo's tests take ~14 s in debug.
+- 3D Wall Following and Containment only know an axis-aligned box (`wall::Block`); there is no concave 3D room (the 2D L-room case). Navmesh walls are used only by obstacle avoidance ("3D Seek on Silkroad"), not by wall following or containment.
 - Unproven causes, stated as "likely" in Findings: the 3D wanderer's larger speed overshoot, 3D path-following excursions, 3D Leader Following's fewer overlaps.
 
 ## Learning aids
