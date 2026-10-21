@@ -1,6 +1,7 @@
 //! Steering behaviors from OpenSteer's `SteerLibrary.h`, in 3D. Each returns a force for
 //! `Vehicle::apply_steering_force`; callers combine them.
 
+use crate::pathway::Pathway;
 use crate::util::scalar_random_walk;
 use crate::{Vec3, Vehicle};
 
@@ -81,6 +82,49 @@ pub fn evasion(v: &Vehicle, menace: &Vehicle, max_prediction_time: f32) -> Vec3 
     let distance = (menace.position - v.position).length();
     let time = (distance / menace.speed).min(max_prediction_time);
     flee_plain(v, menace.predict_future_position(time))
+}
+
+/// The point `stay_on_path` seeks, if any: where the position predicted `prediction_time` ahead
+/// maps onto the path, when that prediction is outside the path.
+pub fn stay_on_path_target(v: &Vehicle, prediction_time: f32, path: &Pathway) -> Option<Vec3> {
+    let m = path.map_point(v.predict_future_position(prediction_time));
+    (m.outside >= 0.0).then_some(m.on_path)
+}
+
+/// Steer back into the path when the predicted position leaves it (`steerToStayOnPath`): plain
+/// seek of that position's projection; zero while it stays inside.
+pub fn stay_on_path(v: &Vehicle, prediction_time: f32, path: &Pathway) -> Vec3 {
+    stay_on_path_target(v, prediction_time, path).map_or(Vec3::ZERO, |t| seek_plain(v, t))
+}
+
+/// The point `follow_path` seeks, if any. None when the predicted position is inside the path
+/// and further along it in `direction` (+1 or -1) than the current one; otherwise the path
+/// point `direction * prediction_time * speed` beyond the current path distance.
+pub fn follow_path_target(
+    v: &Vehicle,
+    direction: f32,
+    prediction_time: f32,
+    path: &Pathway,
+) -> Option<Vec3> {
+    let offset = direction * prediction_time * v.speed;
+    let now = path.map_point(v.position).distance;
+    let future = path.map_point(v.predict_future_position(prediction_time));
+    let right_way = if offset > 0.0 {
+        now < future.distance
+    } else {
+        now > future.distance
+    };
+    if future.outside < 0.0 && right_way {
+        None
+    } else {
+        Some(path.point_at(now + offset))
+    }
+}
+
+/// Move along the path in `direction` (`steerToFollowPath`): plain seek of
+/// `follow_path_target`; zero while on course.
+pub fn follow_path(v: &Vehicle, direction: f32, prediction_time: f32, path: &Pathway) -> Vec3 {
+    follow_path_target(v, direction, prediction_time, path).map_or(Vec3::ZERO, |t| seek_plain(v, t))
 }
 
 /// -1 below `lower`, +1 above `upper`, 0 inside (`intervalComparison`).

@@ -66,6 +66,26 @@ pub fn sphere(center: Vec3, radius: f32, color: u32) -> Vec<Line3View> {
         .collect()
 }
 
+/// A circle of `radius` around `center` in the plane perpendicular to unit `normal`, 16
+/// segments: a cross-section of a tube.
+pub fn ring(center: Vec3, normal: Vec3, radius: f32, color: u32) -> Vec<Line3View> {
+    const SEGMENTS: usize = 16;
+    let helper = if normal.y.abs() < 0.9 {
+        Vec3::UP
+    } else {
+        Vec3::new(1.0, 0.0, 0.0)
+    };
+    let a = normal.cross(helper).normalize();
+    let b = normal.cross(a);
+    let at = |i: usize| {
+        let angle = i as f32 * std::f32::consts::TAU / SEGMENTS as f32;
+        center + (a * angle.cos() + b * angle.sin()) * radius
+    };
+    (0..SEGMENTS)
+        .map(|i| line(at(i), at(i + 1), color))
+        .collect()
+}
+
 /// A vertical line from `at` down (or up) to the ground at y = 0, so heights read in 3D.
 pub fn stem(at: Vec3) -> Line3View {
     line(at, at.set_y_to_zero(), color::EDGE)
