@@ -109,7 +109,8 @@ impl Demo3 {
             Demo3::Boids(d) => d.param(id, value),
             Demo3::Crossing(d) => d.param(id, value),
             Demo3::Ground(d) => d.param(id, value),
-            Demo3::OneTurning(_) | Demo3::SeekFlee(_) => {}
+            Demo3::SeekFlee(d) => d.param(id, value),
+            Demo3::OneTurning(_) => {}
         }
     }
 }
