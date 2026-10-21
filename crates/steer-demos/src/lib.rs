@@ -4,6 +4,7 @@
 mod annotation;
 mod boids;
 mod capture_the_flag;
+mod containment;
 mod controls;
 mod crossing;
 mod demo;
@@ -24,6 +25,7 @@ use ts_rs::TS;
 
 pub use boids::Boids;
 pub use capture_the_flag::{CaptureTheFlag, SeekerState};
+pub use containment::Containment;
 pub use crossing::Crossing;
 pub use demo::{catalog, Demo, DEFAULT_DEMO};
 pub use leader_following::LeaderFollowing;
