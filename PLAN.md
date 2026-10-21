@@ -21,7 +21,7 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
   (2026-10-21). The 2D demos of steps 9-23 were never explicitly confirmed in the browser.
 - Rhythm: one behavior at a time, held until the user understands it, and ask before each PR;
   batches (no holding, merge on green CI) only when the user asks for one.
-- Next: the user looks at the drawn terrain (C3, on `feat/silkroad-terrain`); then a PR; then step D (walls), after settling its questions.
+- Next: step D1 (OpenSteer's `RectangleObstacle` in 3D with a C++ oracle); step D's questions were settled 2026-10-21.
 - Tests: 265 Rust tests (9 in `silkroad-navmesh`), 20 C++ oracles. 2D: `oracle_one_turning`, `oracle_seek_flee`,
   `oracle_wander`, `oracle_pursuit`, `oracle_obstacles`, `oracle_pathway`,
   `oracle_path_following`, `oracle_boids`, `oracle_neighbors` (in `steer-core`),
@@ -216,7 +216,7 @@ Steps C, D (next; settle "Open questions" with the user first, then one small st
     plaza: gate 0.097, then -3.26 on every leg, no step down more than 0.5. Mutations (seek the
     target's real height; skip the height; nearest surface instead of step-up; step 0; mirrored
     lookup) fail. ~0.24 ms per step on the plaza in debug.
-  - C3. [done, waiting for the user] The terrain reaches the browser once per demo, not every
+  - C3. [done, #40; viewed by the user] The terrain reaches the browser once per demo, not every
     frame: `World::terrain_grid(step)` (the regions' height points every `step`-th, shared edges
     taken once; neighbors' edge heights are equal), `TerrainView` (origin, spacing, size, heights,
     color), `Demo3::terrain()`; steerd sends `HostFrame::Terrain { demo, terrain }` on its own
@@ -227,9 +227,20 @@ Steps C, D (next; settle "Open questions" with the user first, then one small st
     points 8 apart (every 80 game units) over the 3x3 regions; building floors are not drawn.
     Tests: the grid's points are the height points (mutation: x and z swapped fails); the view is
     the walked terrain scaled; the terrain message names the demo.
-- D. Walls from the navmesh's blocked region/object edges: obstacle avoidance, containment (the
-  walkable area as the region) and wall following against real walls. Needs a wall-query port
-  (caravan has none; sro-polyanya keeps them as Triangle constraint edges).
+- D. Walls from the navmesh's blocked edges. Decided with the user 2026-10-21: walls are OpenSteer
+  `RectangleObstacle`s (vertical rectangles, avoided from both sides) with the ported obstacle
+  avoidance; a walker reacts only to walls of its own floor (each wall keeps its floor height;
+  within the step height); the wall query is a new `walls` module in `silkroad-navmesh`; the
+  first demo is the Plaza of "3D Seek on Silkroad". Facts (Jangan): 23 blocked terrain edges,
+  all on tile lines (2640 game units); 2 of 9216 tiles disabled; 62 objects with 664 blocked
+  outline edges and 77 blocked inline edges, so in town the walls are object outlines.
+  Proposed order, one small step at a time:
+  - D1. `RectangleObstacle` (and the `PlaneObstacle` it builds on) in `steer-core-3d`, with a C++
+    oracle (`oracle/rectangle_3d.cpp`): a vehicle avoiding rectangles seen from both sides.
+  - D2. `silkroad_navmesh::walls`: blocked terrain and object edges as world segments with the
+    floor height on each side; tests pin the Jangan counts and a wall at the plaza's hole.
+  - D3. The Plaza with walls: walls near the walker's floor as rectangles, seek + avoidance; walls
+    drawn as lines; measure that the walker never crosses a wall or drops into the hole.
 
 ## Each demo page
 
@@ -252,6 +263,7 @@ in a sidebar, mirroring OpenSteerDemo's plug-in selection.
   `~/.caravan/map` assets. The navmesh copy lives in `crates/silkroad-navmesh`, frozen at caravan
   `0ad7987` with a source note; re-copied only for a needed fix (recorded in the note); our
   additions (step D wall queries) go in our crate.
+- Walls (step D): decided with the user 2026-10-21, see Phase 7 step D.
 - Arrive: keep the faithful "orbits unless braking is tuned" result, or add a non-OpenSteer stop rule?
 - Obstacles: keep the faithful container widening (body crosses the arena wall by ~0.5), or shrink containers?
 - Pedestrians: port the tilted rectangle as a 2D wall obstacle?
