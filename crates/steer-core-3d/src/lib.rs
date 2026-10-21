@@ -10,6 +10,7 @@ pub mod steer;
 pub mod util;
 mod vec3;
 mod vehicle;
+pub mod wall;
 
 pub use vec3::Vec3;
 pub use vehicle::Vehicle;
