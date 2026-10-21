@@ -69,6 +69,18 @@ impl Vec3 {
         self - self.parallel_component(unit_basis)
     }
 
+    /// Leaving a sphere teleports to the opposite side (`sphericalWrapAround`): beyond
+    /// `radius` from `center`, move back by twice the radius through the center.
+    pub fn spherical_wrap_around(self, center: Vec3, radius: f32) -> Vec3 {
+        let offset = self - center;
+        let r = offset.length();
+        if r > radius {
+            self + (offset / r) * radius * -2.0
+        } else {
+            self
+        }
+    }
+
     /// `self` on the ground plane (`setYtoZero`).
     pub fn set_y_to_zero(self) -> Vec3 {
         Vec3::new(self.x, 0.0, self.z)

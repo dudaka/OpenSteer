@@ -3,16 +3,17 @@
 use steer_demos::DemoInfo;
 
 use crate::view::Frame3View;
-use crate::{Obstacles3, OneTurning3, PathFollowing3, Pursuit3, SeekFlee3, Wander3};
+use crate::{Boids3, Obstacles3, OneTurning3, PathFollowing3, Pursuit3, SeekFlee3, Wander3};
 
 /// Every 3D demo in sidebar order (after the 2D ones): id and name.
-const DEMOS: [(&str, &str); 6] = [
+const DEMOS: [(&str, &str); 7] = [
     ("3d-one-turning", "3D One Turning"),
     ("3d-seek-flee", "3D Seek and Flee"),
     ("3d-wander", "3D Wander"),
     ("3d-pursuit", "3D Pursuit and Evasion"),
     ("3d-obstacles", "3D Obstacle Avoidance"),
     ("3d-path-following", "3D Path Following"),
+    ("3d-boids", "3D Boids"),
 ];
 
 #[derive(Debug, Clone)]
@@ -23,6 +24,7 @@ pub enum Demo3 {
     Pursuit(Pursuit3),
     Obstacles(Obstacles3),
     PathFollowing(PathFollowing3),
+    Boids(Boids3),
 }
 
 impl Demo3 {
@@ -35,6 +37,7 @@ impl Demo3 {
             "3d-pursuit" => Some(Demo3::Pursuit(Pursuit3::default())),
             "3d-obstacles" => Some(Demo3::Obstacles(Obstacles3::default())),
             "3d-path-following" => Some(Demo3::PathFollowing(PathFollowing3::default())),
+            "3d-boids" => Some(Demo3::Boids(Boids3::default())),
             _ => None,
         }
     }
@@ -47,6 +50,7 @@ impl Demo3 {
             Demo3::Pursuit(d) => d.update(dt),
             Demo3::Obstacles(d) => d.update(dt),
             Demo3::PathFollowing(d) => d.update(dt),
+            Demo3::Boids(d) => d.update(dt),
         }
     }
 
@@ -58,6 +62,7 @@ impl Demo3 {
             Demo3::Pursuit(d) => d.view(),
             Demo3::Obstacles(d) => d.view(),
             Demo3::PathFollowing(d) => d.view(),
+            Demo3::Boids(d) => d.view(),
         }
     }
 
@@ -70,6 +75,7 @@ impl Demo3 {
             Demo3::Pursuit(d) => d.action(id),
             Demo3::Obstacles(d) => d.action(id),
             Demo3::PathFollowing(d) => d.action(id),
+            Demo3::Boids(_) => {}
         }
     }
 
@@ -80,6 +86,7 @@ impl Demo3 {
             Demo3::Pursuit(d) => d.param(id, value),
             Demo3::Obstacles(d) => d.param(id, value),
             Demo3::PathFollowing(d) => d.param(id, value),
+            Demo3::Boids(d) => d.param(id, value),
             Demo3::OneTurning(_) | Demo3::SeekFlee(_) => {}
         }
     }

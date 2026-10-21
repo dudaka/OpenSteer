@@ -48,3 +48,22 @@ pub fn scalar_random_walk(
 ) -> f32 {
     (initial + (random01() * 2.0 - 1.0) * walk_speed).clamp(min, max)
 }
+
+/// A random point inside the unit sphere (`RandomVectorInUnitRadiusSphere`): rejection sampling
+/// in the cube, three draws (x, y, z) per try.
+pub fn random_vector_in_unit_sphere(random01: &mut impl FnMut() -> f32) -> Vec3 {
+    loop {
+        let x = random01() * 2.0 - 1.0;
+        let y = random01() * 2.0 - 1.0;
+        let z = random01() * 2.0 - 1.0;
+        let v = Vec3::new(x, y, z);
+        if v.length() < 1.0 {
+            return v;
+        }
+    }
+}
+
+/// A random unit vector (`RandomUnitVector`): `random_vector_in_unit_sphere`, normalized.
+pub fn random_unit_vector(random01: &mut impl FnMut() -> f32) -> Vec3 {
+    random_vector_in_unit_sphere(random01).normalize()
+}

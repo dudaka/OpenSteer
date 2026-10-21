@@ -21,7 +21,7 @@ that `~/Workspace/silkroad/caravan` and `sro-polyanya` share. The 2D version sta
   (#25); 3D view merged (#26); 3D pursuit and evasion merged (#27); 3D obstacle avoidance
   merged (#28). From step 30 on, at the user's request, the remaining 3D demos run as a batch
   (one PR per step, merged on green CI); the user checks them all at the end.
-- Tests: 214 Rust tests (18 C++ oracles: `oracle_vehicle_3d`, `oracle_seek_flee_3d`, `oracle_wander_3d`, `oracle_pursuit_3d`, `oracle_obstacles_3d`, `oracle_path_following_3d`, `oracle_one_turning`, `oracle_seek_flee`, `oracle_wander`, `oracle_pursuit`, `oracle_obstacles`, `oracle_pathway`, `oracle_path_following`, `oracle_boids`, `oracle_neighbors`, `oracle_capture_the_flag`, `oracle_pedestrians`, `oracle_soccer`).
+- Tests: 221 Rust tests (19 C++ oracles: `oracle_vehicle_3d`, `oracle_seek_flee_3d`, `oracle_wander_3d`, `oracle_pursuit_3d`, `oracle_obstacles_3d`, `oracle_path_following_3d`, `oracle_boids_3d`, `oracle_one_turning`, `oracle_seek_flee`, `oracle_wander`, `oracle_pursuit`, `oracle_obstacles`, `oracle_pathway`, `oracle_path_following`, `oracle_boids`, `oracle_neighbors`, `oracle_capture_the_flag`, `oracle_pedestrians`, `oracle_soccer`).
 
 ## Setup, mirrored from `~/Workspace/silkroad/caravan`
 
@@ -182,6 +182,12 @@ Steps (each held for the user, as before):
     figure eight raised into a roller coaster (heights 4 sin(i * 45 degrees)), tube drawn as
     rings. `oracle/path_following_3d.cpp` + `oracle_path_following_3d.rs`: directed and stay on
     path, 3600 steps, not flattened. Mutation (flat distance: a band, not a tube) fails both.
+  - 31. [done] `steer_core_3d::flock::{in_neighborhood, separation, alignment, cohesion}`,
+    `Vec3::spherical_wrap_around`, `util::{random_vector_in_unit_sphere, random_unit_vector}`.
+    Demo "3D Boids": the plug-in as OpenSteer has it (banking, world sphere 50, 10-150 boids,
+    weight sliders). `oracle/boids_3d.cpp` + `oracle_boids_3d.rs`: 30 boids from the plug-in's
+    random reset (LCG replayed), 600 steps, every 7th boid and the wrap count; matches (chaotic,
+    built with `-ffp-contract=off`). Mutation (banking off) fails.
   - Then the remaining behaviors in OpenSteer's order, each with its oracle and 3D demo.
 - B. 3D view: a perspective, orbiting camera in the web app; 3D demos in an empty arena.
   Brought forward on 2026-10-21 (before the remaining behaviors) so each 3D behavior gets its
@@ -258,6 +264,7 @@ Built from the ported, oracle-checked pieces; tests pin hand-computed cases and 
 - **3D pursuit: 20 catches a minute; the evader is caught at 3.87 s.** 30 pursuers on a 20-30 shell around the 3D wanderer catch it 20 times in 60 s. Pursuit vs evasion (evader max speed 2, hunter 3, from (-5, -2, -5)): the hunter touches the evader at step 232, since plain flee slows near the menace (the 2D finding). The scenario runs only use 5 of the 9 time-factor cells (pursuit: ahead/aside parallel; evasion adds ahead/aside perpendicular and behind perpendicular).
 - **3D obstacle avoidance repeats the 2D container finding.** Wanderer in a container sphere 15 with three rocks, 2 min: the center reaches 15.022 from the container's center (widened by the vehicle radius, as in 2D: 15.02); rock clearance stays at least 0.860 (body radius 0.5); avoiding 1142 of 7200 steps. Local-space versus world-offset intersection differs only below 1e-4 over 1800 steps.
 - **On a 3D path even directed following leaves the tube.** Roller-coaster eight, radius 2, 10 walkers, worst distance outside over 60 s after 10 s: directed 0.602 (2D: never out), directed + wander 1.705 (2D 2.326), stay on path 0.915 (2D 1.939), stay on path + wander 3.349. Likely the vertical curves (not proven).
+- **3D Boids fly in all three dimensions.** 100 boids, 10 s: 93 wrap-arounds at the radius-50 sphere, heights -36.4..39.3, mean speed 8.59 of 9. The 30-boid oracle run matches the C++ over 600 steps (24 wraps).
 - **A wrong-handed basis hides on even steps.** With `side = up x forward` both `side` and `up` change sign every step, so checkpoints every 60 steps matched the C++ for a constant push; only the banking run (which uses `up`) caught it. The 3D oracle now also checks step 1.
 - **Flee has no "far enough"**: it runs away forever at max_speed.
 - **One Turning:** speed dips from 1.5 to 0.963 at 2.80 s (0.832 at 4.25 s with the low-speed rule off), reaches max speed 5 at 20.7 s. The smoothed acceleration matches the capped push except during the first ~0.5 s (smoothing, 15% per step at 60 Hz) and ~2.5-4.5 s (low-speed rule).
@@ -267,6 +274,7 @@ Built from the ported, oracle-checked pieces; tests pin hand-computed cases and 
 
 - `steerd` does not serve the built web app (`apps/web/dist`); only Vite does (`scripts/dev.sh`).
 - One shared sim for all browser clients: one current demo and one running state.
+- 3D Boids looks at every other boid (no 3D proximity grid yet): 100 boids cost about 7 ms per step in the debug build `dev.sh` runs, so the slider stops at 150.
 - steerd's port (7400) and Vite's (5173) are fixed, so a second copy cannot run beside the user's `dev.sh`; the user checks views in their own browser.
 - Annotation lines are 1 px (WebGL `LineSegments`); three's `Line2` fat lines if too faint.
 - Sidebar is a fixed 180 px column (not phone-friendly); labels overlap when the car is near the target; the page has no favicon (404 in the console).
