@@ -21,8 +21,8 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
   (2026-10-21). The 2D demos of steps 9-23 were never explicitly confirmed in the browser.
 - Rhythm: one behavior at a time, held until the user understands it, and ask before each PR;
   batches (no holding, merge on green CI) only when the user asks for one.
-- Next: C2's object floors; terrain heights and "3D Seek on Silkroad" are on `feat/silkroad-ground`, waiting for the user to look.
-- Tests: 260 Rust tests (9 in `silkroad-navmesh`), 20 C++ oracles. 2D: `oracle_one_turning`, `oracle_seek_flee`,
+- Next: the user looks at "3D Seek on Silkroad" (Plaza) on `feat/silkroad-ground`; then a PR, then C3 (draw the terrain).
+- Tests: 261 Rust tests (9 in `silkroad-navmesh`), 20 C++ oracles. 2D: `oracle_one_turning`, `oracle_seek_flee`,
   `oracle_wander`, `oracle_pursuit`, `oracle_obstacles`, `oracle_pathway`,
   `oracle_path_following`, `oracle_boids`, `oracle_neighbors` (in `steer-core`),
   `oracle_capture_the_flag`, `oracle_pedestrians`, `oracle_soccer` (in `steer-demos`). 3D (in
@@ -203,15 +203,19 @@ Steps C, D (next; settle "Open questions" with the user first, then one small st
     overrides). 9 tests pass with the data (Jangan heights and objects match sro-polyanya), the 5
     data tests skip without it; the 2 ignored full-data tests (every region file, every object)
     pass in release. No steering yet.
-  - C2. [terrain done, floors next] `steer_demos_3d::world::World` loads Jangan and its 8
-    neighbors (< 0.1 s in debug) and answers `terrain_height(x, z)` in Jangan's frame (game
-    units). Demo "3D Seek on Silkroad" (`3d-silkroad-seek`): the world scaled by 1/10, the 3D Seek
-    vehicle (force 1, speed 3) seeks the target at its own height (a level seek), then is set onto
-    the terrain each step. Four targets around a hill south of Jangan; without the game data the
-    ground is flat. Tests: the xz track equals the flat run bit for bit; highest ground per leg
-    -3.40 / -0.02 / -4.40 / 0.34. Mutations (seek the target's real height and flatten; skip the
-    height) fail. Next in C2: object floors (the Jangan plaza), standing on the floor nearest the
-    current height (`heights::surface_heights`).
+  - C2. [done, waiting for the user] `steer_demos_3d::world::World` loads Jangan and its 8
+    neighbors (< 0.1 s in debug) and lists the walkable surfaces over (x, z)
+    (`surface_heights`: terrain where its tile is walkable, then object floors) in Jangan's
+    frame (game units). Demo "3D Seek on Silkroad" (`3d-silkroad-seek`): the world scaled by
+    1/10, the 3D Seek vehicle (force 1, speed 3) seeks the target at its own height (a level
+    seek), then stands on the highest surface at most a step (0.5) above its feet, else the
+    nearest. Two places: "Hill" (four targets around a hill south of Jangan) and "Plaza" (from
+    outside the west gate, over the gate, down the ramp, then plaza positions from caravan's
+    height test). Without the game data the ground is flat. Tests: the xz track equals the flat
+    run bit for bit at both places; hill highest ground per leg -3.40 / -0.02 / -4.40 / 0.34;
+    plaza: gate 0.097, then -3.26 on every leg, no step down more than 0.5. Mutations (seek the
+    target's real height; skip the height; nearest surface instead of step-up; step 0; mirrored
+    lookup) fail. ~0.24 ms per step on the plaza in debug.
   - C3. Draw the terrain in `Scene3D`; camera and units sized for 1920-unit regions.
 - D. Walls from the navmesh's blocked region/object edges: obstacle avoidance, containment (the
   walkable area as the region) and wall following against real walls. Needs a wall-query port
@@ -298,6 +302,9 @@ Silkroad world:
 - **The terrain under Jangan's town is not the ground.** On a 320-unit grid the terrain inside Jangan has pits of -33 to -65 under the buildings (the walkable floor is the object above; the plaza is 21.5 higher than its terrain, as in caravan). The 3x3 around Jangan spans -79.8..114.8 game units, steepest 3.8 per unit (cliffs). Terrain-only demos stay outside the town.
 - **A target straight behind a resting vehicle is never reached.** At rest the low-speed rule limits the force to a zero-width cone around forward; a force exactly backward has no sideways part, so it becomes a pure forward push, and the vehicle drives away at 0.58 (the orbit speed of the Seek finding) for good. Found by starting "3D Seek on Silkroad" with the first target straight behind; the start was moved.
 - **Seeking a target above or below weakens a level push.** Seeking the target's real height and flattening the push lets the vertical offset use up part of the capped desired speed, so the track differs from the flat run; seeking the target at the vehicle's own height keeps the track bit-identical to the flat one.
+- **Standing on the nearest surface fails at every floor just above the terrain.** The game lists the terrain as walkable under the gate (floor 0.97 above it) and under the plaza (floor -32.6, terrain -33.2 to -54): a walker on the terrain keeps the terrain as the nearest surface and follows it down into the moat under the gate (first failure traced at x = 446, game units), then into the pits under the plaza. A coarse 10-unit line walk hid it (the terrain dropped 7 at once, so the floor became nearest). The step-up rule (highest surface at most 5 game units above the feet, else the nearest) keeps the gate, the ramp and the plaza (-32.6 on every leg).
+- **The plaza floor has holes, and walls are not modeled yet.** Along z = 854 the plaza floor is missing from x 880 to 1070 (a building or fountain, 200 units, past caravan's 60-unit bridging); a walker there drops 21 units onto the terrain. The demo's plaza legs avoid it; walls come in step D.
+- **`min_by` distance to `f32::MAX` cannot pick the highest.** `f32::MAX - h` rounds to `f32::MAX` for every h, so all surfaces tie and the first (the terrain) wins; the highest is taken with `max`.
 
 ## Gaps and known issues
 

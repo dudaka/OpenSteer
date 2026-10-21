@@ -5,6 +5,7 @@
 use std::collections::HashSet;
 use std::path::PathBuf;
 
+use silkroad_navmesh::heights;
 use silkroad_navmesh::navmesh::Navmesh;
 use silkroad_navmesh::region::{region_id, sectors};
 use silkroad_navmesh::{DataDir, Error};
@@ -40,15 +41,10 @@ impl World {
         Ok(World { navmesh })
     }
 
-    /// The terrain height at (x, z); None outside the loaded regions.
-    pub fn terrain_height(&self, x: f32, z: f32) -> Option<f32> {
-        let (ox, oz) = (
-            (x / REGION_SIZE).floor() as i32,
-            (z / REGION_SIZE).floor() as i32,
-        );
-        let (jx, jz) = sectors(JANGAN);
-        let region = self.navmesh.regions.get(&region_id(jx + ox, jz + oz))?;
-        region.height_at(x - REGION_SIZE * ox as f32, z - REGION_SIZE * oz as f32)
+    /// Every walkable surface over (x, z): the terrain where its tile is walkable, then each
+    /// object floor; empty outside the loaded regions.
+    pub fn surface_heights(&self, x: f32, z: f32) -> Vec<f32> {
+        heights::surface_heights(&self.navmesh, JANGAN, x, z)
     }
 }
 
@@ -66,12 +62,15 @@ mod tests {
         Some(World::load(path).unwrap())
     }
 
-    /// The Jangan plaza's terrain, as `silkroad-navmesh`'s own test reads it.
+    /// On the Jangan plaza two surfaces are stacked: the terrain (-54.09, as
+    /// `silkroad-navmesh`'s own test reads it) and the plaza's floor (-32.6).
     #[test]
-    fn terrain_under_the_jangan_plaza() {
+    fn the_jangan_plaza_floor_over_its_terrain() {
         let Some(world) = world() else { return };
-        let h = world.terrain_height(857.893_25, 854.046_9).unwrap();
-        assert!((h - -54.09).abs() < 0.01, "{h}");
+        let h = world.surface_heights(857.893_25, 854.046_9);
+        assert_eq!(h.len(), 2, "{h:?}");
+        assert!((h[0] - -54.09).abs() < 0.01, "{h:?}");
+        assert!((h[1] - -32.6).abs() < 0.05, "{h:?}");
     }
 
     /// A point west of Jangan is read from the western neighbor, in that region's own frame.
@@ -80,12 +79,10 @@ mod tests {
         let Some(world) = world() else { return };
         let (jx, jz) = sectors(JANGAN);
         let west = &world.navmesh.regions[&region_id(jx - 1, jz)];
-        assert_eq!(
-            world.terrain_height(-100.0, 500.0),
-            west.height_at(1820.0, 500.0)
-        );
-        assert!(world.terrain_height(-100.0, 500.0).is_some());
-        assert_eq!(world.terrain_height(-1921.0, 500.0), None);
-        assert_eq!(world.terrain_height(3840.0, 500.0), None);
+        let h = west.height_at(1820.0, 500.0).unwrap();
+        // The terrain comes first; an object floor stands there too.
+        assert_eq!(world.surface_heights(-100.0, 500.0)[0], h);
+        assert!(world.surface_heights(-1921.0, 500.0).is_empty());
+        assert!(world.surface_heights(3840.0, 500.0).is_empty());
     }
 }
