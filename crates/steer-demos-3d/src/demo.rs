@@ -6,11 +6,11 @@ use crate::ground::Ground;
 use crate::view::Frame3View;
 use crate::{
     Boids3, Containment3, Crossing3, LeaderFollowing3, Obstacles3, OneTurning3, PathFollowing3,
-    Pursuit3, SeekFlee3, WallFollowing3, Wander3,
+    Pursuit3, SeekFlee3, SilkroadSeek3, WallFollowing3, Wander3,
 };
 
 /// Every 3D demo in sidebar order (after the 2D ones): id and name.
-const DEMOS: [(&str, &str); 14] = [
+const DEMOS: [(&str, &str); 15] = [
     ("3d-one-turning", "3D One Turning"),
     ("3d-seek-flee", "3D Seek and Flee"),
     ("3d-wander", "3D Wander"),
@@ -25,6 +25,7 @@ const DEMOS: [(&str, &str); 14] = [
     ("3d-leader-following", "3D Leader Following"),
     ("3d-wall-following", "3D Wall Following"),
     ("3d-containment", "3D Containment"),
+    ("3d-silkroad-seek", "3D Seek on Silkroad"),
 ];
 
 #[derive(Debug, Clone)]
@@ -42,6 +43,7 @@ pub enum Demo3 {
     LeaderFollowing(LeaderFollowing3),
     WallFollowing(WallFollowing3),
     Containment(Containment3),
+    SilkroadSeek(SilkroadSeek3),
 }
 
 impl Demo3 {
@@ -62,6 +64,7 @@ impl Demo3 {
             "3d-leader-following" => Some(Demo3::LeaderFollowing(LeaderFollowing3::default())),
             "3d-wall-following" => Some(Demo3::WallFollowing(WallFollowing3::default())),
             "3d-containment" => Some(Demo3::Containment(Containment3::default())),
+            "3d-silkroad-seek" => Some(Demo3::SilkroadSeek(SilkroadSeek3::default())),
             _ => None,
         }
     }
@@ -80,6 +83,7 @@ impl Demo3 {
             Demo3::LeaderFollowing(d) => d.update(dt),
             Demo3::WallFollowing(d) => d.update(dt),
             Demo3::Containment(d) => d.update(dt),
+            Demo3::SilkroadSeek(d) => d.update(dt),
         }
     }
 
@@ -97,6 +101,7 @@ impl Demo3 {
             Demo3::LeaderFollowing(d) => d.view(),
             Demo3::WallFollowing(d) => d.view(),
             Demo3::Containment(d) => d.view(),
+            Demo3::SilkroadSeek(d) => d.view(),
         }
     }
 
@@ -112,6 +117,7 @@ impl Demo3 {
             Demo3::Boids(_) => {}
             Demo3::Crossing(d) => d.action(id),
             Demo3::Ground(d) => d.action(id),
+            Demo3::SilkroadSeek(d) => d.action(id),
             Demo3::LeaderFollowing(_) | Demo3::WallFollowing(_) | Demo3::Containment(_) => {}
         }
     }
@@ -130,7 +136,7 @@ impl Demo3 {
             Demo3::WallFollowing(d) => d.param(id, value),
             Demo3::Containment(d) => d.param(id, value),
             Demo3::SeekFlee(d) => d.param(id, value),
-            Demo3::OneTurning(_) => {}
+            Demo3::OneTurning(_) | Demo3::SilkroadSeek(_) => {}
         }
     }
 }

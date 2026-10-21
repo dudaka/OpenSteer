@@ -9,6 +9,7 @@ publish = false
 fastrand = "2.5.0"
 serde = { version = "1.0.229", features = ["derive"] }
 steer-core-3d = { path = "../steer-core-3d" }
+silkroad-navmesh = { path = "../silkroad-navmesh" }
 steer-demos = { path = "../steer-demos" }
 ts-rs = "12.0.1"
 
