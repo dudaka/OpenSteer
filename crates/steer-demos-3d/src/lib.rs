@@ -3,6 +3,7 @@
 
 mod annotation;
 mod boids;
+mod containment;
 mod crossing;
 mod demo;
 mod ground;
@@ -17,6 +18,7 @@ mod wall_following;
 mod wander;
 
 pub use boids::Boids3;
+pub use containment::Containment3;
 pub use crossing::Crossing3;
 pub use demo::{catalog, Demo3};
 pub use leader_following::LeaderFollowing3;
