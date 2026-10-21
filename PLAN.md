@@ -21,7 +21,7 @@ that `~/Workspace/silkroad/caravan` and `sro-polyanya` share. The 2D version sta
   (#25); 3D view merged (#26); 3D pursuit and evasion merged (#27); 3D obstacle avoidance
   merged (#28). From step 30 on, at the user's request, the remaining 3D demos run as a batch
   (one PR per step, merged on green CI); the user checks them all at the end.
-- Tests: 227 Rust tests (20 C++ oracles: `oracle_vehicle_3d`, `oracle_seek_flee_3d`, `oracle_wander_3d`, `oracle_pursuit_3d`, `oracle_obstacles_3d`, `oracle_path_following_3d`, `oracle_boids_3d`, `oracle_neighbors_3d`, `oracle_one_turning`, `oracle_seek_flee`, `oracle_wander`, `oracle_pursuit`, `oracle_obstacles`, `oracle_pathway`, `oracle_path_following`, `oracle_boids`, `oracle_neighbors`, `oracle_capture_the_flag`, `oracle_pedestrians`, `oracle_soccer`).
+- Tests: 228 Rust tests (20 C++ oracles: `oracle_vehicle_3d`, `oracle_seek_flee_3d`, `oracle_wander_3d`, `oracle_pursuit_3d`, `oracle_obstacles_3d`, `oracle_path_following_3d`, `oracle_boids_3d`, `oracle_neighbors_3d`, `oracle_one_turning`, `oracle_seek_flee`, `oracle_wander`, `oracle_pursuit`, `oracle_obstacles`, `oracle_pathway`, `oracle_path_following`, `oracle_boids`, `oracle_neighbors`, `oracle_capture_the_flag`, `oracle_pedestrians`, `oracle_soccer`).
 
 ## Setup, mirrored from `~/Workspace/silkroad/caravan`
 
@@ -193,7 +193,12 @@ Steps (each held for the user, as before):
     Demo "3D Crossing": walkers on a Fibonacci sphere walk to the opposite point and back.
     `oracle/neighbors_3d.cpp` + `oracle_neighbors_3d.rs`: 12 walkers, 900 steps, every 5th walker
     and the avoiding count; matches. Mutation (the slower one gives way) fails.
-  - Then the composite demos and the 1999 behaviors in 3D.
+  - 33. [done] The composites in the 3D view: "3D Capture the Flag (ground)", "3D Pedestrians
+    (ground)", "3D Soccer (ground)" (`steer_demos_3d::ground::Ground`). OpenSteer's plug-ins
+    flatten every force (`setYtoZero`), so they are not re-ported: the oracle-checked 2D runs are
+    lifted onto the ground plane ((x, y) -> (x, 0, y), up straight up). A test checks the 3D view
+    is the 2D run lifted. These move onto Silkroad terrain in step C.
+  - Then the 1999 behaviors in full 3D (step E).
 - B. 3D view: a perspective, orbiting camera in the web app; 3D demos in an empty arena.
   Brought forward on 2026-10-21 (before the remaining behaviors) so each 3D behavior gets its
   demo as it is ported.

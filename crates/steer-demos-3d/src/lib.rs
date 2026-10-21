@@ -5,6 +5,7 @@ mod annotation;
 mod boids;
 mod crossing;
 mod demo;
+mod ground;
 mod obstacles;
 mod one_turning;
 mod path_following;
