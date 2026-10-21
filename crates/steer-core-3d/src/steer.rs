@@ -17,6 +17,83 @@ pub fn flee(v: &Vehicle, target: Vec3) -> Vec3 {
     (v.position - target).truncate_length(v.max_speed) - v.velocity()
 }
 
+/// Plain `steerForSeek`: desired velocity is the whole offset, not truncated to `max_speed`.
+fn seek_plain(v: &Vehicle, target: Vec3) -> Vec3 {
+    (target - v.position) - v.velocity()
+}
+
+/// Plain `steerForFlee`: desired velocity is the whole offset away from `target`.
+fn flee_plain(v: &Vehicle, target: Vec3) -> Vec3 {
+    (v.position - target) - v.velocity()
+}
+
+/// Where a pursuer aims (`steerForPursuit`'s estimate) and why.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Intercept {
+    /// The quarry's predicted position.
+    pub target: Vec3,
+    /// Multiplies the direct travel time `distance / speed`.
+    pub time_factor: f32,
+    /// The case of the table, e.g. "ahead, parallel".
+    pub case: &'static str,
+}
+
+/// `steerForPursuit`'s intercept estimate: the direct travel time `distance / speed`, scaled by
+/// a factor from a 3x3 table (quarry ahead/aside/behind x heading parallel/perpendicular/
+/// anti-parallel, each split at cos 45 degrees), capped at `max_prediction_time`.
+pub fn intercept(v: &Vehicle, quarry: &Vehicle, max_prediction_time: f32) -> Intercept {
+    let offset = quarry.position - v.position;
+    let distance = offset.length();
+    let parallelness = v.forward.dot(quarry.forward);
+    let forwardness = v.forward.dot(offset / distance);
+    let direct_travel_time = distance / v.speed;
+    let (time_factor, case) = match (
+        interval_comparison(forwardness, -0.707, 0.707),
+        interval_comparison(parallelness, -0.707, 0.707),
+    ) {
+        (1, 1) => (4.0, "ahead, parallel"),
+        (1, 0) => (1.8, "ahead, perpendicular"),
+        (1, _) => (0.85, "ahead, anti-parallel"),
+        (0, 1) => (1.0, "aside, parallel"),
+        (0, 0) => (0.8, "aside, perpendicular"),
+        (0, _) => (4.0, "aside, anti-parallel"),
+        (_, 1) => (0.5, "behind, parallel"),
+        (_, 0) => (2.0, "behind, perpendicular"),
+        (_, _) => (2.0, "behind, anti-parallel"),
+    };
+    let time = (direct_travel_time * time_factor).min(max_prediction_time);
+    Intercept {
+        target: quarry.predict_future_position(time),
+        time_factor,
+        case,
+    }
+}
+
+/// Steer toward where `quarry` will be (`steerForPursuit`): plain seek of the intercept.
+pub fn pursuit(v: &Vehicle, quarry: &Vehicle, max_prediction_time: f32) -> Vec3 {
+    seek_plain(v, intercept(v, quarry, max_prediction_time).target)
+}
+
+/// Steer away from where `menace` will be (`steerForEvasion`, whose C++ does not compile:
+/// ported as intended). The prediction time is `distance / menace speed`, capped at
+/// `max_prediction_time`; the flee is plain, so the desired speed is the distance.
+pub fn evasion(v: &Vehicle, menace: &Vehicle, max_prediction_time: f32) -> Vec3 {
+    let distance = (menace.position - v.position).length();
+    let time = (distance / menace.speed).min(max_prediction_time);
+    flee_plain(v, menace.predict_future_position(time))
+}
+
+/// -1 below `lower`, +1 above `upper`, 0 inside (`intervalComparison`).
+fn interval_comparison(x: f32, lower: f32, upper: f32) -> i32 {
+    if x < lower {
+        -1
+    } else if x > upper {
+        1
+    } else {
+        0
+    }
+}
+
 /// `steerForWander`'s two random walk values (`WanderSide`, `WanderUp`), each in `-1..=1`.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct WanderState {
@@ -107,5 +184,31 @@ mod tests {
     fn target_speed_is_clipped_to_max_force() {
         // speed 1, target 3, max force 0.1: push 0.1 along forward (+z)
         assert_eq!(target_speed(&moving(), 3.0), Vec3::new(0.0, 0.0, 0.1));
+    }
+
+    /// Quarry 10 straight above, heading +z like us: aside, parallel (factor 1). Our speed 1, so
+    /// the direct time is 10 s, capped at 4; the quarry at speed 2 is predicted 8 further on.
+    #[test]
+    fn intercept_of_a_quarry_overhead() {
+        let quarry = Vehicle {
+            position: Vec3::new(0.0, 10.0, 0.0),
+            speed: 2.0,
+            ..Vehicle::default()
+        };
+        let i = intercept(&moving(), &quarry, 4.0);
+        assert_eq!(i.case, "aside, parallel");
+        assert_eq!(i.target, Vec3::new(0.0, 10.0, 8.0));
+    }
+
+    /// Menace 3 below at speed 1 heading +z, max 2 s ahead: it will be at (0, -3, 2); plain flee
+    /// wants the whole offset (0, 3, -2), minus our velocity (0, 0, 1).
+    #[test]
+    fn evasion_flees_the_predicted_spot() {
+        let menace = Vehicle {
+            position: Vec3::new(0.0, -3.0, 0.0),
+            speed: 1.0,
+            ..Vehicle::default()
+        };
+        assert_eq!(evasion(&moving(), &menace, 2.0), Vec3::new(0.0, 3.0, -3.0));
     }
 }

@@ -4,12 +4,14 @@
 mod annotation;
 mod demo;
 mod one_turning;
+mod pursuit;
 mod seek_flee;
 mod view;
 mod wander;
 
 pub use demo::{catalog, Demo3};
 pub use one_turning::OneTurning3;
+pub use pursuit::Pursuit3;
 pub use seek_flee::SeekFlee3;
 pub use view::{Frame3View, Label3View, Line3View, Trail3View, Vehicle3View};
 pub use wander::Wander3;
