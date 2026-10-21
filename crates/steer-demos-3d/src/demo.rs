@@ -6,11 +6,11 @@ use crate::ground::Ground;
 use crate::view::Frame3View;
 use crate::{
     Boids3, Crossing3, LeaderFollowing3, Obstacles3, OneTurning3, PathFollowing3, Pursuit3,
-    SeekFlee3, Wander3,
+    SeekFlee3, WallFollowing3, Wander3,
 };
 
 /// Every 3D demo in sidebar order (after the 2D ones): id and name.
-const DEMOS: [(&str, &str); 12] = [
+const DEMOS: [(&str, &str); 13] = [
     ("3d-one-turning", "3D One Turning"),
     ("3d-seek-flee", "3D Seek and Flee"),
     ("3d-wander", "3D Wander"),
@@ -23,6 +23,7 @@ const DEMOS: [(&str, &str); 12] = [
     ("3d-pedestrians", "3D Pedestrians (ground)"),
     ("3d-soccer", "3D Soccer (ground)"),
     ("3d-leader-following", "3D Leader Following"),
+    ("3d-wall-following", "3D Wall Following"),
 ];
 
 #[derive(Debug, Clone)]
@@ -38,6 +39,7 @@ pub enum Demo3 {
     /// A ground-bound 2D demo in the 3D view.
     Ground(Ground),
     LeaderFollowing(LeaderFollowing3),
+    WallFollowing(WallFollowing3),
 }
 
 impl Demo3 {
@@ -56,6 +58,7 @@ impl Demo3 {
                 Ground::new(&id["3d-".len()..]).map(Demo3::Ground)
             }
             "3d-leader-following" => Some(Demo3::LeaderFollowing(LeaderFollowing3::default())),
+            "3d-wall-following" => Some(Demo3::WallFollowing(WallFollowing3::default())),
             _ => None,
         }
     }
@@ -72,6 +75,7 @@ impl Demo3 {
             Demo3::Crossing(d) => d.update(dt),
             Demo3::Ground(d) => d.update(dt),
             Demo3::LeaderFollowing(d) => d.update(dt),
+            Demo3::WallFollowing(d) => d.update(dt),
         }
     }
 
@@ -87,6 +91,7 @@ impl Demo3 {
             Demo3::Crossing(d) => d.view(),
             Demo3::Ground(d) => d.view(),
             Demo3::LeaderFollowing(d) => d.view(),
+            Demo3::WallFollowing(d) => d.view(),
         }
     }
 
@@ -102,7 +107,7 @@ impl Demo3 {
             Demo3::Boids(_) => {}
             Demo3::Crossing(d) => d.action(id),
             Demo3::Ground(d) => d.action(id),
-            Demo3::LeaderFollowing(_) => {}
+            Demo3::LeaderFollowing(_) | Demo3::WallFollowing(_) => {}
         }
     }
 
@@ -117,6 +122,7 @@ impl Demo3 {
             Demo3::Crossing(d) => d.param(id, value),
             Demo3::Ground(d) => d.param(id, value),
             Demo3::LeaderFollowing(d) => d.param(id, value),
+            Demo3::WallFollowing(d) => d.param(id, value),
             Demo3::SeekFlee(d) => d.param(id, value),
             Demo3::OneTurning(_) => {}
         }
