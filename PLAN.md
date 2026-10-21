@@ -17,9 +17,9 @@ that `~/Workspace/silkroad/caravan` and `sro-polyanya` share. The 2D version sta
 - 2026-10-21: Phase 6 (Reynolds 1999 behaviors not in OpenSteer), in the user's order: step 21
   Leader Following (#20), Wall Following (#21) and Containment (#22) merged: Phase 6 complete.
 - 2026-10-21: Phase 7 (3D) planned with the user (see below); working on step 24 (3D vector and
-  vehicle) merged (#23); step 25 (3D seek and flee) built on `feat/3d-seek-flee`, held for the
-  user.
-- Tests: 172 Rust tests (14 C++ oracles: `oracle_vehicle_3d`, `oracle_seek_flee_3d`, `oracle_one_turning`, `oracle_seek_flee`, `oracle_wander`, `oracle_pursuit`, `oracle_obstacles`, `oracle_pathway`, `oracle_path_following`, `oracle_boids`, `oracle_neighbors`, `oracle_capture_the_flag`, `oracle_pedestrians`, `oracle_soccer`).
+  vehicle) merged (#23); 3D seek and flee merged (#24); step 26 (3D wander and target speed)
+  built on `feat/3d-wander`, held for the user.
+- Tests: 176 Rust tests (15 C++ oracles: `oracle_vehicle_3d`, `oracle_seek_flee_3d`, `oracle_wander_3d`, `oracle_one_turning`, `oracle_seek_flee`, `oracle_wander`, `oracle_pursuit`, `oracle_obstacles`, `oracle_pathway`, `oracle_path_following`, `oracle_boids`, `oracle_neighbors`, `oracle_capture_the_flag`, `oracle_pedestrians`, `oracle_soccer`).
 
 ## Setup, mirrored from `~/Workspace/silkroad/caravan`
 
@@ -155,6 +155,11 @@ Steps (each held for the user, as before):
     `oracle/seek_flee_3d.cpp` + `oracle_seek_flee_3d.rs`: from rest toward (6, 2, -4) and away
     from (1, -1, 1), 300 steps, all 13 values at step 1 and every 30. Mutation (uncapped want)
     fails seek. The oracle tests share `tests/common/mod.rs` (state order, 1e-4 check).
+  - 26. [done] `steer_core_3d::steer::{wander, WanderState, target_speed}`: `steerForWander` with
+    both walks (`WanderSide`, then `WanderUp`: two draws per call) and `steerForTargetSpeed`.
+    `oracle/wander_3d.cpp` + `oracle_wander_3d.rs`: MultiplePursuit's wanderer without
+    `setYtoZero`, forward push and target speed 1.5, 600 steps; the test replays the LCG
+    (`tests/common::OracleRand`). Mutation (up drawn before side) fails both.
   - Then the remaining behaviors in OpenSteer's order, each with its oracle.
 - B. 3D view: a perspective, orbiting camera in the web app; 3D demos in an empty arena.
 - C. The world: copy `caravan-navmesh` in; load a few regions (e.g. around Jangan); ground
@@ -218,6 +223,7 @@ Built from the ported, oracle-checked pieces; tests pin hand-computed cases and 
 - **Containment needs braking at corners.** 5 wanderers, 60 s (escapes / wanderer-steps outside / furthest out): look-ahead 1 s, no braking 4 / 364 / 2.05 (all come back); brake 1: 3 / 86 / 0.64; brake 4: 0 / 0 / 0. Look-ahead 0.5 s: no braking 32 / 2029 / 0.94 (one still out at the end), brake 4: 1 / 31 / 0.13. Look-ahead 2 s, brake 4: 1 / 93 / 0.70. Only the default (1 s, 4) kept everyone in.
 - **A banking vehicle circling to its side sinks.** Push `0.8 side + 0.1 forward`, banking on (C++ and port): y = -3.30 after 10 s. Rolling into the turn tilts `side` down (side.y = -0.025 at 10 s), so the sideways push gains a downward part; Boids counter this with their sphere constraint.
 - **3D seek orbits like 2D seek, in a tilted plane.** From rest, max force 1, max speed 3, after 30 s: target (-3, 0, 4) on the ground gives distance 0.459, speed 0.583, y = 0 throughout (the 2D digits exactly); target (6, 2, -4) gives 0.460 and 0.583 on a circle tilted 18.4 degrees (plane normal (-0.316, 0.949, 0); y between 1.85 and 2.14).
+- **The 3D wanderer overshoots its target speed more than the 2D one, and drifts in height.** Target speed 1.5, mean speed 10-60 s (2D in brackets): weight 0 -> 1.500 (1.500), 3 -> 1.827 (1.669), 5 -> 2.191 (1.901). Over 60 s at weight 3 its height ranges -5.02..7.78, and its `up` has rolled to y = 0.446 without banking (the basis keeps `up` as close as it can, but climbing turns still roll it). Cause of the larger overshoot not yet proven (the 2D cause was smoothing lag of the sideways force; 3D has two lateral parts).
 - **A wrong-handed basis hides on even steps.** With `side = up x forward` both `side` and `up` change sign every step, so checkpoints every 60 steps matched the C++ for a constant push; only the banking run (which uses `up`) caught it. The 3D oracle now also checks step 1.
 - **Flee has no "far enough"**: it runs away forever at max_speed.
 - **One Turning:** speed dips from 1.5 to 0.963 at 2.80 s (0.832 at 4.25 s with the low-speed rule off), reaches max speed 5 at 20.7 s. The smoothed acceleration matches the capped push except during the first ~0.5 s (smoothing, 15% per step at 60 Hz) and ~2.5-4.5 s (low-speed rule).
