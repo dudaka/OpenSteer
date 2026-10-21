@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use steer_core::Vec2;
 use steer_demos::{Demo, DemoInfo, DEFAULT_DEMO};
-use steer_demos_3d::Demo3;
+use steer_demos_3d::{Demo3, TerrainView};
 use tokio::sync::{mpsc, watch};
 use tokio::time::{interval, MissedTickBehavior};
 
@@ -77,6 +77,13 @@ impl AnyDemo {
         }
     }
 
+    fn terrain(&self) -> Option<TerrainView> {
+        match self {
+            AnyDemo::Flat(_) => None,
+            AnyDemo::Space(d) => d.terrain(),
+        }
+    }
+
     fn view(&self) -> SceneFrame {
         match self {
             AnyDemo::Flat(d) => SceneFrame::Flat(d.view()),
@@ -141,22 +148,36 @@ impl Sim {
         }
     }
 
+    /// The current demo's ground.
+    pub fn terrain(&self) -> HostFrame {
+        HostFrame::Terrain {
+            demo: self.id.clone(),
+            terrain: self.demo.terrain(),
+        }
+    }
+
     fn fresh(id: &str) -> AnyDemo {
         AnyDemo::new(id).expect("demo ids are checked against the catalog before they get here")
     }
 }
 
-/// Runs forever, publishing the latest frame whenever it changes.
+/// Runs forever, publishing the latest frame whenever it changes, and the demo's ground whenever
+/// another demo is chosen.
 pub async fn run(
     mut sim: Sim,
     frames: watch::Sender<HostFrame>,
+    terrain: watch::Sender<HostFrame>,
     mut commands: mpsc::UnboundedReceiver<Command>,
 ) {
     let mut tick = interval(Duration::from_secs_f32(STEP));
     tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
     loop {
         tick.tick().await;
+        let shown = sim.id.clone();
         if sim.tick(std::iter::from_fn(|| commands.try_recv().ok())) {
+            if sim.id != shown {
+                terrain.send_replace(sim.terrain());
+            }
             frames.send_replace(sim.frame());
         }
     }
@@ -228,6 +249,25 @@ mod tests {
                 assert_eq!(frame.time, 2.0 * STEP);
             }
             other => panic!("not a 3D frame: {other:?}"),
+        }
+    }
+
+    /// The ground message names the demo; a 2D demo has none. (The Silkroad demo's ground
+    /// needs the game data; its content is tested in `steer-demos-3d`.)
+    #[test]
+    fn the_terrain_frame_names_the_demo() {
+        let mut sim = Sim::default();
+        assert_eq!(
+            sim.terrain(),
+            HostFrame::Terrain {
+                demo: DEFAULT_DEMO.into(),
+                terrain: None
+            }
+        );
+        sim.tick([Command::Select("3d-silkroad-seek".into())]);
+        match sim.terrain() {
+            HostFrame::Terrain { demo, .. } => assert_eq!(demo, "3d-silkroad-seek"),
+            other => panic!("not a terrain frame: {other:?}"),
         }
     }
 

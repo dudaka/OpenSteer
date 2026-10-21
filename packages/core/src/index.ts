@@ -15,6 +15,7 @@ export type { Line3View } from "./contract/Line3View";
 export type { LineView } from "./contract/LineView";
 export type { ParamView } from "./contract/ParamView";
 export type { SceneFrame } from "./contract/SceneFrame";
+export type { TerrainView } from "./contract/TerrainView";
 export type { Trail3View } from "./contract/Trail3View";
 export type { TrailView } from "./contract/TrailView";
 export type { Vehicle3View } from "./contract/Vehicle3View";
@@ -33,6 +34,8 @@ export class Host {
       onFrame: (frame) => {
         if (frame.t === "frame") {
           store.dispatch(hostActions.frame({ host: id, frame: frame.frame, running: frame.running, demo: frame.demo }));
+        } else if (frame.t === "terrain") {
+          store.dispatch(hostActions.terrain({ host: id, demo: frame.demo, view: frame.terrain }));
         }
       },
     });

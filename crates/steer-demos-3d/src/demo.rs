@@ -3,7 +3,7 @@
 use steer_demos::DemoInfo;
 
 use crate::ground::Ground;
-use crate::view::Frame3View;
+use crate::view::{Frame3View, TerrainView};
 use crate::{
     Boids3, Containment3, Crossing3, LeaderFollowing3, Obstacles3, OneTurning3, PathFollowing3,
     Pursuit3, SeekFlee3, SilkroadSeek3, WallFollowing3, Wander3,
@@ -102,6 +102,14 @@ impl Demo3 {
             Demo3::WallFollowing(d) => d.view(),
             Demo3::Containment(d) => d.view(),
             Demo3::SilkroadSeek(d) => d.view(),
+        }
+    }
+
+    /// The ground to draw under the demo, if it has one; asked once when the demo is chosen.
+    pub fn terrain(&self) -> Option<TerrainView> {
+        match self {
+            Demo3::SilkroadSeek(d) => d.terrain(),
+            _ => None,
         }
     }
 

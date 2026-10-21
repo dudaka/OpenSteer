@@ -3,6 +3,7 @@
 import { configureStore, createSlice, type PayloadAction } from "@reduxjs/toolkit";
 import type { DemoInfo } from "./contract/DemoInfo";
 import type { SceneFrame } from "./contract/SceneFrame";
+import type { TerrainView } from "./contract/TerrainView";
 import type { ConnectionStatus } from "./transport";
 
 export const LOCAL_HOST = "local";
@@ -17,9 +18,11 @@ export interface HostState {
   running: boolean;
   /** Id of the demo the host is showing; empty until the first frame. */
   demo: string;
+  /** The latest ground the host sent and the demo it belongs to; null until the first arrives. */
+  terrain: { demo: string; view: TerrainView | null } | null;
 }
 
-const emptyHost = (): HostState => ({ status: "connecting", demos: [], frame: null, running: false, demo: "" });
+const emptyHost = (): HostState => ({ status: "connecting", demos: [], frame: null, running: false, demo: "", terrain: null });
 
 const hosts = createSlice({
   name: "hosts",
@@ -35,6 +38,9 @@ const hosts = createSlice({
       state[a.payload.host].frame = a.payload.frame;
       state[a.payload.host].running = a.payload.running;
       state[a.payload.host].demo = a.payload.demo;
+    },
+    terrain(state, a: PayloadAction<{ host: string; demo: string; view: TerrainView | null }>) {
+      state[a.payload.host].terrain = { demo: a.payload.demo, view: a.payload.view };
     },
   },
 });

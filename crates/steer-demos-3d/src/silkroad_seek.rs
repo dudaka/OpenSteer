@@ -16,7 +16,7 @@ use steer_demos::{color, legend};
 use crate::annotation::{
     cross, label, line, point, stem, vehicle_view, velocity_acceleration, Trail,
 };
-use crate::view::Frame3View;
+use crate::view::{Frame3View, TerrainView};
 use crate::world::{data_path, World};
 
 /// Demo units per game unit.
@@ -151,6 +151,10 @@ impl SilkroadSeek3 {
                 (color::TARGET, "target, on the ground"),
                 (color::EDGE, "height: drop line to y = 0"),
                 (color::TRAIL, "trail: the last 5 s"),
+                (
+                    color::GROUND,
+                    "ground: the game's terrain (floors not drawn)",
+                ),
             ]),
             actions: vec![
                 button("hill", "Hill", self.place == Place::Hill),
@@ -159,6 +163,19 @@ impl SilkroadSeek3 {
             ],
             params: Vec::new(),
         }
+    }
+
+    /// The terrain of the 3x3 regions, a point every 80 game units (8 demo units); None without
+    /// the world.
+    pub fn terrain(&self) -> Option<TerrainView> {
+        let grid = self.world.as_ref()?.terrain_grid(4);
+        Some(TerrainView {
+            origin: grid.origin.map(|c| c * SCALE),
+            spacing: grid.spacing * SCALE,
+            size: grid.size as u32,
+            heights: grid.heights.into_iter().map(|h| h * SCALE).collect(),
+            color: color::GROUND,
+        })
     }
 
     /// The walkable surfaces over (x, z), in demo units; only y = 0 without the world.
@@ -307,6 +324,20 @@ mod tests {
         }
     }
 
+    /// The terrain sent to the browser is the ground the vehicle walks on, scaled: 73 x 73
+    /// points 8 apart from (-192, -192); the point at (80, -104) on the hill is the terrain
+    /// height there.
+    #[test]
+    fn the_terrain_view_is_the_walked_terrain() {
+        let Some(demo) = on_terrain() else { return };
+        let t = demo.terrain().unwrap();
+        assert_eq!((t.origin, t.spacing, t.size), ([-192.0, -192.0], 8.0, 73));
+        let (column, row) = (34, 11);
+        let (x, z) = (-192.0 + 8.0 * column as f32, -192.0 + 8.0 * row as f32);
+        assert_eq!((x, z), (80.0, -104.0));
+        assert_eq!(demo.surfaces(x, z), vec![t.heights[row * 73 + column]]);
+    }
+
     /// Without the game data the ground is flat and the label says why.
     #[test]
     fn without_the_world_the_ground_is_flat() {
@@ -317,5 +348,6 @@ mod tests {
         demo.vehicle.position.y = 0.0;
         four_legs(&mut demo, |d| assert_eq!(d.vehicle.position.y, 0.0));
         assert!(demo.view().labels[0].text.starts_with("no game data"));
+        assert_eq!(demo.terrain(), None);
     }
 }

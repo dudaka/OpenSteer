@@ -1,6 +1,6 @@
 // Pooled three.js objects for a Frame3View. World [x, y, z] (+y up) is drawn as it is. Nothing
 // here allocates per frame once the pools have grown.
-import type { Label3View, Line3View, Trail3View, Vehicle3View } from "@opensteer/core";
+import type { Label3View, Line3View, TerrainView, Trail3View, Vehicle3View } from "@opensteer/core";
 import * as THREE from "three";
 import { CSS2DObject } from "three/addons/renderers/CSS2DRenderer.js";
 
@@ -114,6 +114,62 @@ export class Lines3 {
     this.positions.set([from[0], from[1], from[2], to[0], to[1], to[2]], i);
     this.colors.set([color.r, color.g, color.b, color.r, color.g, color.b], i);
     this.count++;
+  }
+}
+
+/** The demo's ground: a lit mesh over a TerrainView's height grid, rebuilt only when the view changes. */
+export class Terrain3 {
+  private mesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshLambertMaterial> | null = null;
+  private shown: TerrainView | null = null;
+
+  constructor(private readonly scene: THREE.Scene) {}
+
+  /** Shows `view` (null: no ground); returns whether a ground is shown. */
+  set(view: TerrainView | null): boolean {
+    if (view === this.shown) return view !== null;
+    this.shown = view;
+    this.dispose();
+    if (!view) return false;
+    const { origin, spacing, size, heights } = view;
+    const positions = new Float32Array(size * size * 3);
+    for (let row = 0; row < size; row++) {
+      for (let column = 0; column < size; column++) {
+        const i = row * size + column;
+        positions.set([origin[0] + column * spacing, heights[i], origin[1] + row * spacing], i * 3);
+      }
+    }
+    // Two triangles per cell, wound so their normals point up (+y).
+    const indices: number[] = [];
+    for (let row = 0; row < size - 1; row++) {
+      for (let column = 0; column < size - 1; column++) {
+        const a = row * size + column;
+        const below = a + size;
+        indices.push(a, below, a + 1, a + 1, below, below + 1);
+      }
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    geometry.setIndex(indices);
+    geometry.computeVertexNormals();
+    // Pushed back in depth, so trails and lines lying on the ground stay visible.
+    const material = new THREE.MeshLambertMaterial({
+      color: view.color,
+      flatShading: true,
+      polygonOffset: true,
+      polygonOffsetFactor: 1,
+      polygonOffsetUnits: 1,
+    });
+    this.mesh = new THREE.Mesh(geometry, material);
+    this.scene.add(this.mesh);
+    return true;
+  }
+
+  dispose(): void {
+    if (!this.mesh) return;
+    this.scene.remove(this.mesh);
+    this.mesh.geometry.dispose();
+    this.mesh.material.dispose();
+    this.mesh = null;
   }
 }
 

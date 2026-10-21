@@ -25,6 +25,16 @@ pub fn data_path() -> PathBuf {
         })
 }
 
+/// Heights on a square grid, game units: `size` x `size` points `spacing` apart from `origin`
+/// (x, z), row by row along z.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HeightGrid {
+    pub origin: [f32; 2],
+    pub spacing: f32,
+    pub size: usize,
+    pub heights: Vec<f32>,
+}
+
 /// The navmesh of Jangan and its 8 neighbors.
 #[derive(Debug)]
 pub struct World {
@@ -39,6 +49,31 @@ impl World {
             .collect();
         let navmesh = Navmesh::load(&DataDir::folder(data), &regions)?;
         Ok(World { navmesh })
+    }
+
+    /// The terrain's heights at every `step`-th height point (a point every `20 * step` game
+    /// units; `step` divides 96) over the 3x3 regions, from (-1920, -1920), rows along z.
+    /// Neighbors share their edge points, so each is taken once.
+    pub fn terrain_grid(&self, step: usize) -> HeightGrid {
+        let (jx, jz) = sectors(JANGAN);
+        let size = 3 * 96 / step + 1;
+        // The region (0..3) and its height point (0..=96) of a point of the whole grid.
+        let split = |g: usize| ((g / 96).min(2), g - 96 * (g / 96).min(2));
+        let mut heights = Vec::with_capacity(size * size);
+        for row in 0..size {
+            let (rz, vz) = split(row * step);
+            for column in 0..size {
+                let (rx, vx) = split(column * step);
+                let id = region_id(jx - 1 + rx as i32, jz - 1 + rz as i32);
+                heights.push(self.navmesh.regions[&id].tile_vertex_heights[vz][vx]);
+            }
+        }
+        HeightGrid {
+            origin: [-REGION_SIZE, -REGION_SIZE],
+            spacing: 20.0 * step as f32,
+            size,
+            heights,
+        }
     }
 
     /// Every walkable surface over (x, z): the terrain where its tile is walkable, then each
@@ -84,5 +119,25 @@ mod tests {
         assert_eq!(world.surface_heights(-100.0, 500.0)[0], h);
         assert!(world.surface_heights(-1921.0, 500.0).is_empty());
         assert!(world.surface_heights(3840.0, 500.0).is_empty());
+    }
+
+    /// The grid every 4th height point: 73 x 73 points 80 apart; its points are the terrain's
+    /// height points (Jangan's corner at index (24, 24), a point inside Jangan, the far corner
+    /// of the north-east neighbor).
+    #[test]
+    fn the_terrain_grid_takes_the_height_points() {
+        let Some(world) = world() else { return };
+        let grid = world.terrain_grid(4);
+        assert_eq!(
+            (grid.size, grid.spacing, grid.heights.len()),
+            (73, 80.0, 73 * 73)
+        );
+        let at = |column: usize, row: usize| grid.heights[row * 73 + column];
+        let jangan = &world.navmesh.regions[&JANGAN];
+        assert_eq!(at(24, 24), jangan.height_at(0.0, 0.0).unwrap());
+        assert_eq!(at(30, 40), jangan.height_at(480.0, 1280.0).unwrap());
+        let (jx, jz) = sectors(JANGAN);
+        let north_east = &world.navmesh.regions[&region_id(jx + 1, jz + 1)];
+        assert_eq!(at(72, 72), north_east.tile_vertex_heights[96][96]);
     }
 }
