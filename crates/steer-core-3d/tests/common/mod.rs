@@ -1,5 +1,8 @@
 //! Shared by the C++ oracle tests: a vehicle's full state compared with a printed checkpoint.
 
+// Each test file compiles this module on its own and uses only part of it.
+#![allow(dead_code)]
+
 use steer_core_3d::Vehicle;
 
 /// Position, forward, side, up (x, y, z each) and speed: the order the oracles print.
@@ -20,5 +23,16 @@ pub fn check(v: &Vehicle, step: u32, want: &State) {
             (f64::from(*g) - w).abs() < 1e-4,
             "step {step}: got {got:?}, want {want:?}"
         );
+    }
+}
+
+/// The oracles' `rand()` (`-Drand=oracle_rand`): the LCG `seed * 1103515245 + 12345`, as
+/// `frandom01() = rand() / RAND_MAX`.
+pub struct OracleRand(pub u32);
+
+impl OracleRand {
+    pub fn next01(&mut self) -> f32 {
+        self.0 = self.0.wrapping_mul(1103515245).wrapping_add(12345);
+        (self.0 & 0x7fff_ffff) as f32 / i32::MAX as f32
     }
 }
