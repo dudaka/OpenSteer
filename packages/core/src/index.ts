@@ -6,12 +6,18 @@ export * from "./store";
 export { HostConnection, webSocketLink, type ConnectionStatus, type Link, type OpenLink } from "./transport";
 export type { ActionView } from "./contract/ActionView";
 export type { DemoInfo } from "./contract/DemoInfo";
+export type { Frame3View } from "./contract/Frame3View";
 export type { FrameView } from "./contract/FrameView";
+export type { Label3View } from "./contract/Label3View";
 export type { LabelView } from "./contract/LabelView";
 export type { LegendView } from "./contract/LegendView";
+export type { Line3View } from "./contract/Line3View";
 export type { LineView } from "./contract/LineView";
 export type { ParamView } from "./contract/ParamView";
+export type { SceneFrame } from "./contract/SceneFrame";
+export type { Trail3View } from "./contract/Trail3View";
 export type { TrailView } from "./contract/TrailView";
+export type { Vehicle3View } from "./contract/Vehicle3View";
 export type { VehicleView } from "./contract/VehicleView";
 
 /** Typed calls against one host; results land in the store. */

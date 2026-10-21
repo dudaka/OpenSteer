@@ -17,9 +17,10 @@ that `~/Workspace/silkroad/caravan` and `sro-polyanya` share. The 2D version sta
 - 2026-10-21: Phase 6 (Reynolds 1999 behaviors not in OpenSteer), in the user's order: step 21
   Leader Following (#20), Wall Following (#21) and Containment (#22) merged: Phase 6 complete.
 - 2026-10-21: Phase 7 (3D) planned with the user (see below); working on step 24 (3D vector and
-  vehicle) merged (#23); 3D seek and flee merged (#24); step 26 (3D wander and target speed)
-  built on `feat/3d-wander`, held for the user.
-- Tests: 176 Rust tests (15 C++ oracles: `oracle_vehicle_3d`, `oracle_seek_flee_3d`, `oracle_wander_3d`, `oracle_one_turning`, `oracle_seek_flee`, `oracle_wander`, `oracle_pursuit`, `oracle_obstacles`, `oracle_pathway`, `oracle_path_following`, `oracle_boids`, `oracle_neighbors`, `oracle_capture_the_flag`, `oracle_pedestrians`, `oracle_soccer`).
+  vehicle) merged (#23); 3D seek and flee merged (#24); 3D wander and target speed merged
+  (#25); step 27 (3D view, brought forward) built on `feat/3d-view`: the user restarts
+  `scripts/dev.sh` and looks at the three 3D demos before the PR.
+- Tests: 190 Rust tests (15 C++ oracles: `oracle_vehicle_3d`, `oracle_seek_flee_3d`, `oracle_wander_3d`, `oracle_one_turning`, `oracle_seek_flee`, `oracle_wander`, `oracle_pursuit`, `oracle_obstacles`, `oracle_pathway`, `oracle_path_following`, `oracle_boids`, `oracle_neighbors`, `oracle_capture_the_flag`, `oracle_pedestrians`, `oracle_soccer`).
 
 ## Setup, mirrored from `~/Workspace/silkroad/caravan`
 
@@ -162,6 +163,15 @@ Steps (each held for the user, as before):
     (`tests/common::OracleRand`). Mutation (up drawn before side) fails both.
   - Then the remaining behaviors in OpenSteer's order, each with its oracle.
 - B. 3D view: a perspective, orbiting camera in the web app; 3D demos in an empty arena.
+  Brought forward on 2026-10-21 (before the remaining behaviors) so each 3D behavior gets its
+  demo as it is ported.
+  - 27. [done, not yet viewed in a browser] Crate `steer-demos-3d` (`Frame3View` and friends,
+    `Demo3`, catalog after the 2D demos); steerd sends `SceneFrame::{Flat, Space}`; web
+    `Scene3D` (PerspectiveCamera 45, OrbitControls without pan, grid at y = 0, vehicles as a
+    triangle with a mast along `up`, labels). Demos: "3D One Turning" (climbing turn / banking
+    circle, both reproduce `oracle_vehicle_3d`), "3D Seek and Flee" (reproduces
+    `oracle_seek_flee_3d`; Move target hops between four heights), "3D Wander" (forward or
+    target speed, wander weight, banking toggle).
 - C. The world: copy `caravan-navmesh` in; load a few regions (e.g. around Jangan); ground
   vehicles stand on the surface; draw the terrain.
 - D. Walls from the navmesh's blocked edges: obstacle avoidance, containment and wall following
@@ -233,6 +243,7 @@ Built from the ported, oracle-checked pieces; tests pin hand-computed cases and 
 
 - `steerd` does not serve the built web app (`apps/web/dist`); only Vite does (`scripts/dev.sh`).
 - One shared sim for all browser clients: one current demo and one running state.
+- steerd's port (7400) and Vite's (5173) are fixed, so a second copy cannot run beside the user's `dev.sh`; the 3D view was checked by tests, typecheck and build only.
 - Annotation lines are 1 px (WebGL `LineSegments`); three's `Line2` fat lines if too faint.
 - Sidebar is a fixed 180 px column (not phone-friendly); labels overlap when the car is near the target; the page has no favicon (404 in the console).
 - No annotation toggles yet. Sliders exist (`params` / `demo.param`).

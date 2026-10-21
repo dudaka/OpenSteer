@@ -116,6 +116,10 @@ button[aria-pressed="true"] {
   border-radius: 2px;
 }
 
+.scene.orbit {
+  cursor: grab;
+}
+
 .labels {
   position: absolute;
   inset: 0;

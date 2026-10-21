@@ -9,7 +9,7 @@ use tokio::sync::{mpsc, watch};
 
 use crate::contract::{Call, HostFrame, Reply, Request};
 use crate::origin::LoopbackGuard;
-use crate::sim::Command;
+use crate::sim::{catalog, Command};
 
 /// What every session shares: the latest frame and the way to the sim.
 #[derive(Clone)]
@@ -91,8 +91,8 @@ fn respond(bytes: &[u8], commands: &mpsc::UnboundedSender<Command>) -> Option<Ho
 
 fn answer(call: Call, commands: &mpsc::UnboundedSender<Command>) -> Result<Reply, String> {
     let command = match call {
-        Call::DemoList => return Ok(Reply::Demos(steer_demos::catalog())),
-        Call::DemoSelect { id } if !steer_demos::catalog().iter().any(|d| d.id == id) => {
+        Call::DemoList => return Ok(Reply::Demos(catalog())),
+        Call::DemoSelect { id } if !catalog().iter().any(|d| d.id == id) => {
             return Err(format!("no demo named {id:?}"));
         }
         Call::DemoSelect { id } => Command::Select(id),
@@ -125,7 +125,7 @@ mod tests {
             respond(&request(7, Call::DemoList), &commands),
             Some(HostFrame::Res {
                 id: 7,
-                result: Some(Reply::Demos(steer_demos::catalog())),
+                result: Some(Reply::Demos(catalog())),
                 error: None,
             })
         );

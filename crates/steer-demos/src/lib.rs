@@ -5,7 +5,7 @@ mod annotation;
 mod boids;
 mod capture_the_flag;
 mod containment;
-mod controls;
+pub mod controls;
 mod crossing;
 mod demo;
 mod leader_following;
@@ -23,6 +23,7 @@ mod wander;
 use serde::Serialize;
 use ts_rs::TS;
 
+pub use annotation::{color, legend};
 pub use boids::Boids;
 pub use capture_the_flag::{CaptureTheFlag, SeekerState};
 pub use containment::Containment;
@@ -36,7 +37,9 @@ pub use pedestrians::Pedestrians;
 pub use pursuit::Pursuit;
 pub use seek_flee::SeekFlee;
 pub use soccer::Soccer;
-pub use view::{ActionView, FrameView, LabelView, LineView, ParamView, TrailView, VehicleView};
+pub use view::{
+    ActionView, FrameView, LabelView, LegendView, LineView, ParamView, TrailView, VehicleView,
+};
 pub use wall_following::WallFollowing;
 pub use wander::Wander;
 
