@@ -8,7 +8,7 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
   C, D: terrain, floors, walls around Jangan). The 2D crates and demos stay alongside the 3D ones.
   What comes next is the user's choice (see Status, "Next").
 
-## Status (2026-10-21)
+## Status (2026-10-21; rechecked against the code 2026-11-01, no work since)
 
 | Part | Steps | PRs | State |
 |---|---|---|---|
@@ -26,7 +26,7 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
 - Rhythm: one behavior at a time, held until the user understands it, and ask before each PR;
   batches (no holding, merge on green CI) only when the user asks for one.
 - Next (ask the user which; offered 2026-10-21, none chosen yet):
-  1. Stop bodies scraping walls: add the containment side probes (Phase 6 / step 37 design) to the
+  1. Stop bodies scraping walls: add the containment side probes (the design of steps 23 and 37) to the
      Silkroad walker, so walls it runs along or corners it rounds push it off (Findings: 299 of
      9600 plaza steps over a wall, closest 0.0019).
   2. Draw building floors (object navmesh cells) so the plaza walker does not float over pits.
@@ -193,7 +193,8 @@ Research (2026-10-21, caravan and sro-polyanya read-only):
   `ObjectResource::height(x, z, area)`, `heights::surface_heights(navmesh, frame, x, z)`;
   region and object edges carry flags (blocked, one-way ledge, bridge). No point location, nearest
   point on mesh, wall queries or path finding (caravan deferred its wall model, decision D32).
-  Tests: Jangan plaza heights (`navmesh.rs`), skipped without `../Data`.
+  Tests: Jangan plaza heights (`navmesh.rs`), skipped without caravan's default `../Data` (our
+  copy defaults to `~/Workspace/silkroad/Data`).
 - `sro-polyanya` (C++, FastAPI on 127.0.0.1:5577): Polyanya paths (`/path`) and line of sight
   (`/los`); long queries take ~20 s and one search runs at a time; no height, point-location or
   wall query in its API. `/geometry` dumps terrain positions and object wall edges.
@@ -256,7 +257,8 @@ by 1/10 (a region is 192 demo units); game units are used inside `World` and `si
   avoidance; a walker reacts only to walls of its own floor (each wall keeps its floor height;
   within the step height); the wall query is a new `walls` module in `silkroad-navmesh`; the
   first demo is the Plaza of "3D Seek on Silkroad". Facts (Jangan): 23 blocked terrain edges,
-  all on tile lines (2640 game units); 2 of 9216 tiles disabled; 62 objects with 664 blocked
+  all on tile lines (2640 game units; D2 found 15 of them on the region border, skipped, and 8
+  fencing the two disabled tiles); 2 of 9216 tiles disabled; 62 objects with 664 blocked
   outline edges and 77 blocked inline edges, so in town the walls are object outlines.
   Proposed order, one small step at a time:
   - D1. [done, #41] `obstacle::{Rectangle, Obstacle}`: OpenSteer's
