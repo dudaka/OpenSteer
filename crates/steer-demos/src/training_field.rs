@@ -1137,7 +1137,9 @@ struct Trip<'a> {
     dt: f32,
 }
 
-/// One step of lurer `me`'s trip. At the centre it stands until its HP is back to `LEAVE_HP`,
+/// One step of lurer `me`'s trip. At the centre it stands until nothing chases it any more
+/// (the hand-off: the dps have taken its pack; a lurer that left with chasers dragged them
+/// back out, 54 of 68 leaves at seed 1), its HP is back to `LEAVE_HP`,
 /// the backlog it knows of is within the cap (`Lure::backlog`), the party is not halted,
 /// and no earlier lurer it can see is about to leave or just leaving (within
 /// `WATCH_DISTANCE`, healthy or moving), a wait of at most `WATCH_TIMEOUT`; out with nothing
@@ -1176,7 +1178,8 @@ fn lure_step(
         LureStage::Centre => {
             hunt(&mut p.body, CENTRE, HOME, RUN_SPEED, dt, rocks);
             let clear = settings.backlog_cap == 0.0 || backlog <= settings.backlog_cap;
-            let ready = p.hp >= LEAVE_HP * MAX_HP && clear && !halt;
+            let handed_off = chasers == 0;
+            let ready = handed_off && p.hp >= LEAVE_HP * MAX_HP && clear && !halt;
             if !ready {
                 lure.ready_since = None;
                 return;
@@ -2788,6 +2791,27 @@ mod tests {
             }
         }
         assert!(matches!(left_at, Some(55..=65)), "{left_at:?}");
+        // Home with a monster still chasing it (parked outside the disk, so the dps never
+        // take it): no new trip until it is handed off; the moment nothing chases, it goes.
+        let mut field = work();
+        field.monsters[0].body = standing(Vec2::new(12.0, 0.0));
+        field.monsters[0].spawn = field.monsters[0].body.position;
+        field.monsters[0].gait = Gait::Standing;
+        field.monsters[0].until = f32::MAX;
+        field.monsters[0].threat.insert(0, 1.0);
+        field.monsters[0].target = Some(0);
+        field.monsters[1].body = standing(Vec2::new(-40.0, 0.0));
+        field.monsters[1].spawn = field.monsters[1].body.position;
+        for _ in 0..120 {
+            field.update(1.0 / 60.0);
+            field.monsters[0].body = standing(Vec2::new(12.0, 0.0));
+        }
+        assert_eq!(field.monsters()[0].target, Some(0));
+        assert_eq!(field.lures[0].trips, 0);
+        field.monsters[0].threat.clear();
+        field.monsters[0].target = None;
+        field.update(1.0 / 60.0);
+        assert_eq!(field.lures[0].trips, 1);
         // With four party monsters (4,000 HP, 150 s of dps work) parked in the dps disk the
         // lurer stays at a cap of 30 s; with the cap off, not.
         let parked = || {
@@ -3656,7 +3680,13 @@ mod tests {
         // every cap cost kills): A 44/16/0 in 2.7 s pulls (the near ring's roamers), 28
         // walked per delivered, 32% inside; B 10/21/0, 9.6 s, 15 walked, 71%; 33 kills, no
         // deaths, 1 heal, 20 guards; at 180 s A 55/25/0, B 13/26/0, 44 kills, at the centre
-        // 2 s / 35 s, lowest member 48%.
+        // 2 s / 35 s, lowest member 48%. The hand-off (no leave while anything chases the
+        // lurer): A 6/19/0 in 18.7 s trips, 21 walked per delivered, 40% inside; B 4/11/0,
+        // 11.2 s, 14 walked, 81%; 23 kills, no deaths, 1 heal, 18 guards; at 180 s A 9/24,
+        // B 6/12, 36 kills. Over seeds 1-5 (180 s, cap off): 166 kills and no deaths against
+        // 190 kills and 5 deaths without the hand-off, which had lurers leaving with their
+        // pack still behind them on 54 of 68 leaves (seed 1) and dragging strong monsters
+        // back out; cap 30 s with the hand-off: 105 kills, no deaths.
         assert_eq!(stages.len(), 3);
         let delivered = a.delivered + b.delivered;
         assert!(a.trips >= 2 && b.trips >= 2, "{} {}", a.trips, b.trips);
