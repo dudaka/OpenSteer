@@ -43,6 +43,8 @@ pub mod color {
     pub const ATTACK: u32 = 0xf4e3b2;
     /// Line of sight: how far a chasing monster keeps its target (Training Field).
     pub const SIGHT: u32 = 0x9a8fc4;
+    /// The empty part of a bar (Training Field).
+    pub const TRACK: u32 = 0x4a505c;
 }
 
 pub fn legend(entries: &[(u32, &str)]) -> Vec<LegendView> {

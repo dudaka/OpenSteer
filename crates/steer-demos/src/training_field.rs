@@ -252,12 +252,16 @@ fn around(centre: Vec2, r: f32, angle: f32) -> Vec2 {
 }
 
 /// A bar over the body at `at`: `BAR_WIDTH` wide at full, `lift` above the centre, filled
-/// from the left to `fill` (0 to 1); `BAR_STRANDS` lines stacked for thickness.
+/// from the left to `fill` (0 to 1) over a full-width `color::TRACK` track, so the empty part
+/// shows; `BAR_STRANDS` lines stacked for thickness, the track's drawn first (under).
 fn bar(at: Vec2, lift: f32, fill: f32, color: u32) -> impl Iterator<Item = LineView> {
-    (0..BAR_STRANDS).map(move |i| {
-        let left = at + Vec2::new(-BAR_WIDTH / 2.0, -lift - i as f32 * BAR_STRAND_GAP);
-        line(left, left + Vec2::new(BAR_WIDTH * fill, 0.0), color)
-    })
+    let strands = move |fill: f32, color: u32| {
+        (0..BAR_STRANDS).map(move |i| {
+            let left = at + Vec2::new(-BAR_WIDTH / 2.0, -lift - i as f32 * BAR_STRAND_GAP);
+            line(left, left + Vec2::new(BAR_WIDTH * fill, 0.0), color)
+        })
+    };
+    strands(1.0, color::TRACK).chain(strands(fill, color))
 }
 
 /// A disk as a containment region: a 40-point counter-clockwise polygon.
@@ -770,6 +774,7 @@ impl TrainingField {
                     "training disks: each role's radius round the centre",
                 ),
                 (color::EDGE, "map edge: monsters spawn inside"),
+                (color::TRACK, "the empty part of a bar"),
                 (
                     color::RANGED,
                     "big disk: a player's ranged reach 8 (attack, buffs), a monster's alarm 6",
@@ -941,6 +946,15 @@ mod tests {
             .count();
         assert_eq!(hp_bars.len(), (6 + DEFAULT_MONSTERS) * BAR_STRANDS);
         assert_eq!(mp_bars, 6 * BAR_STRANDS);
+        // Every bar lies on a full-width track drawn before it.
+        let tracks: Vec<_> = (view.lines.iter())
+            .filter(|l| l.color == color::TRACK)
+            .collect();
+        assert_eq!(tracks.len(), (6 + DEFAULT_MONSTERS + 6) * BAR_STRANDS);
+        assert_eq!(tracks[0].to, [BAR_WIDTH / 2.0, -HP_BAR_LIFT]);
+        let first_track = view.lines.iter().position(|l| l.color == color::TRACK);
+        let first_fill = view.lines.iter().position(|l| l.color == HP_BUFFER_BODY);
+        assert!(first_track < first_fill);
         // The lurer's half-full HP bar is half the bar's width, above its centre; its
         // strands sit one gap apart.
         let lurer = &hp_bars[0];
