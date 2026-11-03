@@ -1831,8 +1831,11 @@ impl TrainingField {
             })
             .collect();
         let chasing = self.monsters.iter().filter(|m| m.target.is_some()).count();
+        // The three status lines (the team, lurer A, lurer B) stand bottom-left inside the
+        // map's square: a landscape canvas shows 66 each way (`view_size` 132), so a line
+        // anchored below 60 is cut off. A label hangs above and right of its anchor.
         labels.push(label(
-            corner(-w, h + 3.0),
+            corner(-w, h - 9.0),
             format!(
                 "{} monsters: {}; {chasing} chasing; {} kills, {} deaths; party HP {:.0}% ({:+.0} in 5 s); HP buffer: {} heals, {} group heals, {} guards",
                 self.monsters.len(),
@@ -1852,7 +1855,7 @@ impl TrainingField {
             let at = p.body.position + Vec2::new(-BAR_WIDTH / 2.0, -MP_BAR_LIFT - 0.6);
             labels.push(label(at, name, color::LABEL));
             labels.push(label(
-                corner(-w, h + 7.0 + 4.0 * i as f32),
+                corner(-w, h - 5.0 + 4.0 * i as f32),
                 format!(
                     "lurer {name} {:?}: {} trips, {} delivered, {} lost, {:.0}% in the dps disk; {} casts; {} sessions of {:.1} s, back with {:.0} HP (lowest {:.0}), {:.0} walked per delivered",
                     lure.stage,
@@ -2430,6 +2433,25 @@ mod tests {
         assert_eq!(bar.to[0] - bar.from[0], BAR_WIDTH / 2.0);
         step_with_parked_lurer(&mut field, den, 2);
         assert!((field.team()[0].hp - (MAX_HP - BITE * 3.0)).abs() < 0.1);
+    }
+
+    /// The three status lines stand bottom-left inside the map's square, the team's line on
+    /// top, then lurer A, then B (a landscape canvas shows 66 each way; the first build hung
+    /// them at 63, 67 and 71, and lurer B's line never showed).
+    #[test]
+    fn status_lines_sit_inside_the_map() {
+        let view = TrainingField::default().view();
+        let anchor = |start: &str| {
+            let l = (view.labels.iter())
+                .find(|l| l.text.starts_with(start))
+                .unwrap_or_else(|| panic!("no label starting with {start:?}"));
+            assert_eq!(l.at[0], -60.0);
+            l.at[1]
+        };
+        let (team, a, b) = (anchor("15 monsters:"), anchor("lurer A"), anchor("lurer B"));
+        assert!(team < a && a < b, "{team} {a} {b}");
+        assert!(b <= 60.0 && team >= -60.0, "{team} {b}");
+        assert!(2.0 * b + 12.0 <= view.view_size);
     }
 
     #[test]
