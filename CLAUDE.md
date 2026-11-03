@@ -9,7 +9,7 @@ This is the original OpenSteer C++ library (Craig Reynolds' steering behaviors, 
 ## Start here
 
 - `PLAN.md`: the step plan with `[done]` marks, **Status** (where we are, what is next), **Decisions and open questions**, **Findings** (verified behavior facts with numbers), **Gaps and known issues**, and the layout of every crate and package. Read it before starting a step.
-- Stage 1 (2D, Phases 0-6) and stage 2 so far (Phase 7: the 3D arena, steps A, B, E; the Silkroad world, steps C1-C3 and walls D1-D3, PRs #38-#43) are done. What comes next is the user's choice from the list under `PLAN.md` Status, "Next" (ask; do not pick one).
+- Stage 1 (2D, Phases 0-6), stage 2 (Phase 7: the 3D arena, steps A, B, E; the Silkroad world, steps C1-C3 and walls D1-D3, #23-#43) and stage 3 so far (Phase 8: the Training Field, F1-F6k, #46) are done. Next (the user, 2026-11-03): they observe the Training Field in a fresh session, then random obstacles of varying shape and size inside the luring disk (design notes in `PLAN.md` Phase 8, "Next step: obstacles"; settle them with the user first). Anything else: the user's choice from `PLAN.md` Status, "Next" (ask; do not pick one).
 - The user is learning the behaviors as we go. **Hold each new behavior until the user says to continue**, and ask before opening a PR; they ask conceptual questions (formulas, what each line means, what is given vs calculated) before moving on. Answer from the code, with numbers checked by running it. Only when the user asks for a batch: one branch and PR per step, merged on green CI without holding, one summary at the end.
 
 ## Commands
@@ -92,12 +92,16 @@ cmake --build build
 - A mutation script that splits "old|new" on `|` breaks on Rust bit expressions (`A | B`): pass old and new as separate arguments, and check the mutation really applied (the run must fail).
 - Measuring code: add a temporary `mod measure_tmp` test, run it with `--nocapture`, then delete the whole module (after `cargo fmt` its text no longer matches what was written, so cut from its `#[cfg(test)]` / `mod measure_tmp` start). `git checkout -- <file>` when only temporary code changed.
 - The user may have `scripts/dev.sh` running: do not kill it; ask them to restart it to pick up Rust changes.
+- rustfmt re-wraps long lines after every change, so exact-string edits written from memory fail: write the edit script to a file, assert each anchor's count, use a regex for a wrapped statement, slice between unique markers to replace a whole function, and remember a method inside `impl` ends at `\n    }\n`, not `\n}\n` (slicing to the latter once swallowed the rest of the impl).
+- A heredoc ends a `&&` chain: commands on the line after `EOF` run whatever happened before. Scripts to files first, then one `&&` line from the edit through fmt, clippy, tests, typecheck, build, commit and push; twice a failing state was committed before this rule.
+- A mutation check must require the failure (`grep -q "^test result: FAILED"` as a `&&` step), never `(...; true)`.
+- Measuring a demo: a temporary `#[test]` with `println!`, run with `-- --nocapture`, removed before the commit; the numbers go into the pinned test's comment and `PLAN.md` Findings.
 
 ## Git workflow
 
 - Remotes: `origin` = the user's fork `dudaka/OpenSteer` (default branch `main`), `upstream` = `meshula/OpenSteer`. `origin/glfw_port` came with the fork; it is not ours.
 - One branch per feature, made from `main` (the project skills in `.claude/skills/` only exist on branches made from `main`). Commit and push there, never straight to `main`. CI runs only on pushes to `main` and on pull requests.
-- When the feature is done and the user agrees: open a PR, wait for CI to be green, merge with a merge commit, then delete the feature branch locally and on `origin`.
+- When the feature is done and the user agrees: open a PR, wait for CI to be green, merge with a merge commit, then delete the feature branch locally and on `origin`. Context refreshes go as their own small PRs (#44, #45, #47). PRs so far: #1-#47.
 
 ## The Silkroad world (Phase 7 C/D, done)
 
@@ -108,6 +112,14 @@ cmake --build build
 - Rules learned the hard way (details and numbers in `PLAN.md` Findings): the terrain under town is pits (the floor is the object above); nearest-surface standing falls off floors just above the terrain (use step-up); a target straight behind a resting vehicle is never reached; the 3D Seek limits (force 1, speed 3) are too weak for walls; the navmesh splits straight walls into pieces whose rectangle hints all point at their joints (merge straight runs); avoidance looks only ahead, so bodies scrape walls and corners.
 - Wall rules (sro-polyanya `navmeshTriangulation.cpp`): terrain internal edges with a block bit, skipping those on the region border; object outline 0x03 / 0x10 (bridge rim) / 0x80; object inline edges with a block bit. Simplified: one-way ledges are walls both ways; outline 0x08 (stitch to another object) is open.
 - A floor's walls apply to a walker whose height is within the wall's end heights, give or take the step. Each wall keeps its floor height at both ends, so a bridge rim stops a walker on the deck, not one under it.
+
+## The Training Field (Phase 8, merged in #46)
+
+- A 2D demo, `crates/steer-demos/src/training_field.rs` (its 40 tests in the same file), the last 2D demo: a Silkroad training spot in miniature for caravan's open problem, the lurer (caravan D105/D107, "Luring not working as expected"). A party of eight (lurers A and B, four dps, an HP and an MP buffer) trains round one centre; monsters by rarity spawn at nests on a disk map; the lurers tag monsters and lead them to the dps disk. `PLAN.md` Phase 8 "As built" is the model; its Decisions, Findings and Gaps hold the user's choices, the measured numbers and what is left. Units: 1 = 1 m (Silkroad's 20 / 60 disks are 10 / 50 here).
+- Two rules shaped every step. **Agents know only what the game shows them**: entities within 30, the party window's HP bars, which player a monster chases, their own memory; never another agent's plan or stage, never a position beyond 30 (the first two-lurer build broke this and was redone). **Every step ends with** hand-computed tests, a pinned two-minute run (seed 1) whose numbers go into the test's comment and `PLAN.md`, and one mutation that must fail; a mutation's expectation must be a literal, never the constant being mutated.
+- Numbers are constants at the top of the module (reaches, skills, caps, thresholds) and `Settings` sliders (N, monster speed, bite, load cap, strong cap); the user decides balance from measurements. Any new random draw (a spawn, a spot, a gait) shifts every pinned measurement: re-measure, re-pin with margins, and say so in the test's comment.
+- Test helpers: `quiet_field` (five normal monsters outside the map), `field_with_a_monster_at`, `risky_field`, `step_with_parked_lurer`, `run_tracking_a`, `measure`. A placed monster must get `set_rarity(Rarity::Normal)` and, when its position matters, a frozen gait (`gait = Standing`, `until = f32::MAX`); identify monsters by `id` across steps, never by index (a kill removes an entry and the rest shift).
+- Rhythm in this phase: the user writes requirements or a browser observation; answer with a design, numbers and the expected measurement, then build on "go"; the user corrects game realism (an overpowered skill, omniscience). The whole environment lived on one branch until the user called the milestone; from here, small branches and PRs again.
 
 ## Project skills (`.claude/skills/`, sources in `THIRD_PARTY.md`)
 
