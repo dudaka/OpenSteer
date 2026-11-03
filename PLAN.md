@@ -34,7 +34,7 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
   2. Draw building floors (object navmesh cells) so the plaza walker does not float over pits.
   3. One-way ledges: drop off, never climb (now walls both ways; sro-polyanya keeps a blocked side).
   4. Other ground demos on the terrain (Pedestrians, Capture the Flag) with the same `World`.
-- Tests: 276 Rust tests (13 in `silkroad-navmesh`, + 3 ignored full-data ones), 21 C++ oracles.
+- Tests: 278 Rust tests (13 in `silkroad-navmesh`, + 3 ignored full-data ones), 21 C++ oracles.
   Tests needing the game data skip without it (CI has none); with it, the Silkroad demo's tests
   take ~14 s in debug. 2D: `oracle_one_turning`, `oracle_seek_flee`,
   `oracle_wander`, `oracle_pursuit`, `oracle_obstacles`, `oracle_pathway`,
@@ -349,6 +349,17 @@ Steps:
   count held every step), the legend with the body colors. Tests: the six roles inside their
   disks and apart; spawns inside the map, outside the dps disk, spread across the lurer's
   radius; the slider's count. Mutation (spawns allowed inside the dps disk) fails the spawn test.
+  Then (the user 2026-11-02, "looking good"; no PR until the environment is done): bodies 2 units
+  across (`BODY_RADIUS` 1, a person at the map's scale); gaits at human speeds, 1 unit = 1 m
+  (`Gait`: standing 0, walking 1.5, running 5; max force 8), every body wandering at its gait's
+  speed inside its own disk (`contain` on a 40-point circle `role.radius() - BODY_RADIUS`, probe
+  1 s ahead; a runner also brakes at 4 while the push is on, since its turning radius of about 3
+  is wider than the buffers' disk; a walker turns within 0.3 and needs no brake), monsters idle
+  the same way within 6 of their spawn, buttons Stand / Walk / Run for the whole team. No
+  collisions between bodies (the user). Measured and pinned: walking, everyone holds 1.5 and the
+  whole body stays inside (at worst 0.41 inside the ring); running, the lurer averages 4.6, the
+  dps 3.4, the buffers 2.1, nobody below 1.47, all inside. Mutation (the players' region without
+  the body margin) fails the walking test.
 - F2. HP, MP, skills, the hit rule, deaths and respawns; monsters' threat table and aggro
   (hit, on sight), pursuit, bite, leash. Hand-computed tests.
 - F3. The dps role. Verify: never outside 10 (plus the body), kills happen.
