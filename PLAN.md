@@ -362,6 +362,14 @@ Steps:
   in each gait, every one visits all three in two minutes, none faster than its gait or further
   than 4.4 from its spawn. (Measured before the change: walking, everyone holds exactly 1.5.)
   Mutations (the players' region without the body margin; a gait never redrawn) fail.
+  Then (the user): the HP and MP buffers in their own body colors (dps blue, HP rose, MP teal);
+  sight as "a fan of raycasts in front of an entity" (`fan`, `ray_enters_circle`,
+  `TrainingField::sight`): 7 rays over 90 degrees ahead, 12 long, each cut at the near side of
+  the first body it enters (`Ray { from, to, hit }`, `hit` an index over the team then the
+  monsters), drawn in `color::SIGHT`. Tests: hand-computed entries (a radius-1 body 5 ahead is
+  entered at 4; 0.6 aside at 4.2; aside, behind or beyond the range: none), the fan symmetric
+  about forward, the lurer's middle ray cut at a monster 6 ahead, no ray ever hits its own body.
+  Mutation (the far root of the intersection) fails the entry test.
 - F2. HP, MP, skills, the hit rule, deaths and respawns; monsters' threat table and aggro
   (hit, on sight), pursuit, bite, leash. Hand-computed tests.
 - F3. The dps role. Verify: never outside 10 (plus the body), kills happen.

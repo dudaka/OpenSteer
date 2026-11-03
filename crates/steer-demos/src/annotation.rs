@@ -35,6 +35,8 @@ pub mod color {
     pub const BODY: u32 = 0x808080;
     /// The game world's terrain (Silkroad demos).
     pub const GROUND: u32 = 0x6f7d5c;
+    /// A sight ray: what an entity sees ahead (Training Field).
+    pub const SIGHT: u32 = 0x9a8fc4;
 }
 
 pub fn legend(entries: &[(u32, &str)]) -> Vec<LegendView> {

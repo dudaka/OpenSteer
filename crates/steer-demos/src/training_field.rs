@@ -3,7 +3,8 @@
 //! and an MP buffer (5) and our lurer (50); monsters spawn at random over a rectangular map.
 //! Built so far (PLAN.md, Phase 8): the map, the disks, the spawns, and bodies at human speeds,
 //! each wandering inside its own disk: the players always run, a monster stands, walks or runs
-//! for a few seconds at a time. Roles, combat and the lurer's trips come in later steps.
+//! for a few seconds at a time. Every entity looks ahead through a fan of rays (`sight`), each
+//! cut at the first body it meets. Roles, combat and the lurer's trips come in later steps.
 
 use std::f32::consts::TAU;
 
@@ -37,6 +38,10 @@ pub const WALK_SPEED: f32 = 1.5;
 pub const RUN_SPEED: f32 = 5.0;
 /// Pedestrians' max force.
 const MAX_FORCE: f32 = 8.0;
+/// Sight: a fan of `FAN_RAYS` rays spread over `FAN_ANGLE` ahead, each `SIGHT_RANGE` long.
+pub const SIGHT_RANGE: f32 = 12.0;
+pub const FAN_RAYS: usize = 7;
+pub const FAN_ANGLE: f32 = TAU / 4.0;
 /// Containment's look-ahead: the probe is `BODY_RADIUS + LOOK_AHEAD * speed` ahead.
 const LOOK_AHEAD: f32 = 1.0;
 /// A runner brakes while containment pushes (the Containment demo's finding): its turning
@@ -153,6 +158,46 @@ fn around(centre: Vec2, r: f32, angle: f32) -> Vec2 {
     centre + Vec2::new(angle.cos(), angle.sin()) * r
 }
 
+/// One ray of a fan: from the eye to the first body it meets, or to the end of its range.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Ray {
+    pub from: Vec2,
+    pub to: Vec2,
+    /// The entity hit, as an index over the team then the monsters.
+    pub hit: Option<usize>,
+}
+
+/// The fan's unit directions: `FAN_RAYS` over `FAN_ANGLE`, centred on `forward`.
+pub fn fan(forward: Vec2) -> [Vec2; FAN_RAYS] {
+    std::array::from_fn(|i| {
+        let angle = FAN_ANGLE * (i as f32 / (FAN_RAYS - 1) as f32 - 0.5);
+        let (sin, cos) = angle.sin_cos();
+        Vec2::new(
+            forward.x * cos - forward.y * sin,
+            forward.x * sin + forward.y * cos,
+        )
+    })
+}
+
+/// How far along a ray from `from` in unit direction `dir` the circle (`centre`, `radius`)
+/// is first entered, if within `range`: the near root of the ray-circle intersection.
+pub fn ray_enters_circle(
+    from: Vec2,
+    dir: Vec2,
+    range: f32,
+    centre: Vec2,
+    radius: f32,
+) -> Option<f32> {
+    let to_centre = centre - from;
+    let along = to_centre.dot(dir);
+    let off_squared = to_centre.length_squared() - along * along;
+    if off_squared > radius * radius {
+        return None;
+    }
+    let t = along - (radius * radius - off_squared).sqrt();
+    (0.0..=range).contains(&t).then_some(t)
+}
+
 /// A disk as a containment region: a 40-point counter-clockwise polygon.
 fn disk(centre: Vec2, radius: f32) -> Wall {
     const SIDES: usize = 40;
@@ -226,6 +271,32 @@ impl TrainingField {
 
     pub fn monsters(&self) -> &[Monster] {
         &self.monsters
+    }
+
+    /// Every body, the team first, then the monsters: the index space of `Ray::hit`.
+    fn bodies(&self) -> impl Iterator<Item = &Vehicle> {
+        (self.team.iter().map(|p| &p.body)).chain(self.monsters.iter().map(|m| &m.body))
+    }
+
+    /// What entity `eye` (an index over `bodies`) sees: its fan of rays, each cut at the
+    /// nearest other body it enters.
+    pub fn sight(&self, eye: usize) -> [Ray; FAN_RAYS] {
+        let me = self.bodies().nth(eye).expect("an entity");
+        fan(me.forward).map(|dir| {
+            let nearest = (self.bodies().enumerate())
+                .filter(|&(i, _)| i != eye)
+                .filter_map(|(i, b)| {
+                    ray_enters_circle(me.position, dir, SIGHT_RANGE, b.position, b.radius)
+                        .map(|t| (i, t))
+                })
+                .min_by(|a, b| a.1.total_cmp(&b.1));
+            let (hit, reach) = nearest.map_or((None, SIGHT_RANGE), |(i, t)| (Some(i), t));
+            Ray {
+                from: me.position,
+                to: me.position + dir * reach,
+                hit,
+            }
+        })
     }
 
     /// Spawns the missing monsters, then moves every body: a player runs inside its role's
@@ -306,6 +377,12 @@ impl TrainingField {
             .windows(2)
             .map(|c| line(c[0], c[1], color::EDGE))
             .collect();
+        let count = self.team.len() + self.monsters.len();
+        lines.extend(
+            (0..count)
+                .flat_map(|eye| self.sight(eye))
+                .map(|ray| line(ray.from, ray.to, color::SIGHT)),
+        );
         let mut labels = Vec::new();
         for (r, text) in [
             (BUFF_RADIUS, "buffers 5"),
@@ -357,6 +434,10 @@ impl TrainingField {
                     "training disks: each role's radius round the centre",
                 ),
                 (color::EDGE, "map edge: monsters spawn inside"),
+                (
+                    color::SIGHT,
+                    "sight: 7 rays over 90 degrees ahead, 12 long, cut at the first body",
+                ),
             ]),
             actions: Vec::new(),
             params: vec![slider("monsters", "Monsters", MONSTERS, self.wanted as f32)],
@@ -404,6 +485,77 @@ mod tests {
             }
         }
         m
+    }
+
+    #[test]
+    fn a_ray_enters_a_circle_at_its_near_side() {
+        let (from, up) = (Vec2::ZERO, Vec2::new(0.0, 1.0));
+        // A body of radius 1 centred 5 ahead is entered at 4.
+        assert_eq!(
+            ray_enters_circle(from, up, 12.0, Vec2::new(0.0, 5.0), 1.0),
+            Some(4.0)
+        );
+        // Off to the side by 0.6 of radius 1: entered at 5 - 0.8.
+        let t = ray_enters_circle(from, up, 12.0, Vec2::new(0.6, 5.0), 1.0).unwrap();
+        assert!((t - 4.2).abs() < 1e-6, "{t}");
+        // Off by more than the radius, behind, or beyond the range: nothing.
+        assert_eq!(
+            ray_enters_circle(from, up, 12.0, Vec2::new(1.5, 5.0), 1.0),
+            None
+        );
+        assert_eq!(
+            ray_enters_circle(from, up, 12.0, Vec2::new(0.0, -5.0), 1.0),
+            None
+        );
+        assert_eq!(
+            ray_enters_circle(from, up, 12.0, Vec2::new(0.0, 14.0), 1.0),
+            None
+        );
+    }
+
+    #[test]
+    fn the_fan_spans_the_angle_symmetrically() {
+        let rays = fan(Vec2::new(0.0, 1.0));
+        assert_eq!(rays.len(), FAN_RAYS);
+        for (i, r) in rays.iter().enumerate() {
+            assert!((r.length() - 1.0).abs() < 1e-6);
+            let mirrored = rays[FAN_RAYS - 1 - i];
+            assert!((r.x + mirrored.x).abs() < 1e-6 && (r.y - mirrored.y).abs() < 1e-6);
+        }
+        // The first ray is turned by -FAN_ANGLE / 2: for forward (0, 1) that is toward +x.
+        let half = (FAN_ANGLE / 2.0).sin();
+        assert!((rays[0].x - half).abs() < 1e-6, "{:?}", rays[0]);
+        assert!((rays[FAN_RAYS / 2].y - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn sight_is_cut_at_the_nearest_body_and_never_at_itself() {
+        let mut field = TrainingField::default();
+        // The lurer at the centre faces up the screen (-y); put a monster 6 ahead and one 9.
+        field.param("monsters", 5.0);
+        field.monsters[0].body.position = Vec2::new(0.0, -6.0);
+        field.monsters[1].body.position = Vec2::new(0.0, -9.0);
+        let rays = field.sight(0);
+        let middle = rays[FAN_RAYS / 2];
+        assert_eq!(middle.hit, Some(6));
+        assert_eq!(middle.to, Vec2::new(0.0, -5.0));
+        for _ in 0..600 {
+            field.update(1.0 / 60.0);
+        }
+        let count = field.team().len() + field.monsters().len();
+        for eye in 0..count {
+            for ray in field.sight(eye) {
+                assert_ne!(ray.hit, Some(eye));
+                assert!((ray.to - ray.from).length() <= SIGHT_RANGE + 1e-4);
+            }
+        }
+        let drawn = field
+            .view()
+            .lines
+            .iter()
+            .filter(|l| l.color == color::SIGHT)
+            .count();
+        assert_eq!(drawn, count * FAN_RAYS);
     }
 
     #[test]
