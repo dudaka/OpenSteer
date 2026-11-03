@@ -169,18 +169,20 @@ pub const HALT_HP: f32 = 50.0;
 pub const HALT_DROP: f32 = 30.0;
 pub const TREND_WINDOW: f32 = 5.0;
 /// The balance sliders and their defaults: N, the monsters' running speed (faster than the
-/// players' 5, as in the game), the bite's damage and reach, the load cap, the strong cap (a
-/// lurer waits while the dps disk holds this many strong monsters, HP x10 or more).
+/// players' 5, as in the game), the bite's damage and reach, the backlog cap: a lurer waits
+/// while the dps work it knows of (the HP left in the dps disk at the four dps's focused
+/// output `DPS_RATE`, in seconds, read with the disk in sight and run down since, plus what
+/// chases the lurer itself) is above this many seconds, and takes a strong monster only
+/// under it (the user, 2026-11-03: work left, not head counts; a giant is 20 normals).
 const CHASERS: Range = Range::new(1.0, 10.0, 1.0);
 const MONSTER_SPEED: Range = Range::new(3.0, 8.0, 0.5);
 const BITE_RANGE: Range = Range::new(1.0, 10.0, 0.5);
 const BITE_REACH: Range = Range::new(1.0, 5.0, 0.5);
-const LOAD_CAP: Range = Range::new(0.0, 10.0, 1.0);
-const STRONG_CAP: Range = Range::new(0.0, 5.0, 1.0);
-pub const DEFAULT_STRONG_CAP: usize = 2;
+const BACKLOG_CAP: Range = Range::new(0.0, 120.0, 5.0);
+pub const DEFAULT_BACKLOG_CAP: f32 = 30.0;
+pub const DPS_RATE: f32 = 4.0 * AOE_DAMAGE / AOE_COOLDOWN;
 pub const BACK_CHASERS: usize = 3;
 pub const DEFAULT_MONSTER_SPEED: f32 = 6.0;
-pub const DEFAULT_LOAD_CAP: usize = 3;
 /// Rocks: random circle obstacles inside the luring disk (the user, 2026-11-03), drawn from
 /// their own rng after the nests so the monsters' draws stay as without them; radii
 /// `ROCK_MIN..ROCK_MAX`, clear of the dps disk by `ROCK_DISK_GAP`, of a nest's idle disk by a
@@ -221,10 +223,9 @@ pub struct Settings {
     pub monster_speed: f32,
     pub bite: f32,
     pub bite_reach: f32,
-    /// The lurer stays while the dps disk holds more than this; 0 for no cap.
-    pub load_cap: usize,
-    /// The lurer stays while the dps disk holds this many strong monsters; 0 for no cap.
-    pub strong_cap: usize,
+    /// The lurer stays while the backlog it knows of is above this many seconds; 0 for no
+    /// cap.
+    pub backlog_cap: f32,
     /// How many rocks the luring disk holds.
     pub obstacles: usize,
 }
@@ -237,8 +238,7 @@ impl Default for Settings {
             monster_speed: DEFAULT_MONSTER_SPEED,
             bite: BITE,
             bite_reach: MELEE_REACH,
-            load_cap: DEFAULT_LOAD_CAP,
-            strong_cap: DEFAULT_STRONG_CAP,
+            backlog_cap: DEFAULT_BACKLOG_CAP,
             obstacles: DEFAULT_OBSTACLES,
         }
     }
@@ -522,6 +522,8 @@ pub struct Lure {
     pub hp_back_total: f32,
     pub hp_back_min: f32,
     pub walked: f32,
+    /// The backlog last read with the dps disk in sight: seconds of dps work, and when.
+    backlog_seen: Option<(f32, f32)>,
 }
 
 impl Lure {
@@ -530,6 +532,14 @@ impl Lure {
             last_seen: vec![None; LURERS],
             ..Lure::default()
         }
+    }
+
+    /// The dps work the lurer knows of, in seconds: what it last saw in the disk less the
+    /// time since (the dps kept firing), plus `chasing_hp`, the HP of what chases it from
+    /// outside the disk.
+    pub fn backlog(&self, now: f32, chasing_hp: f32) -> f32 {
+        let seen = (self.backlog_seen).map_or(0.0, |(s, t)| (s - (now - t)).max(0.0));
+        seen + chasing_hp / DPS_RATE
     }
 
     pub fn share_in_disk(&self) -> f32 {
@@ -631,6 +641,11 @@ impl Monster {
             && self.threat.is_empty()
             && (self.body.position - self.spawn).length() <= IDLE_RADIUS
     }
+}
+
+/// Whether a monster stands inside the dps disk.
+fn in_dps_disk(m: &&Monster) -> bool {
+    (m.body.position - CENTRE).length() <= DPS_RADIUS
 }
 
 /// A body at rest at `position`, facing up the screen.
@@ -1102,10 +1117,9 @@ struct Trip<'a> {
     settings: &'a Settings,
     monsters: &'a [Monster],
     lurers: &'a [Observed],
-    /// Monsters chasing this lurer; monsters in the dps disk; strong ones among them.
+    /// Monsters chasing this lurer; the dps work it knows of, in seconds.
     chasers: usize,
-    load: usize,
-    strong: usize,
+    backlog: f32,
     /// The risk check: strong monsters may be tagged; no session should start.
     strong_ok: bool,
     halt: bool,
@@ -1114,8 +1128,8 @@ struct Trip<'a> {
 }
 
 /// One step of lurer `me`'s trip. At the centre it stands until its HP is back to `LEAVE_HP`,
-/// the dps disk holds at most the load cap's monsters and fewer strong ones than the strong
-/// cap, and no earlier lurer it can see is about to leave or just leaving (within
+/// the backlog it knows of is within the cap (`Lure::backlog`), the party is not halted,
+/// and no earlier lurer it can see is about to leave or just leaving (within
 /// `WATCH_DISTANCE`, healthy or moving), a wait of at most `WATCH_TIMEOUT`; out with nothing
 /// in sight it scouts the band away from where it last saw the other lurer, having tagged
 /// something it turns home with what follows; out, it follows its tour (planned
@@ -1135,8 +1149,7 @@ fn lure_step(
         monsters,
         lurers,
         chasers,
-        load,
-        strong,
+        backlog,
         strong_ok,
         halt,
         now,
@@ -1152,9 +1165,8 @@ fn lure_step(
     match lure.stage {
         LureStage::Centre => {
             hunt(&mut p.body, CENTRE, HOME, RUN_SPEED, dt, rocks);
-            let quiet = settings.load_cap == 0 || load <= settings.load_cap;
-            let safe = settings.strong_cap == 0 || strong < settings.strong_cap;
-            let ready = p.hp >= LEAVE_HP * MAX_HP && quiet && safe && !halt;
+            let clear = settings.backlog_cap == 0.0 || backlog <= settings.backlog_cap;
+            let ready = p.hp >= LEAVE_HP * MAX_HP && clear && !halt;
             if !ready {
                 lure.ready_since = None;
                 return;
@@ -1467,6 +1479,15 @@ impl TrainingField {
         }
     }
 
+    /// The dps work left in the dps disk: the HP of the monsters inside it at `DPS_RATE`, in
+    /// seconds.
+    pub fn disk_backlog(&self) -> f32 {
+        (self.monsters.iter().filter(in_dps_disk))
+            .map(|m| m.hp)
+            .sum::<f32>()
+            / DPS_RATE
+    }
+
     /// The party window now: every member's HP in percent.
     fn bars_now(&self) -> Vec<f32> {
         self.team.iter().map(|p| p.hp / MAX_HP * 100.0).collect()
@@ -1493,11 +1514,22 @@ impl TrainingField {
         let chasers: Vec<usize> = (0..LURERS)
             .map(|l| self.monsters.iter().filter(|m| m.target == Some(l)).count())
             .collect();
-        let in_disk = |m: &&Monster| (m.body.position - CENTRE).length() <= DPS_RADIUS;
-        let load = self.monsters.iter().filter(in_disk).count();
-        let strong = (self.monsters.iter().filter(in_disk))
-            .filter(|m| m.rarity.is_strong())
-            .count();
+        // Each lurer reads the disk's backlog with the disk in sight and adds what chases it
+        // from outside the disk.
+        let (disk_backlog, now) = (self.disk_backlog(), self.time);
+        let backlogs: Vec<f32> = (0..LURERS)
+            .map(|l| {
+                let at = self.team[l].body.position;
+                if (at - CENTRE).length() + DPS_RADIUS <= LURER_SIGHT {
+                    self.lures[l].backlog_seen = Some((disk_backlog, now));
+                }
+                let chasing_hp: f32 = (self.monsters.iter())
+                    .filter(|m| m.target == Some(l) && !in_dps_disk(m))
+                    .map(|m| m.hp)
+                    .sum();
+                self.lures[l].backlog(now, chasing_hp)
+            })
+            .collect();
         // The party window: the shortest bar now and the worst fall over the trend window.
         let window = (TREND_WINDOW / dt).round() as usize + 1;
         self.bars.push_back(self.bars_now());
@@ -1505,8 +1537,10 @@ impl TrainingField {
             self.bars.pop_front();
         }
         let (lowest, fall) = (self.lowest_hp(), self.worst_fall());
-        let safe_strong = self.settings.strong_cap == 0 || strong < self.settings.strong_cap;
-        let strong_ok = safe_strong && lowest >= RISKY_HP && fall <= RISKY_DROP;
+        let cap = self.settings.backlog_cap;
+        let strong_ok: Vec<bool> = (backlogs.iter())
+            .map(|&b| (cap == 0.0 || b <= cap) && lowest >= RISKY_HP && fall <= RISKY_DROP)
+            .collect();
         let halt = lowest < HALT_HP || fall > HALT_DROP;
         let rng = &mut self.rng;
         let mut hits = Vec::new();
@@ -1558,14 +1592,14 @@ impl TrainingField {
             p.target = match p.role {
                 Role::Dps => nearest_monster_in_disk(p.body.position, &self.monsters),
                 Role::Lurer => {
-                    untagged_in_reach(i, p.body.position, &self.monsters, &positions, strong_ok)
+                    untagged_in_reach(i, p.body.position, &self.monsters, &positions, strong_ok[i])
                 }
                 _ => None,
             };
             if p.role == Role::Lurer {
                 let (monsters, now) = (&self.monsters, self.time);
                 let lure = &mut self.lures[i];
-                let seen = (positions.as_slice(), strong_ok);
+                let seen = (positions.as_slice(), strong_ok[i]);
                 let hit = lure_cast(p, i, p.target, monsters, seen, lure, now);
                 tags.extend(hit.into_iter().map(|t| (i, t)));
                 let trip = Trip {
@@ -1573,9 +1607,8 @@ impl TrainingField {
                     monsters,
                     lurers: &view,
                     chasers: chasers[i],
-                    load,
-                    strong,
-                    strong_ok,
+                    backlog: backlogs[i],
+                    strong_ok: strong_ok[i],
                     halt,
                     now,
                     dt,
@@ -1744,8 +1777,7 @@ impl TrainingField {
             "monster_speed" => s.monster_speed = MONSTER_SPEED.clamp(value),
             "bite" => s.bite = BITE_RANGE.clamp(value),
             "bite_reach" => s.bite_reach = BITE_REACH.clamp(value),
-            "load_cap" => s.load_cap = LOAD_CAP.clamp(value) as usize,
-            "strong_cap" => s.strong_cap = STRONG_CAP.clamp(value) as usize,
+            "backlog_cap" => s.backlog_cap = BACKLOG_CAP.clamp(value),
             "obstacles" => {
                 s.obstacles = OBSTACLES.clamp(value) as usize;
                 self.obstacles = place_rocks(self.settings.obstacles, &self.nests());
@@ -2045,7 +2077,7 @@ impl TrainingField {
         labels.push(label(
             corner(-w, h - 9.0),
             format!(
-                "{} monsters: {}; {chasing} chasing; {} kills, {} deaths; party HP {:.0}%, lowest {:.0}% (fell {:.0} in 5 s); HP buffer: {} heals, {} group heals, {} guards",
+                "{} monsters: {}; {chasing} chasing; {} kills, {} deaths; party HP {:.0}%, lowest {:.0}% (fell {:.0} in 5 s); HP buffer: {} heals, {} group heals, {} guards; disk backlog {:.0} s",
                 self.monsters.len(),
                 gaits.join(", "),
                 self.kills,
@@ -2055,7 +2087,8 @@ impl TrainingField {
                 self.worst_fall(),
                 self.heals,
                 self.group_heals,
-                self.guards
+                self.guards,
+                self.disk_backlog()
             ),
             color::LABEL,
         ));
@@ -2197,16 +2230,10 @@ impl TrainingField {
                     self.settings.bite_reach,
                 ),
                 slider(
-                    "load_cap",
-                    "Load cap (0: none)",
-                    LOAD_CAP,
-                    self.settings.load_cap as f32,
-                ),
-                slider(
-                    "strong_cap",
-                    "Strong cap (0: none)",
-                    STRONG_CAP,
-                    self.settings.strong_cap as f32,
+                    "backlog_cap",
+                    "Backlog cap, s (0: none)",
+                    BACKLOG_CAP,
+                    self.settings.backlog_cap,
                 ),
             ],
         }
@@ -2754,12 +2781,14 @@ mod tests {
             }
         }
         assert!(matches!(left_at, Some(55..=65)), "{left_at:?}");
-        // With four monsters parked in the dps disk the lurer stays; with the cap off, not.
+        // With four party monsters (4,000 HP, 150 s of dps work) parked in the dps disk the
+        // lurer stays; with the cap off, not.
         let parked = || {
             let mut field = work();
             for (k, m) in field.monsters.iter_mut().skip(1).take(4).enumerate() {
                 m.body = standing(Vec2::new(7.0, k as f32 * 2.0 - 3.0));
                 m.spawn = m.body.position;
+                m.set_rarity(Rarity::PartyNormal);
             }
             field
         };
@@ -2772,7 +2801,7 @@ mod tests {
             (LureStage::Centre, 0)
         );
         let mut field = parked();
-        field.param("load_cap", 0.0);
+        field.param("backlog_cap", 0.0);
         field.update(1.0 / 60.0);
         assert_eq!(field.lures[0].trips, 1);
     }
@@ -2941,32 +2970,46 @@ mod tests {
     }
 
     #[test]
-    fn strong_monsters_in_the_dps_disk_hold_the_lurers_from_the_cap_up() {
-        // Party monsters (HP x10) parked 6 from the centre, a normal one 25 out for work.
-        // One strong, under the default cap of 2: A leaves at once. Two: both lurers wait;
-        // with the strong cap off, A leaves at once.
-        let held = |strong: usize| {
+    fn the_backlog_holds_the_lurers_from_the_cap_up() {
+        // Work parked 6 from the centre, a normal monster 25 out for the trip. Two normals
+        // (200 HP, 7.5 s of dps work) under the default cap of 30 s: A leaves at once. A
+        // party normal (1,000 HP, 37.5 s): both lurers wait; at a cap of 60 s, or with the
+        // cap off, A leaves at once.
+        let parked = |rarity: Rarity, count: usize| {
             let mut field = quiet_field();
-            for (k, m) in field.monsters.iter_mut().take(strong).enumerate() {
+            for (k, m) in field.monsters.iter_mut().take(count).enumerate() {
                 m.body = standing(Vec2::new(6.0, 2.0 * k as f32));
-                m.set_rarity(Rarity::PartyNormal);
+                m.set_rarity(rarity);
             }
             field.monsters[2].body = standing(Vec2::new(-25.0, 0.0));
             field
         };
-        let mut field = held(1);
+        let mut field = parked(Rarity::Normal, 2);
         field.update(1.0 / 60.0);
         assert_eq!(field.lures[0].trips, 1);
-        let mut field = held(2);
+        let mut field = parked(Rarity::PartyNormal, 1);
         for _ in 0..180 {
             field.update(1.0 / 60.0);
         }
         assert_eq!((field.lures[0].trips, field.lures[1].trips), (0, 0));
         assert!(field.monsters()[0].hp < field.monsters()[0].max_hp);
-        let mut field = held(2);
-        field.param("strong_cap", 0.0);
-        field.update(1.0 / 60.0);
-        assert_eq!(field.lures[0].trips, 1);
+        for cap in [60.0, 0.0] {
+            let mut field = parked(Rarity::PartyNormal, 1);
+            field.param("backlog_cap", cap);
+            field.update(1.0 / 60.0);
+            assert_eq!(field.lures[0].trips, 1, "cap {cap}");
+        }
+        // The lurer's own reading: what it saw less the time since, plus what chases it (a
+        // giant's 2,000 HP is 75 s at the four dps's 26.7 a second).
+        let near = |a: f32, b: f32| (a - b).abs() < 1e-3;
+        let lure = Lure {
+            backlog_seen: Some((40.0, 0.0)),
+            ..Lure::new()
+        };
+        assert!(near(lure.backlog(5.0, 0.0), 35.0));
+        assert!(near(lure.backlog(50.0, 0.0), 0.0));
+        assert!(near(lure.backlog(5.0, 2000.0), 110.0));
+        assert!(near(Lure::new().backlog(5.0, 100.0), 3.75));
     }
 
     /// A giant and a normal monster 20 out on lurer A's side, 6 apart (no cast takes both).
@@ -3002,15 +3045,17 @@ mod tests {
             tagged.contains(&giant) && tagged.contains(&normal),
             "{tagged:?}"
         );
-        // A party monster already in the dps disk with the strong cap set to 1 (the default 2
-        // would let one through): the giant is left alone, the normal is tagged.
+        // Two giants (14 apart, so no cast catches both) and the normal: A tags one giant
+        // and the normal and leaves the other giant alone, since the giant chasing it is
+        // 75 s of dps work, above the cap of 30.
         let mut field = risky_field();
-        field.param("strong_cap", 1.0);
-        field.monsters[2].body = standing(Vec2::new(6.0, 0.0));
-        field.monsters[2].set_rarity(Rarity::PartyNormal);
+        field.monsters[2].body = standing(Vec2::new(-20.0, -14.0));
+        field.monsters[2].set_rarity(Rarity::Giant);
+        let other = field.monsters()[2].id;
         let tagged = run_tracking_a(&mut field, 480);
+        assert!(tagged.contains(&normal), "{tagged:?}");
         assert!(
-            !tagged.contains(&giant) && tagged.contains(&normal),
+            tagged.contains(&giant) != tagged.contains(&other),
             "{tagged:?}"
         );
         // One dps falling 20 points at once (the party's mean 97.5%): no strong tag for the
@@ -3181,8 +3226,8 @@ mod tests {
         let params = field.view().params;
         let value = |id: &str| params.iter().find(|p| p.id == id).unwrap().value;
         assert_eq!(
-            (value("chasers"), value("bite"), value("load_cap")),
-            (5.0, 10.0, 3.0)
+            (value("chasers"), value("bite"), value("backlog_cap")),
+            (5.0, 10.0, 30.0)
         );
     }
 
@@ -3550,6 +3595,11 @@ mod tests {
         // 4/15/0, 4 sessions of 10.3 s, 9 walked, 88%; 17 kills, no deaths, 2 heals, 15
         // guards; at 180 s A 3/11/0, B 4/15/0, 21 kills, at the centre 114 s / 139 s (the
         // halts at a dps under 50% at 50, 80 and 120 s that the mean never saw).
+        // The backlog cap (30 s of dps work, in place of the load cap 3 and the strong cap
+        // 2): A 3/9/0, 3 sessions of 21.1 s, 28 walked per delivered, 60% inside; B 12/16/0,
+        // 12 sessions of 4.9 s (short pulls whenever the work runs low), 13 walked, 73%; 17
+        // kills, no deaths, 1 heal, 13 guards; at 180 s A 5/14/0, B 14/20/0, 25 kills, at the
+        // centre 89 s / 107 s.
         assert_eq!(stages.len(), 3);
         let delivered = a.delivered + b.delivered;
         assert!(a.trips >= 2 && b.trips >= 2, "{} {}", a.trips, b.trips);
