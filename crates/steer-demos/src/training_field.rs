@@ -12,7 +12,9 @@
 //! whoever has hurt it most (its threat table) before anyone merely near. A dead player is back
 //! at the centre after 5 s; a dead monster is replaced elsewhere after 3 s. A dps fires at the
 //! nearest monster inside the dps disk, an area blast that hurts every monster round the
-//! target and raises their threat. The buffs and the lurer's trips come in later steps.
+//! target and raises their threat. The buffers keep the team's bars up: each casts a 10 s buff
+//! that recovers HP or MP on the member with the lowest bar under the threshold. The lurer's
+//! trips come in later steps.
 
 use std::collections::HashMap;
 use std::f32::consts::TAU;
@@ -58,6 +60,19 @@ pub const AOE_DAMAGE: f32 = 10.0;
 pub const AOE_BLAST: f32 = 2.0;
 pub const AOE_MP: f32 = 6.0;
 pub const AOE_COOLDOWN: f32 = 1.5;
+/// The buffs: a buffer casts once a second, within its ranged reach, on the living member
+/// (itself included) with the lowest bar under `BUFF_THRESHOLD` and no such buff running; the
+/// buff recovers `HP_BUFF_RATE` HP or `MP_BUFF_RATE` MP a second for `BUFF_DURATION`.
+pub const HP_BUFF_RATE: f32 = 4.0;
+pub const MP_BUFF_RATE: f32 = 3.0;
+pub const HP_BUFF_MP: f32 = 4.0;
+pub const MP_BUFF_MP: f32 = 2.0;
+pub const BUFF_DURATION: f32 = 10.0;
+pub const BUFF_COOLDOWN: f32 = 1.0;
+pub const BUFF_THRESHOLD: f32 = 0.9;
+/// A running buff is shown as a ring this far out round the body (HP inside, MP outside).
+const HP_BUFF_RING: f32 = 1.3;
+const MP_BUFF_RING: f32 = 1.5;
 /// A monster's bite: `BITE` HP off its target every `BITE_COOLDOWN` while inside melee reach.
 pub const BITE: f32 = 3.0;
 pub const BITE_COOLDOWN: f32 = 1.5;
@@ -162,8 +177,11 @@ pub struct Player {
     dead_until: Option<f32>,
     /// A dps's target: the monster (an index into the monsters) it closes on or fires at.
     pub target: Option<usize>,
-    /// When it may fire next.
-    attack_ready: f32,
+    /// When it may use its skill next (a dps's attack, a buffer's buff).
+    skill_ready: f32,
+    /// The HP and MP buffs on it run until these times.
+    pub hp_buff_until: f32,
+    pub mp_buff_until: f32,
 }
 
 impl Player {
@@ -342,7 +360,9 @@ impl Default for TrainingField {
             spot: at,
             dead_until: None,
             target: None,
-            attack_ready: 0.0,
+            skill_ready: 0.0,
+            hp_buff_until: 0.0,
+            mp_buff_until: 0.0,
         };
         let team = vec![
             player(Role::Lurer, CENTRE),
@@ -396,14 +416,28 @@ impl TrainingField {
                         spot: CENTRE,
                         dead_until: None,
                         target: None,
-                        attack_ready: self.time,
+                        skill_ready: self.time,
+                        hp_buff_until: 0.0,
+                        mp_buff_until: 0.0,
                         role: p.role,
                     };
                 }
                 continue;
             }
-            p.hp = (p.hp + REGEN * dt).min(MAX_HP);
-            p.mp = (p.mp + REGEN * dt).min(MAX_MP);
+            let hp_rate = REGEN
+                + if self.time < p.hp_buff_until {
+                    HP_BUFF_RATE
+                } else {
+                    0.0
+                };
+            let mp_rate = REGEN
+                + if self.time < p.mp_buff_until {
+                    MP_BUFF_RATE
+                } else {
+                    0.0
+                };
+            p.hp = (p.hp + hp_rate * dt).min(MAX_HP);
+            p.mp = (p.mp + mp_rate * dt).min(MAX_MP);
             p.target = (p.role == Role::Dps)
                 .then(|| nearest_monster_in_disk(p.body.position, &self.monsters))
                 .flatten();
@@ -414,14 +448,18 @@ impl TrainingField {
             };
             let at = self.monsters[t].body.position;
             if hunt(&mut p.body, at, RANGED_REACH, dt) == Gait::Standing
-                && self.time >= p.attack_ready
+                && self.time >= p.skill_ready
                 && p.mp >= AOE_MP
             {
                 p.mp -= AOE_MP;
-                p.attack_ready = self.time + AOE_COOLDOWN;
+                p.skill_ready = self.time + AOE_COOLDOWN;
                 hits.push((i, at));
             }
         }
+        for b in 0..self.team.len() {
+            self.cast_buff(b);
+        }
+        let rng = &mut self.rng;
         for (shooter, at) in hits {
             for m in &mut self.monsters {
                 if (m.body.position - at).length() <= AOE_BLAST {
@@ -471,6 +509,37 @@ impl TrainingField {
             self.monsters.truncate(self.wanted);
             self.spawn_missing();
         }
+    }
+
+    /// Buffer `b` (nothing for other roles) casts its buff when ready and affordable: on the
+    /// living member within its ranged reach with the lowest bar under the threshold and no
+    /// such buff running, the buffer itself included.
+    fn cast_buff(&mut self, b: usize) {
+        type Read = fn(&Player) -> f32;
+        let buffer = &self.team[b];
+        let (cost, bar, until): (f32, Read, Read) = match buffer.role {
+            Role::HpBuffer => (HP_BUFF_MP, |p| p.hp / MAX_HP, |p| p.hp_buff_until),
+            Role::MpBuffer => (MP_BUFF_MP, |p| p.mp / MAX_MP, |p| p.mp_buff_until),
+            _ => return,
+        };
+        if buffer.is_dead() || self.time < buffer.skill_ready || buffer.mp < cost {
+            return;
+        }
+        let at = buffer.body.position;
+        let member = (self.team.iter().enumerate())
+            .filter(|(_, p)| !p.is_dead() && (p.body.position - at).length() <= RANGED_REACH)
+            .filter(|(_, p)| bar(p) < BUFF_THRESHOLD && self.time >= until(p))
+            .min_by(|a, b| bar(a.1).total_cmp(&bar(b.1)))
+            .map(|(i, _)| i);
+        let Some(i) = member else {
+            return;
+        };
+        match self.team[b].role {
+            Role::HpBuffer => self.team[i].hp_buff_until = self.time + BUFF_DURATION,
+            _ => self.team[i].mp_buff_until = self.time + BUFF_DURATION,
+        }
+        self.team[b].mp -= cost;
+        self.team[b].skill_ready = self.time + BUFF_COOLDOWN;
     }
 
     /// Deaths: a player at 0 HP dies (back after `PLAYER_RESPAWN`; every monster forgets it);
@@ -572,6 +641,12 @@ impl TrainingField {
                 lines.push(line(p.body.position, at, color::ATTACK));
                 circles.push(circle_view(at, AOE_BLAST, color::ATTACK));
             }
+            if self.time < p.hp_buff_until {
+                circles.push(circle_view(p.body.position, HP_BUFF_RING, HP_BUFFER_BODY));
+            }
+            if self.time < p.mp_buff_until {
+                circles.push(circle_view(p.body.position, MP_BUFF_RING, MP_BUFFER_BODY));
+            }
         }
         for m in &self.monsters {
             if let Some(i) = m.target {
@@ -634,8 +709,14 @@ impl TrainingField {
             legend: legend(&[
                 (LURER_BODY, "our lurer"),
                 (DPS_BODY, "dps (3)"),
-                (HP_BUFFER_BODY, "HP buffer; the HP bar over every body"),
-                (MP_BUFFER_BODY, "MP buffer; the MP bar over every player"),
+                (
+                    HP_BUFFER_BODY,
+                    "HP buffer; the HP bar over every body; a ring: its buff running",
+                ),
+                (
+                    MP_BUFFER_BODY,
+                    "MP buffer; the MP bar over every player; a ring: its buff running",
+                ),
                 (MONSTER_BODY, "monster"),
                 (
                     color::RADIUS,
@@ -764,19 +845,20 @@ mod tests {
             .iter()
             .all(|p| p.hp == MAX_HP && p.mp == MAX_MP));
         assert!(field.monsters().iter().all(|m| m.hp == MAX_HP));
-        field.team[0].hp = 50.0;
-        field.team[0].mp = 20.0;
+        // Above the buff threshold, so only regeneration moves them.
+        field.team[0].hp = 92.0;
+        field.team[0].mp = 92.0;
         field.monsters[0].hp = 50.0;
-        for _ in 0..600 {
+        for _ in 0..300 {
             field.update(1.0 / 60.0);
         }
         assert!(
-            (field.team()[0].hp - 60.0).abs() < 0.05,
+            (field.team()[0].hp - 97.0).abs() < 0.05,
             "{}",
             field.team()[0].hp
         );
         assert!(
-            (field.team()[0].mp - 30.0).abs() < 0.05,
+            (field.team()[0].mp - 97.0).abs() < 0.05,
             "{}",
             field.team()[0].mp
         );
@@ -929,6 +1011,89 @@ mod tests {
         field.monsters[0].body = standing(near);
         field.monsters[0].spawn = near;
         field
+    }
+
+    /// Five monsters, all far away in a corner: nobody fights.
+    fn quiet_field() -> TrainingField {
+        field_with_a_monster_at(Vec2::new(-70.0, -50.0))
+    }
+
+    #[test]
+    fn the_buffers_restore_the_lowest_bar_under_the_threshold_for_ten_seconds() {
+        let mut field = quiet_field();
+        field.team[1].hp = 50.0;
+        field.team[2].mp = 50.0;
+        field.update(1.0 / 60.0);
+        let t = field.time;
+        assert!((field.team()[1].hp_buff_until - (t + BUFF_DURATION)).abs() < 1e-3);
+        assert!((field.team()[2].mp_buff_until - (t + BUFF_DURATION)).abs() < 1e-3);
+        assert!((field.team()[4].mp - (MAX_MP - HP_BUFF_MP)).abs() < 0.1);
+        assert!((field.team()[5].mp - (MAX_MP - MP_BUFF_MP)).abs() < 0.1);
+        // 5 s in: 50 + 5 x (4 + 1) HP, 50 + 5 x (3 + 1) MP.
+        for _ in 0..300 {
+            field.update(1.0 / 60.0);
+        }
+        assert!(
+            (field.team()[1].hp - 75.0).abs() < 0.5,
+            "{}",
+            field.team()[1].hp
+        );
+        assert!(
+            (field.team()[2].mp - 70.0).abs() < 0.5,
+            "{}",
+            field.team()[2].mp
+        );
+        // No second cast while the buff runs: the buffers' MP only regenerated.
+        assert!(field.team()[4].mp > MAX_MP - HP_BUFF_MP);
+        assert!(field.team()[5].mp > MAX_MP - MP_BUFF_MP);
+        // At 10 s the HP buff has given 40 and regeneration 10: full. The MP buff has given
+        // 30 and regeneration 10: 90, the threshold, so no fresh cast follows.
+        for _ in 0..300 {
+            field.update(1.0 / 60.0);
+        }
+        assert!(field.team()[1].hp >= 99.0, "{}", field.team()[1].hp);
+        assert!(
+            (field.team()[2].mp - 90.0).abs() < 0.5,
+            "{}",
+            field.team()[2].mp
+        );
+    }
+
+    #[test]
+    fn a_buff_needs_a_bar_under_the_threshold_within_reach_and_goes_to_the_lowest_first() {
+        let mut field = quiet_field();
+        // 95%: above the threshold, nothing cast.
+        field.team[1].hp = 95.0;
+        field.update(1.0 / 60.0);
+        assert_eq!(field.team()[1].hp_buff_until, 0.0);
+        // The lurer at 50% but 40 away: out of the HP buffer's reach.
+        let mut field = quiet_field();
+        field.team[0].hp = 50.0;
+        field.team[0].body = standing(Vec2::new(40.0, 0.0));
+        field.update(1.0 / 60.0);
+        assert_eq!(field.team()[0].hp_buff_until, 0.0);
+        // Three in need: the lowest first (the buffer heals itself), then the others in order
+        // of need, one cast a second, each when in reach of the roaming buffer.
+        let mut field = quiet_field();
+        field.team[1].hp = 60.0;
+        field.team[2].hp = 40.0;
+        field.team[4].hp = 30.0;
+        let mut buffed_at = [f32::MAX; 6];
+        for _ in 0..600 {
+            field.update(1.0 / 60.0);
+            for (i, p) in field.team().iter().enumerate() {
+                if p.hp_buff_until > 0.0 {
+                    buffed_at[i] = buffed_at[i].min(field.time);
+                }
+            }
+        }
+        assert!(buffed_at[4] < 0.1, "{buffed_at:?}");
+        assert!(
+            buffed_at[4] < buffed_at[2] && buffed_at[2] < buffed_at[1],
+            "{buffed_at:?}"
+        );
+        assert!(buffed_at[1] < 10.0, "{buffed_at:?}");
+        assert!(buffed_at[0] == f32::MAX && buffed_at[3] == f32::MAX && buffed_at[5] == f32::MAX);
     }
 
     #[test]

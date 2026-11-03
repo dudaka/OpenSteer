@@ -422,6 +422,16 @@ Steps:
   and is replaced; two monsters 1.5 apart both take the blast, one 3.5 away does not; a dps
   short of MP holds fire until regeneration; a monster inside the disk but 10.3 from a dps is
   run at and hit within 2 s. Mutation (the blast hitting only the target) fails.
+  The buffs (built, this branch): `cast_buff`, once a second (`Player::skill_ready`, shared
+  with the dps attack) when the buffer has the MP (`HP_BUFF_MP` 4, `MP_BUFF_MP` 2), on the
+  living member within its ranged reach with the lowest bar under `BUFF_THRESHOLD` 0.9 and no
+  such buff running, itself included; the buff (`hp_buff_until` / `mp_buff_until`) adds
+  `HP_BUFF_RATE` 4 or `MP_BUFF_RATE` 3 a second to the regeneration for `BUFF_DURATION` 10 s;
+  shown as a ring round the body (1.3 rose, 1.5 teal). Tests: a dps at 50 HP and one at 50 MP
+  are buffed at once, read 75 HP and 70 MP at 5 s, full HP and 90 MP (the threshold, so no
+  fresh cast) at 10 s, no second cast meanwhile; nothing cast at 95%, nor on a member 40 away;
+  three in need are served lowest first, one cast a second, when in reach of the roaming
+  buffer, the buffer itself first. Mutation (the HP buff adding nothing) fails.
   Combat numbers: bite reach 2, 3 damage, 1.5 s (one monster kills an unbuffed player in
   50 s, four in 12.5 s); dps AoE reach 8, blast radius 2 round the target, 10 damage to
   every monster in it, 6 MP, 1.5 s (one dps kills a monster in 15 s, three clear a cluster of
