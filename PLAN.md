@@ -48,8 +48,11 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
   7. [done, this branch] One backlog slider (the dps work left in the disk, in seconds, default
      30) in place of the load and strong caps, read within sight, run down while out, the
      lurer's own chasers added (Findings: B makes many short pulls whenever the work runs low).
-  8. Next: the user observes the backlog model in the browser and sets its default; then the
-     Gaps of item 5.
+  8. [done, this branch] The pull rule (a monster chasing a player or inside the dps disk is
+     never pulled) and the backlog cap off by default: the cap tables (Findings) show no cap
+     buying safety at 15 or 30 monsters and every cap costing kills; the slider stays.
+  9. Next: a main page listing every demo, each opening its page with the controls on the
+     left (the user, 2026-11-03); then the Gaps of item 5.
   The 3D options offered 2026-10-21 stay for later:
   1. Stop bodies scraping walls: add the containment side probes (the design of steps 23 and 37) to the
      Silkroad walker, so walls it runs along or corners it rounds push it off (Findings: 299 of
@@ -371,12 +374,13 @@ and 50 here. Numbers are constants at the top of the module and `Settings` slide
   (the lurer on the threat table); an area skill only when it tags two or more untagged
   monsters, the pierce on a tie.
 - The lurer's trip (`Lure`, `LureStage`, `lure_step`). Centre: stand until HP >= `LEAVE_HP` 90%,
-  the backlog it knows of within the cap (30 s of dps work; 0 off: the HP left in the dps disk
+  the backlog it knows of within the cap (off by default, slider 0-120 s of dps work: the HP left in the dps disk
   at the four dps's focused 26.7 a second, read with the disk in sight, run down since, plus
   what chases the lurer from outside the disk; `Lure::backlog`), the party not halted (every
   bar >= 50% and no member fell more than 30 in 5 s) and, for B, no earlier lurer in sight
   within 15 of the centre that is healthy or moving (at most 5 s). Out: plan every 1 s over the
-  8 nearest candidates (untagged by any lurer; mine, by the nearer visible lurer with ties to A;
+  8 nearest candidates (untagged by any lurer, chasing nobody, outside the dps disk; mine, by
+  the nearer visible lurer with ties to A;
   within my sight 30; reachable from inside the disk; strong ones only while the disk holds
   fewer strong than the cap, every bar >= 70% and no member fell more than 15 in 5 s): the cast
   planner (default; a stop is a monster to get within a skill's reach of; the shortest run that
@@ -834,7 +838,10 @@ Decided with the user (2026-11-02 to 03, Phase 8, in order):
   instead of head counts (what the dps still have to kill, visible as monster bars): one
   slider, default 30 s, a strong monster a candidate only under it, the lurer's own chasers
   counted (so one lurer never brings two strong ones; two lurers out of each other's sight
-  still can).
+  still can). The cap is off by default (my recommendation from the cap tables, 2026-11-03):
+  with the lowest-bar check nobody died at any cap, and every cap cost kills; the slider stays
+  for a cautious lurer. The pull rule: a monster already chasing a player or already inside
+  the dps disk is never a pull target (a real lurer leaves the spot's own monsters to the dps).
 
 Open (ask before acting):
 - The party window showing members' HP bars is my assumption about the game; if it does not,
@@ -993,6 +1000,15 @@ trips/delivered/lost):
   no deaths in two minutes; at 180 s A 5/14/0, B 14/20/0, 25 kills, at the centre 89 s / 107 s
   (the caps: 114 s / 139 s). A giant alone (75 s) holds the lurers 45 s, a party normal
   (37.5 s) 7.5 s.
+- **The backlog cap buys no safety at this difficulty; it costs kills.** Three minutes, seed
+  1, rocks, with the pull rule (a monster chasing a player or inside the disk is never pulled),
+  no deaths in any run, the lowest member 47-48% in every one (the heal catches the dip):
+  15 monsters, cap 15 / 30 / 45 / 60 / 90 / off: 31 / 31 / 34 / 30 / 33 / 44 kills, idle at
+  the centre A 76 / 78 / 73 / 87 / 73 / 2 s; 30 monsters, cap 30 / 60 / 90 / off: 42 / 56 /
+  69 / 72 kills. Before the pull rule a freed lurer stepped out, tagged a monster fighting the
+  dps at the disk's edge and stepped back (75 trips of 2 s at cap 90); with it the short
+  pulls are the near ring's roamers (A 44 pulls of 2.7 s deliver 16 in two minutes), so
+  `trips` counts pulls, not excursions.
 
 ## Gaps and known issues
 

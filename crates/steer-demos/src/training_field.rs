@@ -173,13 +173,15 @@ pub const TREND_WINDOW: f32 = 5.0;
 /// while the dps work it knows of (the HP left in the dps disk at the four dps's focused
 /// output `DPS_RATE`, in seconds, read with the disk in sight and run down since, plus what
 /// chases the lurer itself) is above this many seconds, and takes a strong monster only
-/// under it (the user, 2026-11-03: work left, not head counts; a giant is 20 normals).
+/// under it (the user, 2026-11-03: work left, not head counts; a giant is 20 normals). Off
+/// by default: at 15 and 30 monsters the lowest-bar risk check alone kept everyone alive
+/// while every cap only cost kills (the tables in `PLAN.md` Findings).
 const CHASERS: Range = Range::new(1.0, 10.0, 1.0);
 const MONSTER_SPEED: Range = Range::new(3.0, 8.0, 0.5);
 const BITE_RANGE: Range = Range::new(1.0, 10.0, 0.5);
 const BITE_REACH: Range = Range::new(1.0, 5.0, 0.5);
 const BACKLOG_CAP: Range = Range::new(0.0, 120.0, 5.0);
-pub const DEFAULT_BACKLOG_CAP: f32 = 30.0;
+pub const DEFAULT_BACKLOG_CAP: f32 = 0.0;
 pub const DPS_RATE: f32 = 4.0 * AOE_DAMAGE / AOE_COOLDOWN;
 pub const BACK_CHASERS: usize = 3;
 pub const DEFAULT_MONSTER_SPEED: f32 = 6.0;
@@ -884,6 +886,14 @@ fn tagged_by_a_lurer(m: &Monster) -> bool {
     (0..LURERS).any(|l| m.threat.contains_key(&l))
 }
 
+/// A monster no lurer pulls: tagged by a lurer, already chasing a player, or already inside
+/// the dps disk (the game shows all three: the lurer's own hits, whom a monster chases, where
+/// it stands). Without the last two, lurers freed by a high cap stepped out, tagged a monster
+/// fighting the dps at the disk's edge, and stepped back, 75 "trips" of 2 s in three minutes.
+fn engaged(m: &Monster) -> bool {
+    tagged_by_a_lurer(m) || m.target.is_some() || in_dps_disk(&m)
+}
+
 /// Which lurer an untagged monster at `at` belongs to: the nearest living one (`lurers` by
 /// index, `None` for a dead one), the lower index on a tie. Both lurers see each other, so
 /// this splits the field between them without a word (the user: a lurer must not kite the
@@ -905,7 +915,7 @@ fn untagged_in_reach(
     strong_ok: bool,
 ) -> Option<usize> {
     (monsters.iter().enumerate())
-        .filter(|(_, m)| !tagged_by_a_lurer(m) && owner(m.body.position, lurers) == Some(lurer))
+        .filter(|(_, m)| !engaged(m) && owner(m.body.position, lurers) == Some(lurer))
         .filter(|(_, m)| strong_ok || !m.rarity.is_strong())
         .map(|(i, m)| (i, (m.body.position - at).length()))
         .filter(|&(_, d)| d <= RANGED_REACH)
@@ -944,7 +954,7 @@ pub fn plan_casts(
     impl Search<'_> {
         fn untagged(&self, hits: Vec<usize>, tagged: &[u32]) -> Vec<u32> {
             (hits.into_iter().map(|i| &self.monsters[i]))
-                .filter(|m| !tagged_by_a_lurer(m) && !tagged.contains(&m.id))
+                .filter(|m| !engaged(m) && !tagged.contains(&m.id))
                 .map(|m| m.id)
                 .collect()
         }
@@ -1047,7 +1057,7 @@ fn tour_candidates(
     strong_ok: bool,
 ) -> Vec<(u32, Vec2)> {
     let mut near: Vec<&Monster> = (monsters.iter())
-        .filter(|m| !tagged_by_a_lurer(m) && owner(m.body.position, lurers) == Some(lurer))
+        .filter(|m| !engaged(m) && owner(m.body.position, lurers) == Some(lurer))
         .filter(|m| strong_ok || !m.rarity.is_strong())
         .filter(|m| (m.body.position - at).length() <= LURER_SIGHT)
         .filter(|m| (m.body.position - CENTRE).length() <= LURE_RADIUS + PIERCE_LENGTH)
@@ -1307,17 +1317,13 @@ fn lure_cast(
     counts: &mut Lure,
     now: f32,
 ) -> Vec<usize> {
-    let untagged = |hits: &[usize]| {
-        hits.iter()
-            .filter(|&&i| !tagged_by_a_lurer(&monsters[i]))
-            .count()
-    };
+    let untagged = |hits: &[usize]| hits.iter().filter(|&&i| !engaged(&monsters[i])).count();
     // With strong monsters off limits, no area cast that would catch one.
     let allowed =
         |hits: &[usize]| strong_ok || hits.iter().all(|&i| !monsters[i].rarity.is_strong());
     let at = p.body.position;
     let candidates = (monsters.iter().enumerate())
-        .filter(|(_, m)| !tagged_by_a_lurer(m) && owner(m.body.position, lurers) == Some(lurer))
+        .filter(|(_, m)| !engaged(m) && owner(m.body.position, lurers) == Some(lurer))
         .filter(|(_, m)| strong_ok || !m.rarity.is_strong())
         .map(|(i, m)| (i, (m.body.position - at).length()));
     let (mut blast, mut pierce): (Vec<usize>, Vec<usize>) = (Vec::new(), Vec::new());
@@ -2587,8 +2593,9 @@ mod tests {
 
     #[test]
     fn an_area_attack_hits_at_most_the_five_nearest() {
-        // Six monsters in a row below the centre, 0.4 apart: every dps and lurer A aim at
-        // the first; the blasts cover all six and hit the five nearest, the sixth untouched.
+        // Six monsters in a row below the centre, 0.4 apart: every dps aims at the first
+        // (lurer A leaves monsters inside the disk alone); the blasts cover all six and hit
+        // the five nearest, the sixth untouched.
         let mut field = field_with_a_monster_at(Vec2::new(0.0, -4.0));
         for (k, m) in field.monsters.iter_mut().enumerate().skip(1) {
             m.body = standing(Vec2::new(0.0, -4.0 - 0.4 * k as f32));
@@ -2597,8 +2604,8 @@ mod tests {
         field.monsters[5].body = standing(Vec2::new(0.0, -6.0));
         field.update(1.0 / 60.0);
         let hp: Vec<f32> = field.monsters().iter().map(|m| m.hp).collect();
-        assert_eq!(hp, [59.0, 59.0, 59.0, 59.0, 59.0, 100.0]);
-        assert_eq!((field.lures[0].blasts, field.lures[0].tags), (1, 0));
+        assert_eq!(hp, [60.0, 60.0, 60.0, 60.0, 60.0, 100.0]);
+        assert_eq!((field.lures[0].blasts, field.lures[0].tags), (0, 0));
     }
 
     #[test]
@@ -2782,9 +2789,10 @@ mod tests {
         }
         assert!(matches!(left_at, Some(55..=65)), "{left_at:?}");
         // With four party monsters (4,000 HP, 150 s of dps work) parked in the dps disk the
-        // lurer stays; with the cap off, not.
+        // lurer stays at a cap of 30 s; with the cap off, not.
         let parked = || {
             let mut field = work();
+            field.param("backlog_cap", 30.0);
             for (k, m) in field.monsters.iter_mut().skip(1).take(4).enumerate() {
                 m.body = standing(Vec2::new(7.0, k as f32 * 2.0 - 3.0));
                 m.spawn = m.body.position;
@@ -2971,12 +2979,13 @@ mod tests {
 
     #[test]
     fn the_backlog_holds_the_lurers_from_the_cap_up() {
-        // Work parked 6 from the centre, a normal monster 25 out for the trip. Two normals
-        // (200 HP, 7.5 s of dps work) under the default cap of 30 s: A leaves at once. A
-        // party normal (1,000 HP, 37.5 s): both lurers wait; at a cap of 60 s, or with the
-        // cap off, A leaves at once.
+        // Work parked 6 from the centre, a normal monster 25 out for the trip, the cap at
+        // 30 s. Two normals (200 HP, 7.5 s of dps work): A leaves at once. A party normal
+        // (1,000 HP, 37.5 s): both lurers wait; at a cap of 60 s, or with the cap off, A
+        // leaves at once.
         let parked = |rarity: Rarity, count: usize| {
             let mut field = quiet_field();
+            field.param("backlog_cap", 30.0);
             for (k, m) in field.monsters.iter_mut().take(count).enumerate() {
                 m.body = standing(Vec2::new(6.0, 2.0 * k as f32));
                 m.set_rarity(rarity);
@@ -3045,10 +3054,11 @@ mod tests {
             tagged.contains(&giant) && tagged.contains(&normal),
             "{tagged:?}"
         );
-        // Two giants (14 apart, so no cast catches both) and the normal: A tags one giant
-        // and the normal and leaves the other giant alone, since the giant chasing it is
-        // 75 s of dps work, above the cap of 30.
+        // Two giants (14 apart, so no cast catches both) and the normal, the cap at 30 s: A
+        // tags one giant and the normal and leaves the other giant alone, since the giant
+        // chasing it is 75 s of dps work, above the cap.
         let mut field = risky_field();
+        field.param("backlog_cap", 30.0);
         field.monsters[2].body = standing(Vec2::new(-20.0, -14.0));
         field.monsters[2].set_rarity(Rarity::Giant);
         let other = field.monsters()[2].id;
@@ -3227,7 +3237,7 @@ mod tests {
         let value = |id: &str| params.iter().find(|p| p.id == id).unwrap().value;
         assert_eq!(
             (value("chasers"), value("bite"), value("backlog_cap")),
-            (5.0, 10.0, 30.0)
+            (5.0, 10.0, 0.0)
         );
     }
 
@@ -3551,6 +3561,48 @@ mod tests {
         }
     }
 
+    /// A monster already chasing a player or already inside the dps disk is never a pull
+    /// target; the same monster idle outside the disk is.
+    #[test]
+    fn a_monster_already_fighting_or_in_the_disk_is_never_pulled() {
+        let both = [Some(CENTRE), Some(CENTRE)];
+        let mut field = quiet_field();
+        // On lurer A's side (west): one 12 out, one 8 out (inside the dps disk).
+        field.monsters[0].body = standing(Vec2::new(-12.0, 0.0));
+        field.monsters[1].body = standing(Vec2::new(-8.0, 0.0));
+        let outside = field.monsters()[0].id;
+        let ids = |c: Vec<(u32, Vec2)>| c.into_iter().map(|(id, _)| id).collect::<Vec<_>>();
+        assert_eq!(
+            ids(tour_candidates(0, CENTRE, field.monsters(), &both, true)),
+            vec![outside]
+        );
+        assert_eq!(
+            untagged_in_reach(0, Vec2::new(-6.0, 0.0), field.monsters(), &both, true),
+            Some(0)
+        );
+        // The outside one chasing a dps: no candidate at all, nothing in reach.
+        field.monsters[0].target = Some(2);
+        assert!(tour_candidates(0, CENTRE, field.monsters(), &both, true).is_empty());
+        assert_eq!(
+            untagged_in_reach(0, Vec2::new(-6.0, 0.0), field.monsters(), &both, true),
+            None
+        );
+        // Over five seconds lurer A never tags it (it scouts instead); idle, it is tagged.
+        let chasing = |target: Option<usize>| {
+            let mut field = quiet_field();
+            field.monsters[0].body = standing(Vec2::new(-12.0, 0.0));
+            field.monsters[0].spawn = field.monsters[0].body.position;
+            field.monsters[0].target = target;
+            if target.is_some() {
+                field.monsters[0].threat.insert(2, 10.0);
+            }
+            let id = field.monsters()[0].id;
+            run_tracking_a(&mut field, 300).contains(&id)
+        };
+        assert!(!chasing(Some(2)));
+        assert!(chasing(None));
+    }
+
     /// Two minutes of the default field: the lurer makes trips, brings monsters in, and is
     /// out of the dps disk most of the time.
     #[test]
@@ -3599,7 +3651,12 @@ mod tests {
         // 2): A 3/9/0, 3 sessions of 21.1 s, 28 walked per delivered, 60% inside; B 12/16/0,
         // 12 sessions of 4.9 s (short pulls whenever the work runs low), 13 walked, 73%; 17
         // kills, no deaths, 1 heal, 13 guards; at 180 s A 5/14/0, B 14/20/0, 25 kills, at the
-        // centre 89 s / 107 s.
+        // centre 89 s / 107 s. The pull rule (nothing chasing or inside the disk is pulled)
+        // and the cap off by default (the cap tables in PLAN.md: no cap ever bought safety,
+        // every cap cost kills): A 44/16/0 in 2.7 s pulls (the near ring's roamers), 28
+        // walked per delivered, 32% inside; B 10/21/0, 9.6 s, 15 walked, 71%; 33 kills, no
+        // deaths, 1 heal, 20 guards; at 180 s A 55/25/0, B 13/26/0, 44 kills, at the centre
+        // 2 s / 35 s, lowest member 48%.
         assert_eq!(stages.len(), 3);
         let delivered = a.delivered + b.delivered;
         assert!(a.trips >= 2 && b.trips >= 2, "{} {}", a.trips, b.trips);
@@ -3619,7 +3676,8 @@ mod tests {
             field.deaths
         );
         // The third minute: one strong monster in the disk no longer holds the lurers (4
-        // trips each at strong cap 2; 3 and 4 since the lowest-bar risk check).
+        // trips each at strong cap 2; 3 and 4 since the lowest-bar risk check; 55 and 13
+        // with the cap off).
         for _ in 0..60 * 60 {
             field.update(1.0 / 60.0);
         }
@@ -3761,16 +3819,14 @@ mod tests {
         let mut field = field_with_a_monster_at(Vec2::new(0.0, -4.0));
         field.update(1.0 / 60.0);
         let m = &field.monsters()[0];
-        // Four shots, and lurer A's tag (4 away is inside its reach; a tie between the
-        // lurers goes to A).
-        assert_eq!(m.hp, MAX_HP - 4.0 * AOE_DAMAGE - TAG_DAMAGE);
-        let threat = HashMap::from([(0, 1.0), (2, 10.0), (3, 10.0), (4, 10.0), (5, 10.0)]);
+        // Four shots; no tag from lurer A, which leaves a monster inside the disk alone.
+        assert_eq!(m.hp, MAX_HP - 4.0 * AOE_DAMAGE);
+        let threat = HashMap::from([(2, 10.0), (3, 10.0), (4, 10.0), (5, 10.0)]);
         assert_eq!(m.threat, threat);
         assert_eq!(m.target, Some(2));
         for (i, p) in field.team().iter().enumerate() {
-            let spent = match (i, p.role) {
-                (0, Role::Lurer) => TAG_MP,
-                (_, Role::Dps) => AOE_MP,
+            let spent = match p.role {
+                Role::Dps => AOE_MP,
                 _ => 0.0,
             };
             assert_eq!(p.target, (spent > 0.0).then_some(0), "player {i}");
@@ -3791,9 +3847,9 @@ mod tests {
         field.monsters[2].body = standing(Vec2::new(0.0, -7.5));
         field.update(1.0 / 60.0);
         let hp: Vec<f32> = field.monsters().iter().map(|m| m.hp).collect();
-        // Four blasts on the first (the second within 2 of it), and lurer A's blast round
-        // the middle one (1.5 and 2 away) tagging all three.
-        assert_eq!(hp[..3], [59.0, 59.0, 99.0]);
+        // Four blasts on the first (the second within 2 of it); lurer A leaves monsters
+        // inside the disk alone.
+        assert_eq!(hp[..3], [60.0, 60.0, 100.0]);
     }
 
     #[test]
@@ -3803,8 +3859,8 @@ mod tests {
             p.mp = AOE_MP - 1.0;
         }
         field.update(1.0 / 60.0);
-        // No shot; only the lurer's tag.
-        assert_eq!(field.monsters()[0].hp, MAX_HP - TAG_DAMAGE);
+        // No shot, and no tag either: the lurer leaves a monster inside the disk alone.
+        assert_eq!(field.monsters()[0].hp, MAX_HP);
         for _ in 0..70 {
             field.update(1.0 / 60.0);
         }
@@ -3960,8 +4016,9 @@ mod tests {
         let shares = steps_in.map(|n| n as f32 / total);
         assert!(shares.iter().all(|&s| s > 0.25 && s < 0.42), "{shares:?}");
         let quiet: Vec<usize> = (0..DEFAULT_MONSTERS).filter(|&i| !chased[i]).collect();
-        // Three never chased at seed 1 before the lowest-bar risk check, two since.
-        assert!(quiet.len() >= 2, "{}", quiet.len());
+        // Never chased at seed 1: three before the lowest-bar risk check, two after it, one
+        // with the backlog cap off (the lurers pull far more).
+        assert!(!quiet.is_empty(), "{}", quiet.len());
         for &i in &quiet {
             assert!(visited[i].iter().all(|&b| b), "monster {i}");
             assert!(
