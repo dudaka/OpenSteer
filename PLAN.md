@@ -43,6 +43,10 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
      (#51) and rectangles at any angle (the numbers in Findings). The planner's detour cost
      only if the gap is large; no line-of-sight occlusion (Silkroad has none).
   5. The other Phase 8 Gaps worth tuning (the lurers' MP, lurer A's share, the load cap).
+  6. [done, this branch] The risk check reads the party window bar by bar (the lowest member
+     and the worst fall in 5 s) instead of the mean, which hid a dps at 11% (Findings).
+  7. Next: one backlog slider (the dps work left in the disk, in seconds) in place of the load
+     and strong caps, read within sight and decayed while out, the lurer's own chasers added.
   The 3D options offered 2026-10-21 stay for later:
   1. Stop bodies scraping walls: add the containment side probes (the design of steps 23 and 37) to the
      Silkroad walker, so walls it runs along or corners it rounds push it off (Findings: 299 of
@@ -365,11 +369,11 @@ and 50 here. Numbers are constants at the top of the module and `Settings` slide
   monsters, the pierce on a tie.
 - The lurer's trip (`Lure`, `LureStage`, `lure_step`). Centre: stand until HP >= `LEAVE_HP` 90%,
   the dps disk within the load cap (3; 0 off) and under the strong cap (2; 0 off), the party not
-  halted (mean HP >= 60 and a fall of at most 20 in 5 s) and, for B, no earlier lurer in sight
+  halted (every bar >= 50% and no member fell more than 30 in 5 s) and, for B, no earlier lurer in sight
   within 15 of the centre that is healthy or moving (at most 5 s). Out: plan every 1 s over the
   8 nearest candidates (untagged by any lurer; mine, by the nearer visible lurer with ties to A;
   within my sight 30; reachable from inside the disk; strong ones only while the disk holds
-  fewer strong than the cap, the party's mean HP >= 80 and it fell at most 10 in 5 s): the cast
+  fewer strong than the cap, every bar >= 70% and no member fell more than 15 in 5 s): the cast
   planner (default; a stop is a monster to get within a skill's reach of; the shortest run that
   tags N, the fewest casts on a tie) or the stops planner (button); run to the first stop; back
   when N (3) chase, HP < 40%, or nothing more is in sight after a tag; with nothing in sight and
@@ -818,6 +822,11 @@ Decided with the user (2026-11-02 to 03, Phase 8, in order):
   blast's 2 outside the disk counts delivered, not lost (every lost in the seed-1 run was such a
   packmate); the strong cap default goes from 1 to 2 before the obstacles; the obstacles'
   design as settled in Phase 8, "Next step: obstacles", with no line-of-sight occlusion.
+- Risk by the lowest bar, not the mean (the user, 2026-11-03: "not sure the party HP average
+  is a good metric"; measured: the mean read safe through all 19 s a member spent under 50%):
+  a strong pull only while every member is at least 70% and none fell more than 15 in 5 s; no
+  session with a member under 50% or fallen more than 30. Next, the load as a backlog in
+  seconds instead of head counts (what the dps still have to kill, visible as monster bars).
 
 Open (ask before acting):
 - The party window showing members' HP bars is my assumption about the game; if it does not,
@@ -964,6 +973,12 @@ trips/delivered/lost):
   slab 3 wide: at speed 6 the probe reaches 13 ahead, so near the slab it lands beyond the far
   face and reads clear. The trigger is now the line from the body to the probe crossing an
   edge (`Wall::crosses`); the side still comes from the side probes' room.
+- **The party mean hid every danger.** Seed 1, 180 s with rocks: the mean never fell under
+  91% and never dropped more than 8 in 5 s, while the lowest member reached 11% and one member
+  fell 74 in 5 s; a member was under 50% for 19.2 s and the mean read safe (80% or more) the
+  whole time. With the lowest-bar rules (70 / 15, 50 / 30): A 3/7/0, B 4/15/0, 17 kills, no
+  deaths in two minutes; at 180 s A 3/11/0, B 4/15/0, 21 kills, at the centre 114 s / 139 s
+  (halts at 50, 80 and 120 s on a dps under 50%, which the mean never saw).
 
 ## Gaps and known issues
 

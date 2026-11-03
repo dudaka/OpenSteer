@@ -159,13 +159,14 @@ pub const WATCH_TIMEOUT: f32 = 5.0;
 /// How long a lurer remembers where it last saw the other.
 pub const SEEN_MEMORY: f32 = 10.0;
 /// The lurer's risk check (the user: read the dps disk and the party before tagging a strong
-/// monster), from the party window: a strong monster is a candidate only while the party's
-/// mean HP is at least `RISKY_HP` percent and has not fallen more than `RISKY_DROP` points
-/// over `TREND_WINDOW`; under `HALT_HP` or falling more than `HALT_DROP`, no session starts.
-pub const RISKY_HP: f32 = 80.0;
-pub const RISKY_DROP: f32 = 10.0;
-pub const HALT_HP: f32 = 60.0;
-pub const HALT_DROP: f32 = 20.0;
+/// monster), from the party window bar by bar (the party's mean hid a dps at 11% behind
+/// seven near 100%): a strong monster is a candidate only while every member's HP is at
+/// least `RISKY_HP` percent and none fell more than `RISKY_DROP` points over `TREND_WINDOW`;
+/// with a member under `HALT_HP` or fallen more than `HALT_DROP`, no session starts.
+pub const RISKY_HP: f32 = 70.0;
+pub const RISKY_DROP: f32 = 15.0;
+pub const HALT_HP: f32 = 50.0;
+pub const HALT_DROP: f32 = 30.0;
 pub const TREND_WINDOW: f32 = 5.0;
 /// The balance sliders and their defaults: N, the monsters' running speed (faster than the
 /// players' 5, as in the game), the bite's damage and reach, the load cap, the strong cap (a
@@ -607,8 +608,9 @@ pub struct TrainingField {
     pub deaths: u32,
     /// One per lurer (A, B).
     pub lures: Vec<Lure>,
-    /// The party's mean HP (percent, the dead at 0) each step over the last `TREND_WINDOW`.
-    party_hp: VecDeque<f32>,
+    /// The party window each step over the last `TREND_WINDOW`: every member's HP in
+    /// percent, the dead at 0.
+    bars: VecDeque<Vec<f32>>,
     pub settings: Settings,
     rng: fastrand::Rng,
     time: f32,
@@ -1412,7 +1414,7 @@ impl Default for TrainingField {
             next_id: 0,
             deaths: 0,
             lures: vec![Lure::new(); LURERS],
-            party_hp: VecDeque::new(),
+            bars: VecDeque::new(),
             settings: Settings::default(),
             rng: fastrand::Rng::with_seed(SEED),
             time: 0.0,
@@ -1449,12 +1451,25 @@ impl TrainingField {
         total / self.team.len() as f32
     }
 
-    /// How many points the party's mean HP fell over the last `TREND_WINDOW` (negative: rose).
-    pub fn party_drop(&self) -> f32 {
-        match (self.party_hp.front(), self.party_hp.back()) {
-            (Some(first), Some(last)) => first - last,
+    /// The party window's shortest bar: the lowest member's HP in percent, the dead at 0.
+    pub fn lowest_hp(&self) -> f32 {
+        self.bars_now().into_iter().fold(100.0, f32::min)
+    }
+
+    /// The most any member's HP fell over the last `TREND_WINDOW`, in points; 0 when nobody
+    /// fell.
+    pub fn worst_fall(&self) -> f32 {
+        match (self.bars.front(), self.bars.back()) {
+            (Some(first), Some(last)) => (first.iter().zip(last))
+                .map(|(a, b)| a - b)
+                .fold(0.0, f32::max),
             _ => 0.0,
         }
+    }
+
+    /// The party window now: every member's HP in percent.
+    fn bars_now(&self) -> Vec<f32> {
+        self.team.iter().map(|p| p.hp / MAX_HP * 100.0).collect()
     }
 
     /// Spawns the missing monsters, then moves every body: a player runs inside its role's
@@ -1483,16 +1498,16 @@ impl TrainingField {
         let strong = (self.monsters.iter().filter(in_disk))
             .filter(|m| m.rarity.is_strong())
             .count();
-        // The party window: the mean HP now and its fall over the trend window.
+        // The party window: the shortest bar now and the worst fall over the trend window.
         let window = (TREND_WINDOW / dt).round() as usize + 1;
-        self.party_hp.push_back(self.party_hp());
-        while self.party_hp.len() > window {
-            self.party_hp.pop_front();
+        self.bars.push_back(self.bars_now());
+        while self.bars.len() > window {
+            self.bars.pop_front();
         }
-        let (party, drop) = (self.party_hp(), self.party_drop());
+        let (lowest, fall) = (self.lowest_hp(), self.worst_fall());
         let safe_strong = self.settings.strong_cap == 0 || strong < self.settings.strong_cap;
-        let strong_ok = safe_strong && party >= RISKY_HP && drop <= RISKY_DROP;
-        let halt = party < HALT_HP || drop > HALT_DROP;
+        let strong_ok = safe_strong && lowest >= RISKY_HP && fall <= RISKY_DROP;
+        let halt = lowest < HALT_HP || fall > HALT_DROP;
         let rng = &mut self.rng;
         let mut hits = Vec::new();
         let mut tags = Vec::new();
@@ -2030,13 +2045,14 @@ impl TrainingField {
         labels.push(label(
             corner(-w, h - 9.0),
             format!(
-                "{} monsters: {}; {chasing} chasing; {} kills, {} deaths; party HP {:.0}% ({:+.0} in 5 s); HP buffer: {} heals, {} group heals, {} guards",
+                "{} monsters: {}; {chasing} chasing; {} kills, {} deaths; party HP {:.0}%, lowest {:.0}% (fell {:.0} in 5 s); HP buffer: {} heals, {} group heals, {} guards",
                 self.monsters.len(),
                 gaits.join(", "),
                 self.kills,
                 self.deaths,
                 self.party_hp(),
-                -self.party_drop(),
+                self.lowest_hp(),
+                self.worst_fall(),
                 self.heals,
                 self.group_heals,
                 self.guards
@@ -2997,44 +3013,55 @@ mod tests {
             !tagged.contains(&giant) && tagged.contains(&normal),
             "{tagged:?}"
         );
-        // The party's mean HP falling 15 points at once: no strong tag for the 5 s window,
-        // and the giant is tagged on a later trip once the party has recovered.
-        // (Regeneration and the buffs lift the party again within seconds, so the window
-        // closes on its own.)
+        // One dps falling 20 points at once (the party's mean 97.5%): no strong tag for the
+        // 5 s window, and the giant is tagged on a later trip once the member has recovered.
+        // (Regeneration and the buffs lift it again within seconds, so the window closes on
+        // its own.)
         let mut field = risky_field();
         field.update(1.0 / 60.0);
-        for p in &mut field.team {
-            p.hp = 85.0;
-        }
-        let (mut worst_drop, mut planned_giant, mut planned_normal) = (0.0f32, false, false);
+        field.team[2].hp = 80.0;
+        let (mut worst_fall, mut planned_giant, mut planned_normal) = (0.0f32, false, false);
         for _ in 0..60 {
             field.update(1.0 / 60.0);
-            worst_drop = worst_drop.max(field.party_drop());
+            worst_fall = worst_fall.max(field.worst_fall());
             let tour = &field.lures[0].tour;
             planned_giant |= tour.iter().any(|s| s.id == giant);
             planned_normal |= tour.iter().any(|s| s.id == normal);
         }
-        assert!(worst_drop > RISKY_DROP, "{worst_drop}");
+        assert!(worst_fall > 15.0, "{worst_fall}");
         assert!(planned_normal && !planned_giant);
         let tagged = run_tracking_a(&mut field, (20.0 * 60.0) as usize);
         assert!(tagged.contains(&giant), "{tagged:?}");
-        // The party at 50%: no session until it is back over 60%.
+        // One dps at 45% among seven at 100% (the mean 93%), the HP buffer out of MP for a
+        // heal: no session starts; once the member is healed back over 50%, it does.
         let mut field = risky_field();
-        for p in &mut field.team {
-            p.hp = 50.0;
-        }
+        field.team[2].hp = 45.0;
+        field.team[6].mp = 0.0;
         for _ in 0..60 {
             field.update(1.0 / 60.0);
         }
+        assert!(field.party_hp() > 90.0 && field.lowest_hp() < 50.0);
         assert_eq!(field.lures[0].trips, 0);
         for _ in 0..(15.0 * 60.0) as usize {
             field.update(1.0 / 60.0);
         }
         assert!(field.lures[0].trips > 0);
+        // One member fallen 31 points within the window: no session starts; fallen 29, it
+        // does (A waits a step on its own HP first, so the window holds a full bar).
+        for (hp, trips) in [(69.0, 0), (71.0, 1)] {
+            let mut field = field_with_a_monster_at(Vec2::new(40.0, 0.0));
+            field.team[0].hp = 80.0;
+            field.update(1.0 / 60.0);
+            field.team[2].hp = hp;
+            field.team[0].hp = 100.0;
+            field.update(1.0 / 60.0);
+            assert_eq!(field.lures[0].trips, trips, "{hp}");
+        }
         // The party window's numbers.
         let field = TrainingField::default();
         assert_eq!(field.party_hp(), 100.0);
-        assert_eq!(field.party_drop(), 0.0);
+        assert_eq!(field.lowest_hp(), 100.0);
+        assert_eq!(field.worst_fall(), 0.0);
     }
 
     #[test]
@@ -3517,7 +3544,12 @@ mod tests {
         // Rocks as circles and rectangles (a coin per rock; the layout redrawn): none of
         // this layout's 8 lies on the first two minutes' paths, so the two minutes are the
         // no-rock numbers again; at 180 s A 5/15/0, B 5/18/0, 28 kills, no deaths, at the
-        // centre 93 s / 94 s; closest clearance to a rock 0.00.
+        // centre 93 s / 94 s; closest clearance to a rock 0.00. The risk check from the
+        // lowest bar (70 / 15 and 50 / 30 instead of the mean's 80 / 10 and 60 / 20): A 3
+        // trips, 7 delivered, 2 sessions of 21.5 s, 33 walked per delivered, 62% inside; B
+        // 4/15/0, 4 sessions of 10.3 s, 9 walked, 88%; 17 kills, no deaths, 2 heals, 15
+        // guards; at 180 s A 3/11/0, B 4/15/0, 21 kills, at the centre 114 s / 139 s (the
+        // halts at a dps under 50% at 50, 80 and 120 s that the mean never saw).
         assert_eq!(stages.len(), 3);
         let delivered = a.delivered + b.delivered;
         assert!(a.trips >= 2 && b.trips >= 2, "{} {}", a.trips, b.trips);
@@ -3536,12 +3568,13 @@ mod tests {
             field.kills,
             field.deaths
         );
-        // The third minute: one strong monster in the disk no longer holds the lurers.
+        // The third minute: one strong monster in the disk no longer holds the lurers (4
+        // trips each at strong cap 2; 3 and 4 since the lowest-bar risk check).
         for _ in 0..60 * 60 {
             field.update(1.0 / 60.0);
         }
         let (a, b) = (&field.lures[0], &field.lures[1]);
-        assert!(a.trips >= 4 && b.trips >= 4, "{} {}", a.trips, b.trips);
+        assert!(a.trips >= 3 && b.trips >= 3, "{} {}", a.trips, b.trips);
         assert!(field.deaths <= 2, "{}", field.deaths);
     }
 
@@ -3877,7 +3910,8 @@ mod tests {
         let shares = steps_in.map(|n| n as f32 / total);
         assert!(shares.iter().all(|&s| s > 0.25 && s < 0.42), "{shares:?}");
         let quiet: Vec<usize> = (0..DEFAULT_MONSTERS).filter(|&i| !chased[i]).collect();
-        assert!(quiet.len() >= 3, "{}", quiet.len());
+        // Three never chased at seed 1 before the lowest-bar risk check, two since.
+        assert!(quiet.len() >= 2, "{}", quiet.len());
         for &i in &quiet {
             assert!(visited[i].iter().all(|&b| b), "monster {i}");
             assert!(
