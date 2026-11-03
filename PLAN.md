@@ -58,11 +58,13 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
       5 dps deaths, all with 2-4 strong monsters in the disk and the HP buffer dry, and
       lurers left with their pack still behind them on most leaves. With the hand-off: no
       deaths on any seed, the cap off stays.
-  11. Agreed with the user (2026-11-03), one small PR each: the pinned measurement over five
-      seeds with margins; a strong pull only while the HP buffer's MP (the party window shows
-      MP bars too) is above a threshold, the sustain that actually ran out; the group heal
-      triggered by the lowest bar, not the mean (it never fires). Then whatever the user
-      observes.
+  11. [done, this branch] The pinned measurement over five seeds with margins
+      (`five_seeds_train_for_three_minutes_without_a_death`: kills, the lowest member, both
+      lurers' deliveries, nothing lost, no leave while chased, at most one death in all).
+  12. Agreed with the user (2026-11-03), one small PR each: a strong pull only while the HP
+      buffer's MP (the party window shows MP bars too) is above a threshold, the sustain that
+      actually ran out; the group heal triggered by the lowest bar, not the mean (it never
+      fires). Then whatever the user observes.
   The 3D options offered 2026-10-21 stay for later:
   1. Stop bodies scraping walls: add the containment side probes (the design of steps 23 and 37) to the
      Silkroad walker, so walls it runs along or corners it rounds push it off (Findings: 299 of
@@ -70,7 +72,7 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
   2. Draw building floors (object navmesh cells) so the plaza walker does not float over pits.
   3. One-way ledges: drop off, never climb (now walls both ways; sro-polyanya keeps a blocked side).
   4. Other ground demos on the terrain (Pedestrians, Capture the Flag) with the same `World`.
-- Tests: 323 Rust tests (13 in `silkroad-navmesh`, + 3 ignored full-data ones; 44 in
+- Tests: 325 Rust tests (13 in `silkroad-navmesh`, + 3 ignored full-data ones; 46 in
   `training_field`), 21 C++ oracles.
   Tests needing the game data skip without it (CI has none); with it, the Silkroad demo's tests
   take ~14 s in debug. 2D: `oracle_one_turning`, `oracle_seek_flee`,
@@ -341,7 +343,7 @@ user called the milestone (2026-11-03).
 
 ### As built (after #46)
 
-One module, `crates/steer-demos/src/training_field.rs` (the 44 tests in the same file), demo
+One module, `crates/steer-demos/src/training_field.rs` (the 46 tests in the same file), demo
 id `training-field`, the last 2D demo. Units: 1 = 1 m; Silkroad's disks of 20 and 60 are 10
 and 50 here. Numbers are constants at the top of the module and `Settings` sliders.
 
@@ -407,8 +409,11 @@ and 50 here. Numbers are constants at the top of the module and `Settings` slide
   polyline; attack lines and blasts; buff and guard rings; rarity labels; three status lines
   (the team; lurer A; lurer B); the legend behind a button. Sliders: monsters, N, monster
   speed, bite damage, bite reach, backlog cap, obstacles; buttons: plan casts / plan stops.
-- Tests (44): hand-computed cases per piece, the pinned two-minute run (seed 1, 7,200 steps,
-  `trips_deliver_monsters_to_the_dps_disk`, its history in the comment), one mutation per step
+- Tests (46): hand-computed cases per piece, the pinned two-minute run (seed 1, 7,200 steps,
+  `trips_deliver_monsters_to_the_dps_disk`, its history in the comment), the five-seed run
+  (`five_seeds_train_for_three_minutes_without_a_death`, 180 s each, margins from the
+  measured table: kills >= 15, the lowest member >= 30%, both lurers >= 6 delivered, at most
+  2 lost, no leave while chased, at most one death over the five), one mutation per step
   that failed. Helpers: `quiet_field` (five normal monsters in a far corner, outside the map),
   `field_with_a_monster_at`, `risky_field` (a giant and a normal 20 out on A's side),
   `step_with_parked_lurer` (A put back at a spot after every step), `run_tracking_a` (tags by
@@ -1055,8 +1060,8 @@ trips/delivered/lost):
   (B: 12 pulls of 4.9 s in two minutes at 30 s);
   the group heal never fired in the pinned run; scouting is random spots, so a lurer can zigzag
   on an empty side; the planners assume skill cooldowns stay as at planning time, and the stops
-  planner keeps the fence only by candidate distance; every measurement is one seed (1) and two
-  minutes; dps roam to 10 while the HP buffer reaches 8 from within 5; party giants are off
+  planner keeps the fence only by candidate distance; the fine-grained numbers are one seed (1)
+  and two minutes, the five-seed test holds only margins; dps roam to 10 while the HP buffer reaches 8 from within 5; party giants are off
   (20,000 HP); a giant (2,000) in the disk still needs 75 s of focused fire; a monster's idle
   run uses the chase speed slider and a gait change cuts speed at once; no MP economy for the
   lurers' sessions; any new random draw shifts every pinned number (tests carry margins and the

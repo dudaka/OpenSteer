@@ -3627,6 +3627,65 @@ mod tests {
         assert!(chasing(None));
     }
 
+    /// The default field drawn from `seed`: the monsters and rocks redrawn, everything else as
+    /// `Default`.
+    fn seeded(seed: u64) -> TrainingField {
+        let mut field = TrainingField {
+            rng: fastrand::Rng::with_seed(seed),
+            ..TrainingField::default()
+        };
+        field.monsters.clear();
+        field.respawns.clear();
+        field.spawn_missing();
+        field.obstacles = place_rocks(DEFAULT_OBSTACLES, &field.nests());
+        field
+    }
+
+    /// Three minutes on each of seeds 1-5 (one seed misled the cap decision once): nobody
+    /// dies, both lurers deliver, nothing is lost, and no lurer leaves the centre while a
+    /// monster chases it.
+    #[test]
+    fn five_seeds_train_for_three_minutes_without_a_death() {
+        // Measured 2026-11-03 (rocks, cap off, the hand-off): kills 36 / 41 / 22 / 31 / 36,
+        // no deaths, the lowest member 42-48%, delivered A 24 / 29 / 13 / 20 / 25 and B 12 /
+        // 17 / 15 / 11 / 18, nothing lost, no leave while chased. Before the hand-off: 5
+        // deaths over seeds 2-4 and leaves while chased on most trips.
+        let mut deaths = 0;
+        for seed in 1..=5 {
+            let mut field = seeded(seed);
+            let mut last = [0u32; LURERS];
+            let mut lowest = 100.0f32;
+            for _ in 0..180 * 60 {
+                field.update(1.0 / 60.0);
+                lowest = lowest.min(field.lowest_hp());
+                for (i, lure) in field.lures.iter().enumerate() {
+                    if lure.trips > last[i] {
+                        last[i] = lure.trips;
+                        let chased = field.monsters.iter().any(|m| m.target == Some(i));
+                        assert!(!chased, "seed {seed}: lurer {i} left while chased");
+                    }
+                }
+            }
+            let (a, b) = (&field.lures[0], &field.lures[1]);
+            assert!(field.kills >= 15, "seed {seed}: {} kills", field.kills);
+            assert!(lowest >= 30.0, "seed {seed}: lowest {lowest}");
+            assert!(
+                a.delivered >= 6 && b.delivered >= 6,
+                "seed {seed}: {} {}",
+                a.delivered,
+                b.delivered
+            );
+            assert!(
+                a.lost + b.lost <= 2,
+                "seed {seed}: {} {} lost",
+                a.lost,
+                b.lost
+            );
+            deaths += field.deaths;
+        }
+        assert!(deaths <= 1, "{deaths} deaths over five seeds");
+    }
+
     /// Two minutes of the default field: the lurer makes trips, brings monsters in, and is
     /// out of the dps disk most of the time.
     #[test]
