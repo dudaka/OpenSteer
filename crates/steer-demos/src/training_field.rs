@@ -43,10 +43,12 @@ const LOOK_AHEAD: f32 = 1.0;
 /// radius (speed squared over the force, about 3) is wider than the buffers' disk. A walker
 /// turns within 0.3 and needs none.
 const CONTAIN_BRAKE: f32 = 4.0;
-/// Body colors: our lurer green, teammates blue, monsters red (muted, so the annotation
-/// red and green stay the push and the want).
+/// Body colors: our lurer green, the dps blue, the HP buffer rose, the MP buffer teal,
+/// monsters red (muted, so the annotation red and green stay the push and the want).
 const LURER_BODY: u32 = 0x66aa66;
-const TEAM_BODY: u32 = 0x6688cc;
+const DPS_BODY: u32 = 0x6688cc;
+const HP_BUFFER_BODY: u32 = 0xcc6699;
+const MP_BUFFER_BODY: u32 = 0x55aaaa;
 const MONSTER_BODY: u32 = 0x996666;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -326,7 +328,9 @@ impl TrainingField {
         ));
         let body = |p: &Player| match p.role {
             Role::Lurer => LURER_BODY,
-            _ => TEAM_BODY,
+            Role::Dps => DPS_BODY,
+            Role::HpBuffer => HP_BUFFER_BODY,
+            Role::MpBuffer => MP_BUFFER_BODY,
         };
         FrameView {
             time: self.time,
@@ -344,7 +348,9 @@ impl TrainingField {
             labels,
             legend: legend(&[
                 (LURER_BODY, "our lurer"),
-                (TEAM_BODY, "teammates: 3 dps, HP buffer, MP buffer"),
+                (DPS_BODY, "dps (3)"),
+                (HP_BUFFER_BODY, "HP buffer"),
+                (MP_BUFFER_BODY, "MP buffer"),
                 (MONSTER_BODY, "monster"),
                 (
                     color::RADIUS,
