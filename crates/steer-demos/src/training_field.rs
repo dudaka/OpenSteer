@@ -65,6 +65,19 @@ pub const REGEN: f32 = 1.0;
 pub const TAG_DAMAGE: f32 = 1.0;
 pub const TAG_MP: f32 = 2.0;
 pub const TAG_COOLDOWN: f32 = 1.0;
+/// The lurer's area skills, each a tag on up to `AOE_TARGETS` monsters: a blast of
+/// `LURE_BLAST` round a monster within its ranged reach, and a pierce `PIERCE_WIDTH` either
+/// side of a line `PIERCE_LENGTH` long toward a monster. It casts whichever catches the most
+/// untagged monsters, the normal attack when neither would catch two.
+pub const LURE_BLAST: f32 = 3.0;
+pub const BLAST_MP: f32 = 6.0;
+pub const BLAST_COOLDOWN: f32 = 4.0;
+pub const PIERCE_LENGTH: f32 = 12.0;
+pub const PIERCE_WIDTH: f32 = 1.5;
+pub const PIERCE_MP: f32 = 8.0;
+pub const PIERCE_COOLDOWN: f32 = 6.0;
+/// Any area attack hits at most this many monsters, the nearest to its centre or line.
+pub const AOE_TARGETS: usize = 5;
 /// A dps's area attack: at a monster inside the dps disk and its ranged reach, every
 /// `AOE_COOLDOWN` for `AOE_MP`, `AOE_DAMAGE` off every monster within `AOE_BLAST` of the target.
 pub const AOE_DAMAGE: f32 = 10.0;
@@ -102,7 +115,7 @@ pub const BITE_COOLDOWN: f32 = 1.5;
 /// no untagged monster left in the lurer's disk; home is within `HOME` of the centre.
 pub const CENTRE_WAIT: f32 = 2.0;
 pub const LEAVE_LOAD: usize = 3;
-pub const BACK_CHASERS: usize = 4;
+pub const BACK_CHASERS: usize = 3;
 pub const BACK_HP: f32 = 0.4;
 pub const HOME: f32 = 1.0;
 /// A dead player is back at the centre with full bars after this long; a dead monster's
@@ -214,6 +227,9 @@ pub struct Player {
     /// The HP and MP buffs on it run until these times.
     pub hp_buff_until: f32,
     pub mp_buff_until: f32,
+    /// The lurer's area skills' cooldowns.
+    blast_ready: f32,
+    pierce_ready: f32,
 }
 
 impl Player {
@@ -345,6 +361,10 @@ pub struct Lure {
     /// Steps the lurer spent inside the dps disk, of all steps.
     pub steps_in_disk: u32,
     pub steps: u32,
+    /// Casts: normal attacks, blasts and pierces.
+    pub tags: u32,
+    pub blasts: u32,
+    pub pierces: u32,
 }
 
 impl Lure {
@@ -562,6 +582,95 @@ fn lure_step(
     }
 }
 
+/// The monsters within `radius` of `at`, nearest first, at most `AOE_TARGETS`.
+fn in_blast(at: Vec2, radius: f32, monsters: &[Monster]) -> Vec<usize> {
+    let mut hit: Vec<(usize, f32)> = (monsters.iter().enumerate())
+        .map(|(i, m)| (i, (m.body.position - at).length()))
+        .filter(|&(_, d)| d <= radius)
+        .collect();
+    hit.sort_by(|a, b| a.1.total_cmp(&b.1));
+    hit.truncate(AOE_TARGETS);
+    hit.into_iter().map(|(i, _)| i).collect()
+}
+
+/// The monsters within `PIERCE_WIDTH` of the line from `from` toward `toward`,
+/// `PIERCE_LENGTH` long, nearest first, at most `AOE_TARGETS`.
+fn along_pierce(from: Vec2, toward: Vec2, monsters: &[Monster]) -> Vec<usize> {
+    let dir = (toward - from).normalize();
+    let mut hit: Vec<(usize, f32)> = (monsters.iter().enumerate())
+        .filter_map(|(i, m)| {
+            let off = m.body.position - from;
+            let along = off.dot(dir);
+            let aside = (off - dir * along).length();
+            ((0.0..=PIERCE_LENGTH).contains(&along) && aside <= PIERCE_WIDTH).then_some((i, along))
+        })
+        .collect();
+    hit.sort_by(|a, b| a.1.total_cmp(&b.1));
+    hit.truncate(AOE_TARGETS);
+    hit.into_iter().map(|(i, _)| i).collect()
+}
+
+/// The lurer's cast this step, if any: the blast or the pierce that catches the most monsters
+/// it has not tagged (two at least), else the normal attack on `target`; each only when
+/// ready and affordable. Returns the monsters hit; MP, cooldowns and counts are updated.
+fn lure_cast(
+    p: &mut Player,
+    lurer: usize,
+    target: Option<usize>,
+    monsters: &[Monster],
+    counts: &mut Lure,
+    now: f32,
+) -> Vec<usize> {
+    let untagged = |hits: &[usize]| {
+        hits.iter()
+            .filter(|&&i| !monsters[i].threat.contains_key(&lurer))
+            .count()
+    };
+    let at = p.body.position;
+    let candidates = (monsters.iter().enumerate())
+        .filter(|(_, m)| !m.threat.contains_key(&lurer))
+        .map(|(i, m)| (i, (m.body.position - at).length()));
+    let (mut blast, mut pierce): (Vec<usize>, Vec<usize>) = (Vec::new(), Vec::new());
+    for (i, d) in candidates {
+        let centre = monsters[i].body.position;
+        if d <= RANGED_REACH {
+            let hits = in_blast(centre, LURE_BLAST, monsters);
+            if untagged(&hits) > untagged(&blast) {
+                blast = hits;
+            }
+        }
+        if d <= PIERCE_LENGTH {
+            let hits = along_pierce(at, centre, monsters);
+            if untagged(&hits) > untagged(&pierce) {
+                pierce = hits;
+            }
+        }
+    }
+    let blast_ok = now >= p.blast_ready && p.mp >= BLAST_MP && untagged(&blast) >= 2;
+    let pierce_ok = now >= p.pierce_ready && p.mp >= PIERCE_MP && untagged(&pierce) >= 2;
+    if pierce_ok && (!blast_ok || untagged(&pierce) > untagged(&blast)) {
+        p.mp -= PIERCE_MP;
+        p.pierce_ready = now + PIERCE_COOLDOWN;
+        counts.pierces += 1;
+        return pierce;
+    }
+    if blast_ok {
+        p.mp -= BLAST_MP;
+        p.blast_ready = now + BLAST_COOLDOWN;
+        counts.blasts += 1;
+        return blast;
+    }
+    match target {
+        Some(t) if now >= p.skill_ready && p.mp >= TAG_MP => {
+            p.mp -= TAG_MP;
+            p.skill_ready = now + TAG_COOLDOWN;
+            counts.tags += 1;
+            vec![t]
+        }
+        _ => Vec::new(),
+    }
+}
+
 /// The monster inside the dps disk nearest to `at`: a dps's target.
 fn nearest_monster_in_disk(at: Vec2, monsters: &[Monster]) -> Option<usize> {
     (monsters.iter().enumerate())
@@ -597,6 +706,8 @@ impl Default for TrainingField {
             skill_ready: 0.0,
             hp_buff_until: 0.0,
             mp_buff_until: 0.0,
+            blast_ready: 0.0,
+            pierce_ready: 0.0,
         };
         let team = vec![
             player(Role::Lurer, CENTRE),
@@ -659,6 +770,8 @@ impl TrainingField {
                         skill_ready: self.time,
                         hp_buff_until: 0.0,
                         mp_buff_until: 0.0,
+                        blast_ready: self.time,
+                        pierce_ready: self.time,
                         role: p.role,
                     };
                 }
@@ -684,13 +797,9 @@ impl TrainingField {
                 _ => None,
             };
             if p.role == Role::Lurer {
-                if let Some(t) = p.target {
-                    if self.time >= p.skill_ready && p.mp >= TAG_MP {
-                        p.mp -= TAG_MP;
-                        p.skill_ready = self.time + TAG_COOLDOWN;
-                        tags.push((i, t));
-                    }
-                }
+                let now = self.time;
+                let hit = lure_cast(p, i, p.target, &self.monsters, &mut self.lure, now);
+                tags.extend(hit.into_iter().map(|t| (i, t)));
             }
             if p.role == Role::Lurer {
                 let t = self.time;
@@ -722,11 +831,10 @@ impl TrainingField {
             *m.threat.entry(lurer).or_insert(0.0) += TAG_DAMAGE;
         }
         for (shooter, at) in hits {
-            for m in &mut self.monsters {
-                if (m.body.position - at).length() <= AOE_BLAST {
-                    m.hp -= AOE_DAMAGE;
-                    *m.threat.entry(shooter).or_insert(0.0) += AOE_DAMAGE;
-                }
+            for t in in_blast(at, AOE_BLAST, &self.monsters) {
+                let m = &mut self.monsters[t];
+                m.hp -= AOE_DAMAGE;
+                *m.threat.entry(shooter).or_insert(0.0) += AOE_DAMAGE;
             }
         }
         let alive: Vec<bool> = self.team.iter().map(|p| !p.is_dead()).collect();
@@ -996,12 +1104,15 @@ impl TrainingField {
         labels.push(label(
             corner(0.0, h + 7.0),
             format!(
-                "lurer {:?}: {} trips, {} delivered, {} lost, {:.0}% of the time in the dps disk",
+                "lurer {:?}: {} trips, {} delivered, {} lost, {:.0}% of the time in the dps disk; {} tags, {} blasts, {} pierces",
                 lure.stage,
                 lure.trips,
                 lure.delivered,
                 lure.lost,
-                100.0 * lure.share_in_disk()
+                100.0 * lure.share_in_disk(),
+                lure.tags,
+                lure.blasts,
+                lure.pierces
             ),
             color::LABEL,
         ));
@@ -1394,6 +1505,63 @@ mod tests {
     }
 
     #[test]
+    fn an_area_attack_hits_at_most_the_five_nearest() {
+        // Six monsters in a row below the centre, 0.4 apart: every dps and the lurer aim at
+        // the first; both blasts cover all six and hit the five nearest, the sixth untouched.
+        let mut field = field_with_a_monster_at(Vec2::new(0.0, -4.0));
+        for (k, m) in field.monsters.iter_mut().enumerate().skip(1) {
+            m.body = standing(Vec2::new(0.0, -4.0 - 0.4 * k as f32));
+        }
+        field.monsters.push(field.monsters[4].clone());
+        field.monsters[5].body = standing(Vec2::new(0.0, -6.0));
+        field.update(1.0 / 60.0);
+        let hp: Vec<f32> = field.monsters().iter().map(|m| m.hp).collect();
+        assert_eq!(hp, [69.0, 69.0, 69.0, 69.0, 69.0, 100.0]);
+        assert_eq!((field.lure.blasts, field.lure.tags), (1, 0));
+    }
+
+    #[test]
+    fn the_lurer_casts_the_skill_that_tags_the_most() {
+        let den = Vec2::new(60.0, 40.0);
+        // One monster 7 away: the normal attack.
+        let mut field = quiet_field();
+        field.monsters[0].body = standing(den + Vec2::new(0.0, -7.0));
+        step_with_parked_lurer(&mut field, den, 2);
+        assert_eq!(
+            (field.lure.tags, field.lure.blasts, field.lure.pierces),
+            (1, 0, 0)
+        );
+        // Three monsters spread sideways within 3 of one 7 away: the blast, all three tagged.
+        let mut field = quiet_field();
+        field.monsters[0].body = standing(den + Vec2::new(0.0, -7.0));
+        field.monsters[1].body = standing(den + Vec2::new(2.5, -7.0));
+        field.monsters[2].body = standing(den + Vec2::new(-2.5, -7.0));
+        step_with_parked_lurer(&mut field, den, 2);
+        assert_eq!(
+            (field.lure.tags, field.lure.blasts, field.lure.pierces),
+            (0, 1, 0)
+        );
+        assert!(field.monsters()[..3]
+            .iter()
+            .all(|m| m.threat.contains_key(&0)));
+        assert!((field.team()[0].mp - (MAX_MP - BLAST_MP)).abs() < 0.1);
+        // Four monsters in a line 3 apart out to 11: the pierce beats the blast's three.
+        let mut field = quiet_field();
+        for (k, m) in field.monsters.iter_mut().take(4).enumerate() {
+            m.body = standing(den + Vec2::new(0.0, -2.0 - 3.0 * k as f32));
+        }
+        step_with_parked_lurer(&mut field, den, 2);
+        assert_eq!(
+            (field.lure.tags, field.lure.blasts, field.lure.pierces),
+            (0, 0, 1)
+        );
+        assert!(field.monsters()[..4]
+            .iter()
+            .all(|m| m.threat.contains_key(&0)));
+        assert!((field.team()[0].mp - (MAX_MP - PIERCE_MP)).abs() < 0.1);
+    }
+
+    #[test]
     fn rarities_scale_hp_body_and_bite_and_the_mix_is_drawn_as_set() {
         assert_eq!(Rarity::Champion.hp_multiplier(), 2.0);
         assert_eq!(Rarity::Giant.hp_multiplier(), 20.0);
@@ -1495,8 +1663,8 @@ mod tests {
     }
 
     #[test]
-    fn the_lurer_turns_back_with_four_chasers_or_low_hp_or_nothing_left() {
-        // Out, an untagged monster 30 away to go for, and four monsters hurt by the lurer in
+    fn the_lurer_turns_back_with_n_chasers_or_low_hp_or_nothing_left() {
+        // Out, an untagged monster 30 away to go for, and N (3) monsters hurt by the lurer in
         // sight: once they chase (after the first step), the next step turns back.
         let out = || {
             let mut field = quiet_field();
@@ -1505,7 +1673,7 @@ mod tests {
             field
         };
         let mut field = out();
-        for m in field.monsters.iter_mut().take(4) {
+        for m in field.monsters.iter_mut().take(BACK_CHASERS) {
             m.body = standing(Vec2::new(20.0, 0.0));
             m.threat.insert(0, 1.0);
         }
@@ -1561,10 +1729,11 @@ mod tests {
     #[test]
     fn the_lurer_tags_each_monster_in_reach_once_a_second_and_never_twice() {
         let mut field = quiet_field();
-        // Two monsters 7 from the parked lurer, away from the team; the nearer one first.
+        // Two monsters 7 from the parked lurer on opposite sides (no blast or pierce catches
+        // both), away from the team; the first first.
         let den = Vec2::new(60.0, 40.0);
         for (k, m) in field.monsters.iter_mut().take(2).enumerate() {
-            m.body = standing(den + Vec2::new(0.0, 7.0 + k as f32 * 0.5));
+            m.body = standing(den + Vec2::new(0.0, if k == 0 { 7.0 } else { -7.0 }));
             m.spawn = m.body.position;
         }
         step_with_parked_lurer(&mut field, den, 2);
@@ -1714,8 +1883,8 @@ mod tests {
         field.monsters[2].body = standing(Vec2::new(0.0, -7.5));
         field.update(1.0 / 60.0);
         let hp: Vec<f32> = field.monsters().iter().map(|m| m.hp).collect();
-        // The target also carries the lurer's tag.
-        assert_eq!(hp[..3], [69.0, 70.0, 100.0]);
+        // The lurer's blast round the middle one (1.5 and 2 away) tags all three.
+        assert_eq!(hp[..3], [69.0, 69.0, 99.0]);
     }
 
     #[test]

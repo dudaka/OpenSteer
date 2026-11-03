@@ -452,7 +452,7 @@ Steps:
   centre it stands `CENTRE_WAIT` 2 s and leaves when the dps disk holds at most `LEAVE_LOAD`
   3 monsters; out, it runs to the nearest monster in its 50 disk it has not tagged
   (`next_to_tag`; the tag fires on its own within reach 8) and on to the next, turning back
-  when `BACK_CHASERS` 4 monsters target it, its HP is under `BACK_HP` 40% or nothing is left
+  when `BACK_CHASERS` monsters target it (4 then; 3 since F6b), its HP is under `BACK_HP` 40% or nothing is left
   to tag; back, it runs home (`HOME` 1) and waits again. Metrics (`count_deliveries`, the
   second bottom label): trips, delivered (a monster chasing the lurer that enters the dps
   disk, once), lost (one that stops chasing outside the disk), the lurer's share of time
@@ -480,6 +480,17 @@ Steps:
     and no party giant; a giant's body 2, label, half bar at 1,000 HP, bite 9; a hurt idle
     monster healed at once, one dragged 20 out healed once home, a chasing one not. Mutation
     (the party flag's x10 dropped) fails.
+  - F6b (built, this branch): every area attack hits at most `AOE_TARGETS` 5 monsters, the
+    nearest to its centre (`in_blast`) or along its line (`along_pierce`). The lurer's kit
+    (`lure_cast`): the normal attack (the tag), a blast (`LURE_BLAST` 3 round a monster within
+    reach 8, 6 MP, 4 s) and a pierce (`PIERCE_LENGTH` 12 toward a monster, `PIERCE_WIDTH` 1.5
+    either side, 8 MP, 6 s), each hit a tag (1 damage, the lurer on the threat table); it casts
+    whichever catches the most untagged monsters when that is two or more, the pierce on a
+    tie, else the normal attack; the label counts tags, blasts and pierces. N (`BACK_CHASERS`)
+    is 3 by default (the user). Tests: six monsters in a row under the three dps and the
+    lurer, five hit (69), the sixth untouched; one monster gets the normal attack, three
+    spread within 3 the blast (all tagged, 6 MP), four in a line the pierce (all tagged, 8
+    MP). Mutation (no cap) fails.
   Combat numbers: bite reach 2, 3 damage, 1.5 s (one monster kills an unbuffed player in
   50 s, four in 12.5 s); dps AoE reach 8, blast radius 2 round the target, 10 damage to
   every monster in it, 6 MP, 1.5 s (one dps kills a monster in 15 s, three clear a cluster of
