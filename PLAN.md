@@ -35,7 +35,10 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
   1. [done, #48] The status lines inside the map's square.
   2. [done, this branch] "Lost" counts a monster delivered when a dps's damage takes it over
      within the disk plus the blast's 2 (A 2/7/0, B 3/11/0 at seed 1; nothing else moved).
-  3. Strong cap default 1 -> 2, re-pinned, as the baseline for the obstacles' cost.
+  3. [done, this branch] Strong cap default 1 -> 2, re-pinned, as the baseline for the
+     obstacles' cost: the two minutes do not move (two strong arrive together and hold both
+     lurers either way); at 180 s A 5 and B 5 trips, 24 kills, no deaths, at the centre
+     93 / 113 s against 118 / 123 s.
   4. Obstacles in the luring disk, circles first: design in Phase 8, "Next step: obstacles"
      (settled numbers there). Then rectangles; the planner's detour cost only if the gap is
      large; no line-of-sight occlusion (Silkroad has none).
@@ -350,7 +353,7 @@ and 50 here. Numbers are constants at the top of the module and `Settings` slide
   (the lurer on the threat table); an area skill only when it tags two or more untagged
   monsters, the pierce on a tie.
 - The lurer's trip (`Lure`, `LureStage`, `lure_step`). Centre: stand until HP >= `LEAVE_HP` 90%,
-  the dps disk within the load cap (3; 0 off) and under the strong cap (1; 0 off), the party not
+  the dps disk within the load cap (3; 0 off) and under the strong cap (2; 0 off), the party not
   halted (mean HP >= 60 and a fall of at most 20 in 5 s) and, for B, no earlier lurer in sight
   within 15 of the centre that is healthy or moving (at most 5 s). Out: plan every 1 s over the
   8 nearest candidates (untagged by any lurer; mine, by the nearer visible lurer with ties to A;
@@ -899,7 +902,10 @@ trips/delivered/lost):
   same trips, 16 kills, no deaths, 9 heals, 0 group heals, 10 guards; the splash rule (a
   packmate a dps's damage takes over within the blast's 2 outside the disk counts delivered):
   A 2/7/0, B 3/11/0, 23 / 11 walked per delivered, the rest unchanged (every former lost was
-  such a packmate).
+  such a packmate); strong cap 2: the same two minutes (the giant and the party champion
+  arrive together at 50 s and hold both lurers until 120.5 s either way), at 180 s A 5/15/0,
+  B 5/17/0, 24 kills, no deaths, at the centre 93 s / 113 s of 180 (cap 1: A 3 and B 4 trips,
+  23 kills, 118 s / 123 s).
 - **Wander held in by containment circles along the edge**: the probe leaves, the push turns
   the body along the wall, and wander rarely turns it back, so the dps never crossed the buff
   disk. Seeking random spots of the disk (the game bots' random walk) put them inside it 42-49%
@@ -966,7 +972,8 @@ trips/delivered/lost):
   freeze their gait when a position matters, and must track monsters by id across steps (a kill
   removes an entry); `trips` counts leaves and `sessions` returns; the party window's HP bars
   are assumed; the status lines are about 170 characters at 12 px, so they run off the right
-  edge of a canvas narrower than about 1,250 px; labels pile up over the dps disk.
+  edge of a canvas narrower than about 1,250 px; labels pile up over the dps disk; two strong
+  monsters arriving together (2,000 HP each) still hold both lurers for 70 s at strong cap 2.
 
 ## Learning aids
 
