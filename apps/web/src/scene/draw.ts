@@ -1,6 +1,6 @@
 // Pooled three.js objects for a FrameView. World [x, y] is drawn at (x, 0, y). Nothing here
 // allocates per frame once the pools have grown.
-import type { LabelView, LineView, TrailView, VehicleView } from "@opensteer/core";
+import type { CircleView, LabelView, LineView, TrailView, VehicleView } from "@opensteer/core";
 import * as THREE from "three";
 import { CSS2DObject } from "three/addons/renderers/CSS2DRenderer.js";
 
@@ -59,7 +59,10 @@ export class Vehicles {
   }
 }
 
-/** Annotation lines and trails as one LineSegments with per-vertex colors. */
+/** Segments per drawn circle. */
+const CIRCLE_SEGMENTS = 32;
+
+/** Annotation lines, circles and trails as one LineSegments with per-vertex colors. */
 export class Lines {
   private readonly geometry = new THREE.BufferGeometry();
   private readonly material = new THREE.LineBasicMaterial({ vertexColors: true });
@@ -75,11 +78,21 @@ export class Lines {
     scene.add(segments);
   }
 
-  set(lines: LineView[], trails: TrailView[]): void {
-    const segments = lines.length + trails.reduce((n, t) => n + Math.max(t.points.length - 1, 0), 0);
+  set(lines: LineView[], circles: CircleView[], trails: TrailView[]): void {
+    const segments =
+      lines.length +
+      circles.length * CIRCLE_SEGMENTS +
+      trails.reduce((n, t) => n + Math.max(t.points.length - 1, 0), 0);
     this.reserve(segments);
     this.count = 0;
     for (const l of lines) this.push(l.from, l.to, l.color);
+    for (const c of circles) {
+      const at = (i: number): [number, number] => {
+        const a = (i / CIRCLE_SEGMENTS) * Math.PI * 2;
+        return [c.center[0] + Math.cos(a) * c.radius, c.center[1] + Math.sin(a) * c.radius];
+      };
+      for (let i = 0; i < CIRCLE_SEGMENTS; i++) this.push(at(i), at(i + 1), c.color);
+    }
     for (const t of trails) {
       for (let i = 1; i < t.points.length; i++) this.push(t.points[i - 1], t.points[i], t.color);
     }

@@ -5,6 +5,7 @@ import { HostConnection, webSocketLink, type OpenLink } from "./transport";
 export * from "./store";
 export { HostConnection, webSocketLink, type ConnectionStatus, type Link, type OpenLink } from "./transport";
 export type { ActionView } from "./contract/ActionView";
+export type { CircleView } from "./contract/CircleView";
 export type { DemoInfo } from "./contract/DemoInfo";
 export type { Frame3View } from "./contract/Frame3View";
 export type { FrameView } from "./contract/FrameView";

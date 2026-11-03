@@ -15,7 +15,7 @@ use steer_core::containment::contain;
 use steer_core::wall::Wall;
 use steer_core::{steer, Vec2, Vehicle};
 
-use crate::annotation::{circle, color, label, legend, line, vehicle_view};
+use crate::annotation::{circle_view, color, label, legend, line, vehicle_view};
 use crate::controls::{slider, Range};
 use crate::view::FrameView;
 
@@ -372,11 +372,12 @@ impl TrainingField {
             .windows(2)
             .map(|c| line(c[0], c[1], color::EDGE))
             .collect();
+        let mut circles = Vec::new();
         let reaches = (self.team.iter().map(|p| (&p.body, RANGED_REACH)))
             .chain(self.monsters.iter().map(|m| (&m.body, ALARM_REACH)));
         for (b, big) in reaches {
-            lines.extend(circle(b.position, big, color::RANGED));
-            lines.extend(circle(b.position, MELEE_REACH, color::MELEE));
+            circles.push(circle_view(b.position, big, color::RANGED));
+            circles.push(circle_view(b.position, MELEE_REACH, color::MELEE));
         }
         for m in &self.monsters {
             if let Some(i) = m.target {
@@ -393,7 +394,7 @@ impl TrainingField {
             (DPS_RADIUS, "dps 10"),
             (LURE_RADIUS, "lurer 50"),
         ] {
-            lines.extend(circle(CENTRE, r, color::RADIUS));
+            circles.push(circle_view(CENTRE, r, color::RADIUS));
             labels.push(label(CENTRE + Vec2::new(0.0, -r - 1.0), text, color::LABEL));
         }
         let gaits: Vec<String> = (Gait::ALL.iter())
@@ -430,6 +431,7 @@ impl TrainingField {
                 )
                 .collect(),
             lines,
+            circles,
             trails: Vec::new(),
             labels,
             legend: legend(&[
@@ -546,7 +548,10 @@ mod tests {
             }
         }
         assert!(chase_steps > 60, "{chase_steps}");
-        assert!(field.view().lines.iter().any(|l| l.color == color::TARGET));
+        let view = field.view();
+        assert!(view.lines.iter().any(|l| l.color == color::TARGET));
+        // 36 entities with two reach circles each, and the three training disks.
+        assert_eq!(view.circles.len(), 2 * 36 + 3);
     }
 
     #[test]

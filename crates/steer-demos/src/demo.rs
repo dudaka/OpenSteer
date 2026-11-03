@@ -185,8 +185,8 @@ mod tests {
         assert!(Demo::new("nope").is_none());
     }
 
-    /// No color goes unexplained: every line and trail color a demo draws, after any one of
-    /// its actions, is in its legend.
+    /// No color goes unexplained: every line, circle and trail color a demo draws, after any
+    /// one of its actions, is in its legend.
     #[test]
     fn every_drawn_color_has_a_legend_entry() {
         for d in catalog() {
@@ -202,8 +202,10 @@ mod tests {
                 }
                 let view = demo.view();
                 let explained: Vec<u32> = view.legend.iter().map(|l| l.color).collect();
-                let drawn = view.lines.iter().map(|l| l.color);
-                for color in drawn.chain(view.trails.iter().map(|t| t.color)) {
+                let drawn = (view.lines.iter().map(|l| l.color))
+                    .chain(view.circles.iter().map(|c| c.color))
+                    .chain(view.trails.iter().map(|t| t.color));
+                for color in drawn {
                     assert!(
                         explained.contains(&color),
                         "{} after {action:?}: {color:06x} has no legend entry",

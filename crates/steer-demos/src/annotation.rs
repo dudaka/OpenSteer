@@ -4,7 +4,7 @@ use std::collections::VecDeque;
 
 use steer_core::{Vec2, Vehicle};
 
-use crate::view::{LabelView, LegendView, LineView, TrailView, VehicleView};
+use crate::view::{CircleView, LabelView, LegendView, LineView, TrailView, VehicleView};
 
 /// One meaning per color, shared by every demo. Velocity, acceleration and trail keep
 /// OpenSteer's colors; red and green are kept for the push and the want.
@@ -104,6 +104,15 @@ pub fn label(at: Vec2, text: impl Into<String>, color: u32) -> LabelView {
     LabelView {
         at: point(at),
         text: text.into(),
+        color,
+    }
+}
+
+/// A circle the browser draws (one record on the wire).
+pub fn circle_view(center: Vec2, radius: f32, color: u32) -> CircleView {
+    CircleView {
+        center: point(center),
+        radius,
         color,
     }
 }

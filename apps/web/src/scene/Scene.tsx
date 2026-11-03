@@ -80,7 +80,7 @@ export function Scene() {
         camera.lookAt(fx, 0, fy);
         grid.position.set(Math.round(fx / CELL) * CELL, -0.01, Math.round(fy / CELL) * CELL);
         vehicles.set(frame.vehicles);
-        lines.set(frame.lines, frame.trails);
+        lines.set(frame.lines, frame.circles, frame.trails);
         labels.set(frame.labels);
       }
       renderer.render(scene, camera);

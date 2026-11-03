@@ -390,7 +390,11 @@ Steps:
   beyond 8; chases happen in the first minute and only from inside the big disk; in two minutes
   24 of 30 monsters never chased and those kept their gait shares and idle radius. Mutation (a
   stop at ranged reach) fails the hunt test. Then (the user): a monster's big disk is its
-  alarm, `ALARM_REACH` 6, smaller than a player's 8; the buff rule above.
+  alarm, `ALARM_REACH` 6, smaller than a player's 8; the buff rule above. The reach rings made
+  a frame 3004 lines and 129 KB (Boids: 49 lines, 8.9 KB), 7.7 MB/s at 60 frames: circles are
+  now a wire primitive (`CircleView`, `FrameView::circles`, `annotation::circle_view`), the
+  browser draws each as 32 segments (`draw.ts`), the Ground lift turns them into rings, and the
+  legend test checks circle colors too. The other demos still send their few circles as lines.
 - F2. HP, MP, skills, the hit rule, deaths and respawns; monsters' threat table and aggro
   (hit, on sight), pursuit, bite, leash. Hand-computed tests.
 - F3. The dps role. Verify: never outside 10 (plus the body), kills happen.

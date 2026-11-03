@@ -181,6 +181,7 @@ impl Pursuit {
                 )
                 .collect(),
             lines: aims,
+            circles: Vec::new(),
             trails: [&self.quarry]
                 .into_iter()
                 .chain(&self.pursuers)
