@@ -41,6 +41,8 @@ pub mod color {
     pub const MELEE: u32 = 0xc77dff;
     /// An attack: the shooter's line to its target and the blast round it (Training Field).
     pub const ATTACK: u32 = 0xf4e3b2;
+    /// Line of sight: how far a chasing monster keeps its target (Training Field).
+    pub const SIGHT: u32 = 0x9a8fc4;
 }
 
 pub fn legend(entries: &[(u32, &str)]) -> Vec<LegendView> {

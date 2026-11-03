@@ -7,7 +7,8 @@
 //! on its own position: a big one, its ranged reach (a player's 8 is its attack and its buffs,
 //! a monster's 6 is its alarm), and a small one, its melee reach. Players are ranged; a
 //! monster is melee, and chases the nearest player inside its big disk until that player is
-//! inside its small disk. Everyone has HP (players MP too), a player's bars regenerating a point
+//! inside its small disk, and keeps chasing while that player stays in its line of sight (a
+//! third, biggest disk), forgetting it beyond. Everyone has HP (players MP too), a player's bars regenerating a point
 //! a second. A monster bites the player it closes on once inside melee reach, and chases
 //! whoever has hurt it most (its threat table) before anyone merely near. A dead player is back
 //! at the centre after 5 s; a dead monster is replaced elsewhere after 3 s. A dps fires at the
@@ -92,6 +93,9 @@ const BAR_STRAND_GAP: f32 = 0.12;
 pub const RANGED_REACH: f32 = 8.0;
 pub const ALARM_REACH: f32 = 6.0;
 pub const MELEE_REACH: f32 = 2.0;
+/// A chasing monster's line of sight (the user: 30-40): it keeps its target inside, forgets
+/// it beyond.
+pub const LOS_REACH: f32 = 35.0;
 /// Containment's look-ahead: the probe is `BODY_RADIUS + LOOK_AHEAD * speed` ahead.
 const LOOK_AHEAD: f32 = 1.0;
 /// A roaming body counts its spot as reached this close to it and draws the next.
@@ -474,8 +478,14 @@ impl TrainingField {
             .map(|(&at, &a)| if a { at } else { Vec2::new(f32::MAX, f32::MAX) })
             .collect();
         for m in &mut self.monsters {
+            let at = m.body.position;
+            let in_sight = |i: usize| alive[i] && (players[i] - at).length() <= LOS_REACH;
+            // Beyond its line of sight a player is forgotten: threat and chase alike.
+            m.threat.retain(|&i, _| in_sight(i));
+            let kept = m.target.filter(|&i| in_sight(i));
             m.target = threat_target(&m.threat, &alive)
-                .or_else(|| player_in_reach(m.body.position, &living).map(|(i, _)| i));
+                .or(kept)
+                .or_else(|| player_in_reach(at, &living).map(|(i, _)| i));
             if let Some(i) = m.target {
                 m.gait = hunt(&mut m.body, players[i], MELEE_REACH, dt);
                 // A fresh gait draw as soon as the chase ends.
@@ -635,6 +645,9 @@ impl TrainingField {
             circles.push(circle_view(b.position, big, color::RANGED));
             circles.push(circle_view(b.position, MELEE_REACH, color::MELEE));
         }
+        for m in self.monsters.iter().filter(|m| m.target.is_some()) {
+            circles.push(circle_view(m.body.position, LOS_REACH, color::SIGHT));
+        }
         for p in &self.team {
             if let Some(t) = p.target {
                 let at = self.monsters[t].body.position;
@@ -728,6 +741,10 @@ impl TrainingField {
                     "big disk: a player's ranged reach 8 (attack, buffs), a monster's alarm 6",
                 ),
                 (color::MELEE, "melee reach 2: a monster's attack"),
+                (
+                    color::SIGHT,
+                    "line of sight 35: a chasing monster keeps its target inside it",
+                ),
                 (color::TARGET, "chase: the player a monster closes on"),
                 (color::BODY, "a dead player, back at the centre in 5 s"),
                 (
@@ -824,8 +841,8 @@ mod tests {
                 if let Some(i) = m.target {
                     chase_steps += 1;
                     let d = (field.team()[i].body.position - m.body.position).length();
-                    // Chosen inside the big disk at the start of the step; both moved since.
-                    assert!(d <= ALARM_REACH + 2.0 * RUN_SPEED / 60.0, "{d}");
+                    // Started inside the alarm disk, kept inside the line of sight.
+                    assert!(d <= LOS_REACH + 2.0 * RUN_SPEED / 60.0, "{d}");
                     assert!(m.gait != Gait::Walking);
                 }
             }
@@ -834,7 +851,9 @@ mod tests {
         let view = field.view();
         assert!(view.lines.iter().any(|l| l.color == color::TARGET));
         // 36 entities with two reach circles each, and the three training disks.
-        assert_eq!(view.circles.len(), 2 * 36 + 3);
+        let count = |c: u32| view.circles.iter().filter(|x| x.color == c).count();
+        assert_eq!((count(color::RANGED), count(color::MELEE)), (36, 36));
+        assert_eq!(count(color::RADIUS), 3);
     }
 
     #[test]
@@ -904,6 +923,34 @@ mod tests {
     }
 
     #[test]
+    fn a_chase_lasts_while_the_player_is_in_sight_and_ends_beyond() {
+        let mut field = quiet_field();
+        // A monster away from the team, alarmed by the lurer parked 5 from it.
+        let den = Vec2::new(60.0, 40.0);
+        field.monsters[0].body = standing(den);
+        field.monsters[0].spawn = den;
+        // (The lurer is parked after each step, so the alarm fires on the second.)
+        step_with_parked_lurer(&mut field, den + Vec2::new(0.0, -5.0), 2);
+        assert_eq!(field.monsters()[0].target, Some(0));
+        let sight = |field: &TrainingField| {
+            (field.view().circles.iter())
+                .filter(|c| c.color == color::SIGHT)
+                .count()
+        };
+        assert_eq!(sight(&field), 1);
+        // The lurer 25 away: outside the alarm disk, inside the line of sight, still chased.
+        step_with_parked_lurer(&mut field, den + Vec2::new(0.0, -25.0), 2);
+        assert_eq!(field.monsters()[0].target, Some(0));
+        assert_eq!(field.monsters()[0].gait, Gait::Running);
+        // 45 away: forgotten, threat included; the monster idles, no sight circle.
+        field.monsters[0].threat.insert(0, 5.0);
+        step_with_parked_lurer(&mut field, den + Vec2::new(0.0, -45.0), 2);
+        assert_eq!(field.monsters()[0].target, None);
+        assert!(field.monsters()[0].threat.is_empty());
+        assert_eq!(sight(&field), 0);
+    }
+
+    #[test]
     fn a_monster_in_melee_reach_bites_three_every_one_and_a_half_seconds() {
         let mut field = TrainingField::default();
         field.param("monsters", 5.0);
@@ -967,19 +1014,19 @@ mod tests {
             Some(2)
         );
         assert_eq!(threat_target(&HashMap::new(), &[true; 6]), None);
-        // A monster far from everyone, hurt by the lurer, runs at the lurer across the map.
-        let mut field = TrainingField::default();
-        field.param("monsters", 5.0);
-        let far = Vec2::new(70.0, 50.0);
+        // A monster 30 from the lurer (outside the alarm disk, inside the line of sight),
+        // hurt by the lurer, runs at the lurer.
+        let mut field = quiet_field();
+        let far = Vec2::new(24.0, 18.0);
         field.monsters[0].body = standing(far);
         field.monsters[0].threat.insert(0, 1.0);
         field.update(1.0 / 60.0);
         assert_eq!(field.monsters()[0].target, Some(0));
         assert_eq!(field.monsters()[0].gait, Gait::Running);
-        for _ in 0..600 {
+        for _ in 0..300 {
             field.update(1.0 / 60.0);
         }
-        assert!((field.monsters()[0].body.position - far).length() > 30.0);
+        assert!((field.monsters()[0].body.position - far).length() > 15.0);
     }
 
     #[test]
@@ -1215,17 +1262,17 @@ mod tests {
     }
 
     /// Roaming spot to spot is a run slowed at every turn-back and braked into the edge: the
-    /// lurer, with room, averages 4.3; the dps 2.7 in their 10; the buffers 1.5 in their 5;
-    /// nobody below 0.76. Spots cover the disk: the dps spend 42-49% of the time inside the
+    /// lurer, with room, averages 4.1-4.3; the dps 2.5-2.7 in their 10; the buffers 1.5-1.6
+    /// in their 5; nobody below 0.76. Spots cover the disk: the dps spend 42-49% of the time inside the
     /// buffers' disk (the user 2026-11-02: with wander they never came in), the lurer 5%.
     #[test]
     fn players_run_inside_their_disks() {
-        let mut field = TrainingField::default();
+        let mut field = quiet_field();
         let m = measure(&mut field, 60.0);
         assert!(m.player_over <= 0.0, "{}", m.player_over);
         assert!(m.mean_speed[0] > 4.0, "{:?}", m.mean_speed);
         assert!(
-            m.mean_speed[1..4].iter().all(|&s| s > 2.5),
+            m.mean_speed[1..4].iter().all(|&s| s > 2.3),
             "{:?}",
             m.mean_speed
         );

@@ -432,6 +432,14 @@ Steps:
   fresh cast) at 10 s, no second cast meanwhile; nothing cast at 95%, nor on a member 40 away;
   three in need are served lowest first, one cast a second, when in reach of the roaming
   buffer, the buffer itself first. Mutation (the HP buff adding nothing) fails.
+  Line of sight (the user 2026-11-02: "it will keep chasing if the player is still in LOS",
+  a third, biggest disk, 30-40): `LOS_REACH` 35; each step a monster forgets (threat and
+  chase) every player beyond it, keeps its current target inside it even outside the alarm
+  disk, and picks by threat, then the kept target, then the alarm disk; drawn in
+  `color::SIGHT` on chasing monsters only. Tests: alarmed at 5, still chasing at 25, forgotten
+  at 45 with its threat cleared and no sight circle; the chase test's bound is now the line of
+  sight; the roaming measurements run on a quiet field, since dps now stop to fight monsters
+  that follow players in. Mutation (no sight limit) fails.
   Combat numbers: bite reach 2, 3 damage, 1.5 s (one monster kills an unbuffed player in
   50 s, four in 12.5 s); dps AoE reach 8, blast radius 2 round the target, 10 damage to
   every monster in it, 6 MP, 1.5 s (one dps kills a monster in 15 s, three clear a cluster of
