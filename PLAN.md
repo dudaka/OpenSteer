@@ -448,6 +448,21 @@ Steps:
   scratched again over 3 s), both then chase and bite the lurer; no MP, no tag. The dps tests
   now count the lurer's tag on a monster 4 from the centre. Mutation (the tagged filter
   dropped) fails.
+- F5 (built, this branch): lurer v1, D105's design (`Lure`, `LureStage`, `lure_step`): at the
+  centre it stands `CENTRE_WAIT` 2 s and leaves when the dps disk holds at most `LEAVE_LOAD`
+  3 monsters; out, it runs to the nearest monster in its 50 disk it has not tagged
+  (`next_to_tag`; the tag fires on its own within reach 8) and on to the next, turning back
+  when `BACK_CHASERS` 4 monsters target it, its HP is under `BACK_HP` 40% or nothing is left
+  to tag; back, it runs home (`HOME` 1) and waits again. Metrics (`count_deliveries`, the
+  second bottom label): trips, delivered (a monster chasing the lurer that enters the dps
+  disk, once), lost (one that stops chasing outside the disk), the lurer's share of time
+  inside the dps disk. Measured, two minutes of the default field: 4 trips, 10 delivered, 0
+  lost, 12 kills, no deaths, 32% of the time inside the dps disk (pinned with margins: at
+  least 3, 6, half, under 50%, at least 8 kills). Tests: the leave at 2.0-2.1 s on a quiet
+  field (and straight back, nothing to tag), no leave with four monsters in the dps disk; back
+  on four chasers (the step after they start chasing), at 30% HP, or with nothing left, then
+  home. Mutation (no return on chasers) fails. Still roaming: dps and buffers; the lurer no
+  longer does, so the roaming test covers those five.
   Combat numbers: bite reach 2, 3 damage, 1.5 s (one monster kills an unbuffed player in
   50 s, four in 12.5 s); dps AoE reach 8, blast radius 2 round the target, 10 damage to
   every monster in it, 6 MP, 1.5 s (one dps kills a monster in 15 s, three clear a cluster of
