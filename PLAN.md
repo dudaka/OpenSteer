@@ -51,9 +51,18 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
   8. [done, this branch] The pull rule (a monster chasing a player or inside the dps disk is
      never pulled) and the backlog cap off by default: the cap tables (Findings) show no cap
      buying safety at 15 or 30 monsters and every cap costing kills; the slider stays.
-  9. [done, this branch] A main page listing every demo as a card (2D, then 3D), each
-     opening its page at `#/demo/<id>` with the controls in a panel on the left (the user,
-     2026-11-03). Next: the Gaps of item 5.
+  9. [done, #56] A main page listing every demo as a card (2D, then 3D), each opening its
+     page at `#/demo/<id>` with the controls in a panel on the left (the user, 2026-11-03).
+  10. [done, this branch] The hand-off: a lurer leaves the centre only once nothing chases it.
+      Found by the first five-seed measurement (Findings): with the cap off, seeds 2-4 had
+      5 dps deaths, all with 2-4 strong monsters in the disk and the HP buffer dry, and
+      lurers left with their pack still behind them on most leaves. With the hand-off: no
+      deaths on any seed, the cap off stays.
+  11. Agreed with the user (2026-11-03), one small PR each: the pinned measurement over five
+      seeds with margins; a strong pull only while the HP buffer's MP (the party window shows
+      MP bars too) is above a threshold, the sustain that actually ran out; the group heal
+      triggered by the lowest bar, not the mean (it never fires). Then whatever the user
+      observes.
   The 3D options offered 2026-10-21 stay for later:
   1. Stop bodies scraping walls: add the containment side probes (the design of steps 23 and 37) to the
      Silkroad walker, so walls it runs along or corners it rounds push it off (Findings: 299 of
@@ -852,8 +861,6 @@ Decided with the user (2026-11-02 to 03, Phase 8, in order):
 Open (ask before acting):
 - The party window showing members' HP bars is my assumption about the game; if it does not,
   the lurers' risk check and the watch rule lose that reading.
-- Lurer A delivers less than B in the one measured seed (the tie rule hands A the near
-  monsters); alternate who leaves first, or leave it: measure more seeds first.
 - The lurers' MP: sessions cost blasts and pierces and the MP buffer reaches a lurer only at
   the centre; no wait or return on MP yet.
 - Arrive: keep the faithful "orbits unless braking is tuned" result, or add a non-OpenSteer stop rule?
@@ -1015,6 +1022,16 @@ trips/delivered/lost):
   dps at the disk's edge and stepped back (75 trips of 2 s at cap 90); with it the short
   pulls are the near ring's roamers (A 44 pulls of 2.7 s deliver 16 in two minutes), so
   `trips` counts pulls, not excursions.
+- **One seed misled the cap decision; the hand-off was the real fix.** Five seeds, 180 s, rocks,
+  before the hand-off: cap off 190 kills and 5 deaths (seeds 2, 3, 4: a dps dying to stacked
+  bites with 2-4 strong monsters in the disk and the HP buffer at 5-13 MP, nobody chasing the
+  dead dps); cap 30 s 130 kills, no deaths; cap 60 s 126 kills, no deaths. The lurers left the
+  centre with their pack still chasing them on 54 of 68 leaves (seed 1) and 137 of 146 (seed
+  2), dragging it back out and re-pulling strong monsters. With the hand-off (no leave while
+  anything chases the lurer): cap off 166 kills and no deaths (per seed 36 / 41 / 22 / 31 /
+  36, lowest member 42-48%), cap 30 s 105 kills and no deaths; no leave while chased on any
+  seed. Lurer A against B delivered per seed with the cap off and the hand-off: 24/12, 29/17,
+  13/15, 20/11, 25/18 (the earlier "A's share" was seed 1's nest layout, not a rule).
 
 ## Gaps and known issues
 
@@ -1035,8 +1052,7 @@ trips/delivered/lost):
 - Unproven causes, stated as "likely" in Findings: the 3D wanderer's larger speed overshoot, 3D path-following excursions, 3D Leader Following's fewer overlaps.
 
 - Training Field: time inside the dps disk is set by the backlog cap, not the lurers' walk
-  (B: 12 pulls of 4.9 s in two minutes at 30 s); lurer A delivers less than B in the one seed
-  measured;
+  (B: 12 pulls of 4.9 s in two minutes at 30 s);
   the group heal never fired in the pinned run; scouting is random spots, so a lurer can zigzag
   on an empty side; the planners assume skill cooldowns stay as at planning time, and the stops
   planner keeps the fence only by candidate distance; every measurement is one seed (1) and two
@@ -1053,7 +1069,9 @@ trips/delivered/lost):
   minutes at a backlog cap of 30 s;
   bodies graze rocks (avoidance looks only ahead, as on the plaza's walls); a lurer plans a
   strong monster while the disk holds one fewer than the cap, so two lurers can fill the disk to
-  the cap plus one (with rocks: three 2,000 HP monsters from 80 s, both lurers held for minutes).
+  the cap plus one (with rocks: three 2,000 HP monsters from 80 s, both lurers held for minutes);
+  the group heal's trigger is the party mean under 70%, which never happens; the HP buffer's MP
+  is the party's real sustain limit (5-13 MP at every death seen), and nothing reads it yet.
 
 ## Learning aids
 
