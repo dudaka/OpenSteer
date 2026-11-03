@@ -138,6 +138,8 @@ pub const PLAN_PERIOD: f32 = 1.0;
 pub const LURERS: usize = 2;
 pub const WATCH_DISTANCE: f32 = 15.0;
 pub const WATCH_TIMEOUT: f32 = 5.0;
+/// How long a lurer remembers where it last saw the other.
+pub const SEEN_MEMORY: f32 = 10.0;
 /// The balance sliders and their defaults: N, the monsters' running speed (faster than the
 /// players' 5, as in the game), the bite's damage and reach, the load cap, the strong cap (a
 /// lurer waits while the dps disk holds this many strong monsters, HP x10 or more).
@@ -454,6 +456,8 @@ pub struct Lure {
     pub scout: Option<Vec2>,
     /// Since when it has been ready to leave but watching an earlier lurer.
     ready_since: Option<f32>,
+    /// Where and when it last saw each other lurer (memory, `SEEN_MEMORY` long).
+    last_seen: Vec<Option<(Vec2, f32)>>,
     /// The planned stops (monster ids) of the current trip, next first, and when they were
     /// planned.
     pub tour: Vec<Stop>,
@@ -469,6 +473,13 @@ pub struct Lure {
 }
 
 impl Lure {
+    pub fn new() -> Lure {
+        Lure {
+            last_seen: vec![None; LURERS],
+            ..Lure::default()
+        }
+    }
+
     pub fn share_in_disk(&self) -> f32 {
         self.steps_in_disk as f32 / self.steps.max(1) as f32
     }
@@ -863,21 +874,46 @@ fn scout_spot(rng: &mut fastrand::Rng, away_from: Option<Vec2>) -> Vec2 {
     around(CENTRE, r, angle)
 }
 
-/// What a lurer sees of each lurer (itself included) at the start of a step.
+/// Each lurer at the start of a step, before anyone's point of view is applied.
 #[derive(Debug, Clone, Copy)]
-struct LurerView {
+struct Snap {
     at: Vec2,
-    stage: LureStage,
     alive: bool,
     /// HP back to `LEAVE_HP`.
-    ready: bool,
+    hp_ok: bool,
+    speed: f32,
+}
+
+/// What one lurer can know of another (itself included), as the game allows: its position and
+/// movement only while within the nearby radius (`LURER_SIGHT`), its HP from the party window
+/// at any distance. Its plan and its stage it never knows; being out of sight means it is at
+/// least 30 away. (A dead lurer is unseen.)
+#[derive(Debug, Clone, Copy)]
+struct Observed {
+    seen: Option<Vec2>,
+    hp_ok: bool,
+    moving: bool,
+}
+
+/// Lurer `me`'s view of every lurer.
+fn observe(me: usize, snap: &[Snap]) -> Vec<Observed> {
+    (snap.iter().enumerate())
+        .map(|(j, l)| {
+            let near = j == me || (l.at - snap[me].at).length() <= LURER_SIGHT;
+            Observed {
+                seen: (l.alive && near).then_some(l.at),
+                hp_ok: l.alive && l.hp_ok,
+                moving: l.alive && l.speed > 0.05,
+            }
+        })
+        .collect()
 }
 
 /// What a trip step needs to know.
 struct Trip<'a> {
     settings: &'a Settings,
     monsters: &'a [Monster],
-    lurers: &'a [LurerView],
+    lurers: &'a [Observed],
     /// Monsters chasing this lurer; monsters in the dps disk; strong ones among them.
     chasers: usize,
     load: usize,
@@ -888,9 +924,10 @@ struct Trip<'a> {
 
 /// One step of lurer `me`'s trip. At the centre it stands until its HP is back to `LEAVE_HP`,
 /// the dps disk holds at most the load cap's monsters and fewer strong ones than the strong
-/// cap, and no earlier lurer is about to leave or just leaving (within `WATCH_DISTANCE`), a
-/// wait of at most `WATCH_TIMEOUT`; out with nothing in sight it scouts the band away from
-/// the other lurer, having tagged something it turns home with what follows; out, it follows its tour (planned
+/// cap, and no earlier lurer it can see is about to leave or just leaving (within
+/// `WATCH_DISTANCE`, healthy or moving), a wait of at most `WATCH_TIMEOUT`; out with nothing
+/// in sight it scouts the band away from where it last saw the other lurer, having tagged
+/// something it turns home with what follows; out, it follows its tour (planned
 /// again every `PLAN_PERIOD`, stops already tagged dropped; the tag itself fires from
 /// `lure_cast`) until N chase, its HP is under `BACK_HP` or no stop is left; back, it runs
 /// home, and on arrival the session's time and HP are recorded.
@@ -906,7 +943,12 @@ fn lure_step(p: &mut Player, me: usize, lure: &mut Lure, trip: &Trip, rng: &mut 
         dt,
     } = *trip;
     let before = p.body.position;
-    let positions: Vec<Option<Vec2>> = lurers.iter().map(|l| l.alive.then_some(l.at)).collect();
+    let positions: Vec<Option<Vec2>> = lurers.iter().map(|o| o.seen).collect();
+    for (j, o) in lurers.iter().enumerate() {
+        if let (true, Some(at)) = (j != me, o.seen) {
+            lure.last_seen[j] = Some((at, now));
+        }
+    }
     match lure.stage {
         LureStage::Centre => {
             hunt(&mut p.body, CENTRE, HOME, RUN_SPEED, dt);
@@ -918,10 +960,12 @@ fn lure_step(p: &mut Player, me: usize, lure: &mut Lure, trip: &Trip, rng: &mut 
                 return;
             }
             let since = *lure.ready_since.get_or_insert(now);
-            let blocker = (lurers[..me].iter()).any(|l| {
-                l.alive
-                    && (l.at - CENTRE).length() < WATCH_DISTANCE
-                    && (l.stage == LureStage::Out || (l.stage == LureStage::Centre && l.ready))
+            // An earlier lurer in sight near the centre, healthy enough to leave or on the
+            // move, is about to go or just going: let it get its distance first.
+            let blocker = (lurers[..me].iter()).any(|o| {
+                o.seen
+                    .is_some_and(|at| (at - CENTRE).length() < WATCH_DISTANCE)
+                    && (o.hp_ok || o.moving)
             });
             if blocker && now - since < WATCH_TIMEOUT {
                 return;
@@ -980,9 +1024,12 @@ fn lure_step(p: &mut Player, me: usize, lure: &mut Lure, trip: &Trip, rng: &mut 
                     // Nothing in sight and nothing tagged yet: scout the band, away from
                     // another lurer that is out.
                     if lure.scout.is_none_or(|spot| (spot - at).length() <= HOME) {
-                        let other = (lurers.iter().enumerate())
-                            .find(|(l, v)| *l != me && v.alive && v.stage == LureStage::Out)
-                            .map(|(_, v)| v.at);
+                        let other = (lure.last_seen.iter().enumerate())
+                            .filter(|(j, _)| *j != me)
+                            .find_map(|(_, seen)| {
+                                seen.filter(|(_, t)| now - t <= SEEN_MEMORY)
+                                    .map(|(at, _)| at)
+                            });
                         lure.scout = Some(scout_spot(rng, other));
                     }
                     let spot = lure.scout.expect("a scouting spot");
@@ -1153,7 +1200,7 @@ impl Default for TrainingField {
             kills: 0,
             next_id: 0,
             deaths: 0,
-            lures: vec![Lure::default(); LURERS],
+            lures: vec![Lure::new(); LURERS],
             settings: Settings::default(),
             rng: fastrand::Rng::with_seed(SEED),
             time: 0.0,
@@ -1181,15 +1228,14 @@ impl TrainingField {
         self.bury();
         self.spawn_missing();
         let rng = &mut self.rng;
-        let lurers: Vec<LurerView> = (self.team[..LURERS].iter().zip(&self.lures))
-            .map(|(p, l)| LurerView {
+        let snap: Vec<Snap> = (self.team[..LURERS].iter())
+            .map(|p| Snap {
                 at: p.body.position,
-                stage: l.stage,
                 alive: !p.is_dead(),
-                ready: !p.is_dead() && p.hp >= LEAVE_HP * MAX_HP,
+                hp_ok: p.hp >= LEAVE_HP * MAX_HP,
+                speed: p.body.speed,
             })
             .collect();
-        let positions: Vec<Option<Vec2>> = lurers.iter().map(|l| l.alive.then_some(l.at)).collect();
         let chasers: Vec<usize> = (0..LURERS)
             .map(|l| self.monsters.iter().filter(|m| m.target == Some(l)).count())
             .collect();
@@ -1234,6 +1280,12 @@ impl TrainingField {
                 };
             p.hp = (p.hp + hp_rate * dt).min(MAX_HP);
             p.mp = (p.mp + mp_rate * dt).min(MAX_MP);
+            // A lurer's view of the lurers: the other only while nearby.
+            let view = match p.role {
+                Role::Lurer => observe(i, &snap),
+                _ => Vec::new(),
+            };
+            let positions: Vec<Option<Vec2>> = view.iter().map(|o| o.seen).collect();
             p.target = match p.role {
                 Role::Dps => nearest_monster_in_disk(p.body.position, &self.monsters),
                 Role::Lurer => untagged_in_reach(i, p.body.position, &self.monsters, &positions),
@@ -1247,7 +1299,7 @@ impl TrainingField {
                 let trip = Trip {
                     settings: &self.settings,
                     monsters,
-                    lurers: &lurers,
+                    lurers: &view,
                     chasers: chasers[i],
                     load,
                     strong,
@@ -2341,6 +2393,53 @@ mod tests {
             tagged[1] += usize::from(by_b);
         }
         assert!(tagged[0] >= 1 && tagged[1] >= 1, "{tagged:?}");
+    }
+
+    #[test]
+    fn a_lurer_out_of_sight_does_not_count_for_the_other() {
+        // Lurer A parked 40 out: B, at the centre, cannot see it, so a monster at 20 (nearer A)
+        // is B's, and B tags it within a few seconds; A, 20 from it, never does.
+        let mut field = quiet_field();
+        field.monsters[0].body = standing(Vec2::new(20.0, 0.0));
+        let a = Vec2::new(40.0, 0.0);
+        step_with_parked_lurer(&mut field, a, 300);
+        let m = &field.monsters()[0];
+        assert!(
+            m.threat.contains_key(&1) && !m.threat.contains_key(&0),
+            "{:?}",
+            m.threat
+        );
+        // A parked 25 out: in B's sight, nearer the monster, so it is A's: A tags it, B not.
+        let mut field = quiet_field();
+        field.monsters[0].body = standing(Vec2::new(20.0, 0.0));
+        step_with_parked_lurer(&mut field, Vec2::new(25.0, 0.0), 300);
+        let m = &field.monsters()[0];
+        assert!(
+            m.threat.contains_key(&0) && !m.threat.contains_key(&1),
+            "{:?}",
+            m.threat
+        );
+        // What B sees: with A 40 out, only itself; with A 25 out, both.
+        let snap = |ax: f32| {
+            vec![
+                Snap {
+                    at: Vec2::new(ax, 0.0),
+                    alive: true,
+                    hp_ok: true,
+                    speed: 0.0,
+                },
+                Snap {
+                    at: Vec2::new(1.5, 0.0),
+                    alive: true,
+                    hp_ok: true,
+                    speed: 0.0,
+                },
+            ]
+        };
+        let far = observe(1, &snap(40.0));
+        assert!(far[0].seen.is_none() && far[0].hp_ok && far[1].seen.is_some());
+        let near = observe(1, &snap(25.0));
+        assert_eq!(near[0].seen, Some(Vec2::new(25.0, 0.0)));
     }
 
     #[test]

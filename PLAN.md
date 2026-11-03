@@ -583,6 +583,18 @@ Steps:
     B 4 trips, 16 delivered, 1 lost, 8.4 s, 6 walked per delivered; 26 kills, no deaths; both
     inside the dps disk most of the time (73% and 93%: the load cap holds them while the four
     dps clear). Mutation (the owner rule dropped) fails.
+  - F6i (built, this branch; the user: the lurers are independent, know nothing of each
+    other's plan, and see each other only as nearby entities): the first build read the other
+    lurer's stage and its position at any distance. Now each lurer gets its own view
+    (`Snap`, `observe`, `Observed`): the other's position and movement only within
+    `LURER_SIGHT` 30, its HP from the party window at any distance (an assumption about the
+    game's party window), never its stage; a lurer remembers where it last saw the other for
+    `SEEN_MEMORY` 10 s (`Lure::last_seen`, `Lure::new`). Ownership counts only the lurers in
+    sight (two lurers closing on one monster see each other before either is in reach); the
+    watch waits for an earlier lurer in sight within 15 of the centre that is healthy or
+    moving; scouting goes away from the last sighting. Tests: A parked 40 out is unseen by B
+    at the centre, so a monster at 20 is B's and B tags it; A parked 25 out is seen and nearer,
+    so A tags it and B does not; `observe` itself. Mutation (the sight limit dropped) fails.
   Combat numbers: bite reach 2, 3 damage, 1.5 s (one monster kills an unbuffed player in
   50 s, four in 12.5 s); dps AoE reach 8, blast radius 2 round the target, 10 damage to
   every monster in it, 6 MP, 1.5 s (one dps kills a monster in 15 s, three clear a cluster of
