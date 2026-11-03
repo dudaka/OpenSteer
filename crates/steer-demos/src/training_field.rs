@@ -100,13 +100,15 @@ const HP_BUFF_RING: f32 = 1.3;
 const MP_BUFF_RING: f32 = 1.5;
 /// The HP buffer's further skills (the user: fill the gap a giant opens), each tried before
 /// the HP buff, still one cast a second: a heal on a member under `HEAL_AT` of its HP, a
-/// group heal when the party's mean HP is under `GROUP_HEAL_AT` percent, a guard on the
-/// member under attack with the lowest HP (bites on it times `GUARD_FACTOR`).
+/// group heal when `GROUP_HEAL_MEMBERS` or more members in reach are under `GROUP_HEAL_AT`
+/// percent (bar by bar; on the party's mean it never fired), a guard on the member under
+/// attack with the lowest HP (bites on it times `GUARD_FACTOR`).
 pub const HEAL_AT: f32 = 0.5;
 pub const HEAL_HP: f32 = 40.0;
 pub const HEAL_MP: f32 = 15.0;
 pub const HEAL_COOLDOWN: f32 = 3.0;
 pub const GROUP_HEAL_AT: f32 = 70.0;
+pub const GROUP_HEAL_MEMBERS: usize = 2;
 pub const GROUP_HEAL_HP: f32 = 20.0;
 pub const GROUP_HEAL_MP: f32 = 25.0;
 pub const GROUP_HEAL_COOLDOWN: f32 = 10.0;
@@ -1878,17 +1880,21 @@ impl TrainingField {
         true
     }
 
-    /// A group heal (`GROUP_HEAL_HP` to every member in reach) when the party's mean HP is
-    /// under `GROUP_HEAL_AT`.
+    /// A group heal (`GROUP_HEAL_HP` to every member in reach) when `GROUP_HEAL_MEMBERS` or
+    /// more of them are under `GROUP_HEAL_AT` percent.
     fn cast_group_heal(&mut self, b: usize) -> bool {
         let buffer = &self.team[b];
         if self.time < buffer.group_ready || buffer.mp < GROUP_HEAL_MP {
             return false;
         }
-        if self.party_hp() >= GROUP_HEAL_AT {
+        let in_reach = self.members_in_reach(b);
+        let hurt = (in_reach.iter())
+            .filter(|&&(_, fill)| fill * 100.0 < GROUP_HEAL_AT)
+            .count();
+        if hurt < GROUP_HEAL_MEMBERS {
             return false;
         }
-        for (i, _) in self.members_in_reach(b) {
+        for (i, _) in in_reach {
             self.team[i].hp = (self.team[i].hp + GROUP_HEAL_HP).min(MAX_HP);
         }
         self.team[b].group_ready = self.time + GROUP_HEAL_COOLDOWN;
@@ -3212,6 +3218,17 @@ mod tests {
         );
         assert!(field.team()[0].hp < 66.0);
         assert!((field.team()[6].mp - (MAX_MP - GROUP_HEAL_MP)).abs() < 0.1);
+        // One dps at 60% among seven near full (the mean 95%): no group heal, the HP buff
+        // instead; two dps at 60%: the group heal.
+        for (hurt, group_heals) in [(1, 0), (2, 1)] {
+            let mut field = quiet_field();
+            for i in 2..2 + hurt {
+                field.team[i].hp = 60.0;
+            }
+            field.update(1.0 / 60.0);
+            assert_eq!(field.group_heals, group_heals, "{hurt} hurt");
+            assert_eq!(field.heals, 0, "{hurt} hurt");
+        }
         // A monster after dps 2: the guard goes on dps 2 once the monster has turned on it.
         let mut field = quiet_field();
         field.monsters[0].body = standing(Vec2::new(6.0, 0.0));
@@ -3669,7 +3686,8 @@ mod tests {
         // Measured 2026-11-03 (rocks, cap off, the hand-off): kills 36 / 41 / 22 / 31 / 36,
         // no deaths, the lowest member 42-48%, delivered A 24 / 29 / 13 / 20 / 25 and B 12 /
         // 17 / 15 / 11 / 18, nothing lost, no leave while chased. Before the hand-off: 5
-        // deaths over seeds 2-4 and leaves while chased on most trips.
+        // deaths over seeds 2-4 and leaves while chased on most trips. With the healer's MP
+        // gate and the bar-by-bar group heal: kills 36 / 41 / 22 / 30 / 36, B 8 on seed 4.
         let mut deaths = 0;
         for seed in 1..=5 {
             let mut field = seeded(seed);
@@ -3768,6 +3786,10 @@ mod tests {
         // back out; cap 30 s with the hand-off: 105 kills, no deaths. The healer's MP gate
         // (no strong pull under 50 MP): the same numbers on all five seeds (the healer fell
         // to 20 MP on seed 4 and 53-73 elsewhere, never while a strong pull was on offer).
+        // The group heal on two members under 70% (on the party's mean it never fired): seed
+        // 1 unchanged; over the five seeds 165 kills, no deaths, group heals 0 / 0 / 1 / 4 / 0
+        // (seed 4's four cost the healer all its MP, so its strong pulls paused: B 8
+        // delivered instead of 11).
         assert_eq!(stages.len(), 3);
         let delivered = a.delivered + b.delivered;
         assert!(a.trips >= 2 && b.trips >= 2, "{} {}", a.trips, b.trips);
