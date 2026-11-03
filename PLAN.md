@@ -401,7 +401,17 @@ Steps:
   `REGEN` 1 of each a second, monsters nothing; HP and MP bars over every body (`bar`: body
   width, 1.6 and 2.0 above the centre, the buffers' colors). Tests: regeneration 50 -> 60 in
   10 s, a monster stays at 50, bars counted and the half bar's length. Mutation (monsters
-  regenerating) fails.
+  regenerating) fails. Bars are twice the body's width in three strands (the user: too small).
+  The bite (built, this branch): `BITE` 3 every `BITE_COOLDOWN` 1.5 s on the target inside
+  melee reach; `Monster::threat` (damage dealt per player) picks the living player with the
+  most (`threat_target`), else the nearest in the alarm disk; a player at 0 HP dies
+  (`Player::dead_until`, drawn in `color::BODY`, every monster forgets it), back at the centre
+  with full bars after `PLAYER_RESPAWN` 5 s; a monster at 0 HP is removed and counted
+  (`kills`), its replacement due after `MONSTER_RESPAWN` 3 s (`respawns`). Tests: a parked
+  lurer loses 3, then 3 more each 1.5 s, less regeneration; a dead player is forgotten, gray,
+  and back at the centre after 5 s, not 4.5; the threat pick (most damage, dead skipped, lowest
+  index on a tie) and a monster hurt from 86 away running at the lurer; a killed monster's
+  replacement after 3 s, not 2.5. Mutation (no bite cooldown) fails the bite test.
   Combat numbers: bite reach 2, 3 damage, 1.5 s (one monster kills an unbuffed player in
   50 s, four in 12.5 s); dps AoE reach 8, blast radius 2 round the target, 10 damage to
   every monster in it, 6 MP, 1.5 s (one dps kills a monster in 15 s, three clear a cluster of

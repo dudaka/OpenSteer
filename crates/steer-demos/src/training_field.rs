@@ -8,8 +8,12 @@
 //! a monster's 6 is its alarm), and a small one, its melee reach. Players are ranged; a
 //! monster is melee, and chases the nearest player inside its big disk until that player is
 //! inside its small disk. Everyone has HP (players MP too), a player's bars regenerating a point
-//! a second; nothing spends them yet. Attacks, buffs and the lurer's trips come in later steps.
+//! a second. A monster bites the player it closes on once inside melee reach, and chases
+//! whoever has hurt it most (its threat table) before anyone merely near. A dead player is back
+//! at the centre after 5 s; a dead monster is replaced elsewhere after 3 s. The players' attacks,
+//! the buffs and the lurer's trips come in later steps.
 
+use std::collections::HashMap;
 use std::f32::consts::TAU;
 
 use steer_core::containment::contain;
@@ -47,6 +51,13 @@ const MAX_FORCE: f32 = 8.0;
 pub const MAX_HP: f32 = 100.0;
 pub const MAX_MP: f32 = 100.0;
 pub const REGEN: f32 = 1.0;
+/// A monster's bite: `BITE` HP off its target every `BITE_COOLDOWN` while inside melee reach.
+pub const BITE: f32 = 3.0;
+pub const BITE_COOLDOWN: f32 = 1.5;
+/// A dead player is back at the centre with full bars after this long; a dead monster's
+/// replacement spawns after this long.
+pub const PLAYER_RESPAWN: f32 = 5.0;
+pub const MONSTER_RESPAWN: f32 = 3.0;
 /// Bars over a body: twice the body's width, this far above its centre (up the screen is -y),
 /// each `BAR_STRANDS` lines `BAR_STRAND_GAP` apart, since a WebGL line is always 1 px.
 const BAR_WIDTH: f32 = 4.0 * BODY_RADIUS;
@@ -140,6 +151,14 @@ pub struct Player {
     pub mp: f32,
     /// The spot it is running to inside its disk.
     spot: Vec2,
+    /// Dead until this time (simulation time), then back at the centre.
+    dead_until: Option<f32>,
+}
+
+impl Player {
+    pub fn is_dead(&self) -> bool {
+        self.dead_until.is_some()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -153,8 +172,13 @@ pub struct Monster {
     pub spawn: Vec2,
     /// The spot it is going to inside its idle disk.
     spot: Vec2,
-    /// The player (an index into the team) inside its big disk that it is closing on.
+    /// The player (an index into the team) it is closing on: the top of its threat table,
+    /// else the nearest inside its alarm disk.
     pub target: Option<usize>,
+    /// Damage each player has dealt it.
+    pub threat: HashMap<usize, f32>,
+    /// When it may bite next.
+    bite_ready: f32,
 }
 
 #[derive(Debug, Clone)]
@@ -164,6 +188,10 @@ pub struct TrainingField {
     monsters: Vec<Monster>,
     /// How many monsters the map keeps alive (the slider).
     wanted: usize,
+    /// Times at which a killed monster's replacement may spawn.
+    respawns: Vec<f32>,
+    pub kills: u32,
+    pub deaths: u32,
     rng: fastrand::Rng,
     time: f32,
 }
@@ -262,6 +290,15 @@ fn hunt(body: &mut Vehicle, target: Vec2, dt: f32) -> Gait {
     gait
 }
 
+/// The player a monster chases: the living one that has dealt it the most damage (the lowest
+/// index on a tie), else `None`.
+fn threat_target(threat: &HashMap<usize, f32>, alive: &[bool]) -> Option<usize> {
+    (threat.iter())
+        .filter(|(&i, _)| alive[i])
+        .max_by(|a, b| a.1.total_cmp(b.1).then(b.0.cmp(a.0)))
+        .map(|(&i, _)| i)
+}
+
 /// The nearest of `players` within `ALARM_REACH` of `at`, and its distance.
 fn player_in_reach(at: Vec2, players: &[Vec2]) -> Option<(usize, f32)> {
     (players.iter().enumerate())
@@ -281,6 +318,7 @@ impl Default for TrainingField {
             hp: MAX_HP,
             mp: MAX_MP,
             spot: at,
+            dead_until: None,
         };
         let team = vec![
             player(Role::Lurer, CENTRE),
@@ -294,6 +332,9 @@ impl Default for TrainingField {
             team,
             monsters: Vec::new(),
             wanted: DEFAULT_MONSTERS,
+            respawns: Vec::new(),
+            kills: 0,
+            deaths: 0,
             rng: fastrand::Rng::with_seed(SEED),
             time: 0.0,
         };
@@ -317,21 +358,45 @@ impl TrainingField {
     /// `GAIT_MIN_S`-`GAIT_MAX_S` seconds, each with its whole body inside.
     pub fn update(&mut self, dt: f32) {
         self.time += dt;
+        self.bury();
         self.spawn_missing();
         let rng = &mut self.rng;
         for p in &mut self.team {
+            if let Some(until) = p.dead_until {
+                if self.time >= until {
+                    *p = Player {
+                        body: standing(CENTRE),
+                        hp: MAX_HP,
+                        mp: MAX_MP,
+                        spot: CENTRE,
+                        dead_until: None,
+                        role: p.role,
+                    };
+                }
+                continue;
+            }
             let r = p.role.radius();
             roam(&mut p.body, Gait::Running, &mut p.spot, CENTRE, r, dt, rng);
             p.hp = (p.hp + REGEN * dt).min(MAX_HP);
             p.mp = (p.mp + REGEN * dt).min(MAX_MP);
         }
+        let alive: Vec<bool> = self.team.iter().map(|p| !p.is_dead()).collect();
         let players: Vec<Vec2> = self.team.iter().map(|p| p.body.position).collect();
+        let living: Vec<Vec2> = (players.iter().zip(&alive))
+            .map(|(&at, &a)| if a { at } else { Vec2::new(f32::MAX, f32::MAX) })
+            .collect();
         for m in &mut self.monsters {
-            m.target = player_in_reach(m.body.position, &players).map(|(i, _)| i);
+            m.target = threat_target(&m.threat, &alive)
+                .or_else(|| player_in_reach(m.body.position, &living).map(|(i, _)| i));
             if let Some(i) = m.target {
                 m.gait = hunt(&mut m.body, players[i], dt);
                 // A fresh gait draw as soon as the chase ends.
                 m.until = self.time;
+                let in_reach = (players[i] - m.body.position).length() <= MELEE_REACH;
+                if in_reach && self.time >= m.bite_ready {
+                    m.bite_ready = self.time + BITE_COOLDOWN;
+                    self.team[i].hp -= BITE;
+                }
                 continue;
             }
             if self.time >= m.until {
@@ -358,9 +423,36 @@ impl TrainingField {
         }
     }
 
-    /// Spawns monsters until `wanted` are on the map, standing until their first gait draw.
+    /// Deaths: a player at 0 HP dies (back after `PLAYER_RESPAWN`; every monster forgets it);
+    /// a monster at 0 HP is removed and counted, its replacement due after `MONSTER_RESPAWN`.
+    fn bury(&mut self) {
+        for (i, p) in self.team.iter_mut().enumerate() {
+            if p.hp <= 0.0 && !p.is_dead() {
+                p.hp = 0.0;
+                p.dead_until = Some(self.time + PLAYER_RESPAWN);
+                self.deaths += 1;
+                for m in &mut self.monsters {
+                    m.threat.remove(&i);
+                    if m.target == Some(i) {
+                        m.target = None;
+                    }
+                }
+            }
+        }
+        let before = self.monsters.len();
+        self.monsters.retain(|m| m.hp > 0.0);
+        let killed = before - self.monsters.len();
+        self.kills += killed as u32;
+        self.respawns
+            .extend(std::iter::repeat_n(self.time + MONSTER_RESPAWN, killed));
+    }
+
+    /// Spawns monsters until `wanted` are on the map, standing until their first gait draw;
+    /// a killed monster's slot waits for its respawn time.
     fn spawn_missing(&mut self) {
-        while self.monsters.len() < self.wanted {
+        let now = self.time;
+        self.respawns.retain(|&t| t > now);
+        while self.monsters.len() + self.respawns.len() < self.wanted {
             let at = self.spawn_point();
             self.monsters.push(Monster {
                 gait: Gait::Standing,
@@ -370,6 +462,8 @@ impl TrainingField {
                 spawn: at,
                 spot: at,
                 target: None,
+                threat: HashMap::new(),
+                bite_ready: self.time,
             });
         }
     }
@@ -450,13 +544,16 @@ impl TrainingField {
         labels.push(label(
             corner(0.0, h + 3.0),
             format!(
-                "{} monsters: {}; {chasing} chasing",
+                "{} monsters: {}; {chasing} chasing; {} kills, {} deaths",
                 self.monsters.len(),
-                gaits.join(", ")
+                gaits.join(", "),
+                self.kills,
+                self.deaths
             ),
             color::LABEL,
         ));
         let body = |p: &Player| match p.role {
+            _ if p.is_dead() => color::BODY,
             Role::Lurer => LURER_BODY,
             Role::Dps => DPS_BODY,
             Role::HpBuffer => HP_BUFFER_BODY,
@@ -494,6 +591,7 @@ impl TrainingField {
                 ),
                 (color::MELEE, "melee reach 2: a monster's attack"),
                 (color::TARGET, "chase: the player a monster closes on"),
+                (color::BODY, "a dead player, back at the centre in 5 s"),
             ]),
             actions: Vec::new(),
             params: vec![slider("monsters", "Monsters", MONSTERS, self.wanted as f32)],
@@ -649,6 +747,113 @@ mod tests {
         assert_eq!(lurer.from, [-BAR_WIDTH / 2.0, -HP_BAR_LIFT]);
         assert_eq!(lurer.to, [0.0, -HP_BAR_LIFT]);
         assert_eq!(hp_bars[1].from[1], -HP_BAR_LIFT - BAR_STRAND_GAP);
+    }
+
+    /// Steps the field with the lurer put back standing at `at` after every step, so a bite
+    /// test has a target that does not run away.
+    fn step_with_parked_lurer(field: &mut TrainingField, at: Vec2, steps: usize) {
+        for _ in 0..steps {
+            field.update(1.0 / 60.0);
+            if !field.team[0].is_dead() {
+                field.team[0].body = standing(at);
+            }
+        }
+    }
+
+    #[test]
+    fn a_monster_in_melee_reach_bites_three_every_one_and_a_half_seconds() {
+        let mut field = TrainingField::default();
+        field.param("monsters", 5.0);
+        // The lurer parked at a monster's melee reach, far from the rest of the team.
+        let at = Vec2::new(60.0, 40.0);
+        field.monsters[0].body = standing(at + Vec2::new(0.0, 1.5));
+        field.monsters[0].spawn = at + Vec2::new(0.0, 1.5);
+        for m in &mut field.monsters[1..] {
+            m.body = standing(Vec2::new(-70.0, -50.0));
+            m.spawn = m.body.position;
+        }
+        let hp_after = |field: &mut TrainingField, seconds: f32| {
+            step_with_parked_lurer(field, at, (seconds * 60.0) as usize);
+            field.team()[0].hp
+        };
+        // The first bite lands at once, then every 1.5 s; regeneration is 1 a second.
+        assert!((hp_after(&mut field, 1.0) - (MAX_HP - BITE + 1.0).min(MAX_HP)).abs() < 0.1);
+        let hp_4s = hp_after(&mut field, 3.0);
+        // Bites at 0, 1.5 and 3.0 s: 9 off, 4 regained (capped on the way).
+        assert!((91.0..=95.0).contains(&hp_4s), "{hp_4s}");
+        assert_eq!(field.monsters()[0].target, Some(0));
+        assert_eq!(field.monsters()[0].gait, Gait::Standing);
+    }
+
+    #[test]
+    fn a_dead_player_is_forgotten_and_returns_to_the_centre_after_five_seconds() {
+        let mut field = TrainingField::default();
+        field.monsters[0].threat.insert(1, 10.0);
+        field.monsters[0].target = Some(1);
+        field.team[1].hp = 0.0;
+        field.team[1].body = standing(Vec2::new(5.0, 5.0));
+        field.update(1.0 / 60.0);
+        assert!(field.team()[1].is_dead());
+        assert_eq!(field.deaths, 1);
+        assert!(field.monsters()[0].threat.is_empty());
+        assert_ne!(field.monsters()[0].target, Some(1));
+        assert_eq!(field.view().vehicles[1].color, color::BODY);
+        for _ in 0..(4.5 * 60.0) as usize {
+            field.update(1.0 / 60.0);
+        }
+        assert!(field.team()[1].is_dead());
+        for _ in 0..60 {
+            field.update(1.0 / 60.0);
+        }
+        let p = &field.team()[1];
+        assert!(!p.is_dead());
+        assert_eq!((p.hp, p.mp), (MAX_HP, MAX_MP));
+        assert!(
+            (p.body.position - CENTRE).length() < 1.0,
+            "{:?}",
+            p.body.position
+        );
+    }
+
+    #[test]
+    fn a_monster_chases_whoever_hurt_it_most_before_anyone_near() {
+        let threat = HashMap::from([(0, 5.0), (1, 10.0), (2, 10.0)]);
+        assert_eq!(threat_target(&threat, &[true; 6]), Some(1));
+        assert_eq!(
+            threat_target(&threat, &[true, false, true, true, true, true]),
+            Some(2)
+        );
+        assert_eq!(threat_target(&HashMap::new(), &[true; 6]), None);
+        // A monster far from everyone, hurt by the lurer, runs at the lurer across the map.
+        let mut field = TrainingField::default();
+        field.param("monsters", 5.0);
+        let far = Vec2::new(70.0, 50.0);
+        field.monsters[0].body = standing(far);
+        field.monsters[0].threat.insert(0, 1.0);
+        field.update(1.0 / 60.0);
+        assert_eq!(field.monsters()[0].target, Some(0));
+        assert_eq!(field.monsters()[0].gait, Gait::Running);
+        for _ in 0..600 {
+            field.update(1.0 / 60.0);
+        }
+        assert!((field.monsters()[0].body.position - far).length() > 30.0);
+    }
+
+    #[test]
+    fn a_killed_monster_is_replaced_three_seconds_later() {
+        let mut field = TrainingField::default();
+        field.monsters[0].hp = 0.0;
+        field.update(1.0 / 60.0);
+        assert_eq!(field.kills, 1);
+        assert_eq!(field.monsters().len(), DEFAULT_MONSTERS - 1);
+        for _ in 0..(2.5 * 60.0) as usize {
+            field.update(1.0 / 60.0);
+        }
+        assert_eq!(field.monsters().len(), DEFAULT_MONSTERS - 1);
+        for _ in 0..60 {
+            field.update(1.0 / 60.0);
+        }
+        assert_eq!(field.monsters().len(), DEFAULT_MONSTERS);
     }
 
     #[test]
