@@ -602,7 +602,21 @@ Steps:
     targets (27 damage a second at best, 75 s to kill), biting 9 every 1.5 s at dps that roam
     out to 10 while the HP buffer reaches 8 from within 5. Open (to decide with the user):
     the dps focusing one target; the lurers never tagging a strong monster; the buffers'
-    reach against the dps disk.
+    reach against the dps disk. Decided (the user 2026-11-03): no focus fire (AoE dps); the
+    lurer judges from the dps disk and the party window instead of a blanket "never"; the
+    buffs are extended rather than the buffers' reach.
+  - F6j (built, this branch): the lurer's risk check, from what it can see (the disk's monsters
+    within 30 of the centre) and the party window (`party_hp`, the mean HP percent with the
+    dead at 0, kept per step over `TREND_WINDOW` 5 s; `party_drop`): a strong monster is a
+    candidate, a normal-attack target or part of a blast or pierce only while the disk holds
+    fewer strong than the cap, the party's mean HP is at least `RISKY_HP` 80 and it fell at
+    most `RISKY_DROP` 10 in 5 s (`strong_ok`, through `tour_candidates`, `untagged_in_reach`,
+    `lure_cast` and `plan_casts`'s `avoid_strong`); under `HALT_HP` 60 or a fall over
+    `HALT_DROP` 20, no session starts (`halt`). The team label shows the party HP and its
+    change. Tests: calm, A tags a normal and a giant 20 out; with a party monster in the disk
+    the giant is left and the normal tagged; a 15-point fall blocks the giant for the window
+    and A takes it on a later trip; at 50% no trip for a second, trips once over 60%. Mutation
+    (`strong_ok` always true) fails.
   Combat numbers: bite reach 2, 3 damage, 1.5 s (one monster kills an unbuffed player in
   50 s, four in 12.5 s); dps AoE reach 8, blast radius 2 round the target, 10 damage to
   every monster in it, 6 MP, 1.5 s (one dps kills a monster in 15 s, three clear a cluster of

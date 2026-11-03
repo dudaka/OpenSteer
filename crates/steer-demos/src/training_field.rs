@@ -22,7 +22,7 @@
 //! monster in the lurer's disk, keep tagging the next nearest, run back when enough chase
 //! (or HP is low, or none is left), and count what the trips deliver.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::f32::consts::TAU;
 
 use steer_core::containment::contain;
@@ -140,6 +140,15 @@ pub const WATCH_DISTANCE: f32 = 15.0;
 pub const WATCH_TIMEOUT: f32 = 5.0;
 /// How long a lurer remembers where it last saw the other.
 pub const SEEN_MEMORY: f32 = 10.0;
+/// The lurer's risk check (the user: read the dps disk and the party before tagging a strong
+/// monster), from the party window: a strong monster is a candidate only while the party's
+/// mean HP is at least `RISKY_HP` percent and has not fallen more than `RISKY_DROP` points
+/// over `TREND_WINDOW`; under `HALT_HP` or falling more than `HALT_DROP`, no session starts.
+pub const RISKY_HP: f32 = 80.0;
+pub const RISKY_DROP: f32 = 10.0;
+pub const HALT_HP: f32 = 60.0;
+pub const HALT_DROP: f32 = 20.0;
+pub const TREND_WINDOW: f32 = 5.0;
 /// The balance sliders and their defaults: N, the monsters' running speed (faster than the
 /// players' 5, as in the game), the bite's damage and reach, the load cap, the strong cap (a
 /// lurer waits while the dps disk holds this many strong monsters, HP x10 or more).
@@ -550,6 +559,8 @@ pub struct TrainingField {
     pub deaths: u32,
     /// One per lurer (A, B).
     pub lures: Vec<Lure>,
+    /// The party's mean HP (percent, the dead at 0) each step over the last `TREND_WINDOW`.
+    party_hp: VecDeque<f32>,
     pub settings: Settings,
     rng: fastrand::Rng,
     time: f32,
@@ -713,9 +724,11 @@ fn untagged_in_reach(
     at: Vec2,
     monsters: &[Monster],
     lurers: &[Option<Vec2>],
+    strong_ok: bool,
 ) -> Option<usize> {
     (monsters.iter().enumerate())
         .filter(|(_, m)| !tagged_by_a_lurer(m) && owner(m.body.position, lurers) == Some(lurer))
+        .filter(|(_, m)| strong_ok || !m.rarity.is_strong())
         .map(|(i, m)| (i, (m.body.position - at).length()))
         .filter(|&(_, d)| d <= RANGED_REACH)
         .min_by(|a, b| a.1.total_cmp(&b.1))
@@ -727,9 +740,9 @@ fn untagged_in_reach(
 /// within a skill's reach of a monster and casts: the normal attack tags it alone (reach 8),
 /// the blast every untagged monster within `LURE_BLAST` of it (reach 8), the pierce every
 /// untagged monster on the line from the cast point to it (reach `PIERCE_LENGTH`); the blast
-/// and pierce only when `skills` (blast ready, pierce ready) allow, and every cast point
-/// within `fence` of `home` (the lurer's walk stays in its disk; a target may lie beyond it,
-/// the user's rule). The search ends a run
+/// and pierce only when `skills` (blast ready, pierce ready) allow, every cast point within
+/// `fence` of `home` (the lurer's walk stays in its disk; a target may lie beyond it, the
+/// user's rule), and with `avoid_strong` no area cast that would catch a strong monster. The search ends a run
 /// once `n` are tagged or nothing more can be, and keeps the shortest, the fewest casts on a
 /// tie.
 pub fn plan_casts(
@@ -738,11 +751,12 @@ pub fn plan_casts(
     candidates: &[u32],
     n: usize,
     skills: (bool, bool),
-    fence: f32,
+    (fence, avoid_strong): (f32, bool),
 ) -> Vec<Stop> {
     struct Search<'a> {
         home: Vec2,
         fence: f32,
+        avoid_strong: bool,
         monsters: &'a [Monster],
         candidates: &'a [u32],
         n: usize,
@@ -778,18 +792,26 @@ pub fn plan_casts(
                     // The normal attack always; a blast or pierce only when it tags two or
                     // more, the rule `lure_cast` fires them by.
                     let mut options: Vec<(f32, Vec<u32>)> = vec![(RANGED_REACH, vec![id])];
+                    let allowed = |hits: &[usize]| {
+                        !self.avoid_strong
+                            || hits.iter().all(|&i| !self.monsters[i].rarity.is_strong())
+                    };
                     if self.skills.0 {
                         let hits = in_blast(target, LURE_BLAST, self.monsters);
-                        let tags = self.untagged(hits, tagged);
-                        if tags.len() >= 2 {
-                            options.push((RANGED_REACH, tags));
+                        if allowed(&hits) {
+                            let tags = self.untagged(hits, tagged);
+                            if tags.len() >= 2 {
+                                options.push((RANGED_REACH, tags));
+                            }
                         }
                     }
                     if self.skills.1 {
                         let hits = along_pierce(cast_at(PIERCE_LENGTH), target, self.monsters);
-                        let tags = self.untagged(hits, tagged);
-                        if tags.len() >= 2 {
-                            options.push((PIERCE_LENGTH, tags));
+                        if allowed(&hits) {
+                            let tags = self.untagged(hits, tagged);
+                            if tags.len() >= 2 {
+                                options.push((PIERCE_LENGTH, tags));
+                            }
                         }
                     }
                     for (reach, tags) in options {
@@ -825,6 +847,7 @@ pub fn plan_casts(
     let mut search = Search {
         home,
         fence,
+        avoid_strong,
         monsters,
         candidates,
         n,
@@ -843,9 +866,11 @@ fn tour_candidates(
     at: Vec2,
     monsters: &[Monster],
     lurers: &[Option<Vec2>],
+    strong_ok: bool,
 ) -> Vec<(u32, Vec2)> {
     let mut near: Vec<&Monster> = (monsters.iter())
         .filter(|m| !tagged_by_a_lurer(m) && owner(m.body.position, lurers) == Some(lurer))
+        .filter(|m| strong_ok || !m.rarity.is_strong())
         .filter(|m| (m.body.position - at).length() <= LURER_SIGHT)
         .filter(|m| (m.body.position - CENTRE).length() <= LURE_RADIUS + PIERCE_LENGTH)
         .collect();
@@ -918,6 +943,9 @@ struct Trip<'a> {
     chasers: usize,
     load: usize,
     strong: usize,
+    /// The risk check: strong monsters may be tagged; no session should start.
+    strong_ok: bool,
+    halt: bool,
     now: f32,
     dt: f32,
 }
@@ -939,6 +967,8 @@ fn lure_step(p: &mut Player, me: usize, lure: &mut Lure, trip: &Trip, rng: &mut 
         chasers,
         load,
         strong,
+        strong_ok,
+        halt,
         now,
         dt,
     } = *trip;
@@ -954,7 +984,7 @@ fn lure_step(p: &mut Player, me: usize, lure: &mut Lure, trip: &Trip, rng: &mut 
             hunt(&mut p.body, CENTRE, HOME, RUN_SPEED, dt);
             let quiet = settings.load_cap == 0 || load <= settings.load_cap;
             let safe = settings.strong_cap == 0 || strong < settings.strong_cap;
-            let ready = p.hp >= LEAVE_HP * MAX_HP && quiet && safe;
+            let ready = p.hp >= LEAVE_HP * MAX_HP && quiet && safe && !halt;
             if !ready {
                 lure.ready_since = None;
                 return;
@@ -985,7 +1015,7 @@ fn lure_step(p: &mut Player, me: usize, lure: &mut Lure, trip: &Trip, rng: &mut 
             lure.tour
                 .retain(|s| find(s.id).is_some_and(|m| !tagged_by_a_lurer(m)));
             if !back && (lure.tour.is_empty() || now - lure.planned_at >= PLAN_PERIOD) {
-                let mut candidates = tour_candidates(me, at, monsters, &positions);
+                let mut candidates = tour_candidates(me, at, monsters, &positions, strong_ok);
                 let n = settings.chasers;
                 lure.tour = match settings.planner {
                     Planner::Stops => {
@@ -1002,7 +1032,8 @@ fn lure_step(p: &mut Player, me: usize, lure: &mut Lure, trip: &Trip, rng: &mut 
                     Planner::Casts => {
                         let ids: Vec<u32> = candidates.iter().map(|c| c.0).collect();
                         let skills = (now >= p.blast_ready, now >= p.pierce_ready);
-                        plan_casts((at, CENTRE), monsters, &ids, n, skills, LURE_RADIUS)
+                        let fence = (LURE_RADIUS, !strong_ok);
+                        plan_casts((at, CENTRE), monsters, &ids, n, skills, fence)
                     }
                 };
                 lure.planned_at = now;
@@ -1090,7 +1121,7 @@ fn lure_cast(
     lurer: usize,
     target: Option<usize>,
     monsters: &[Monster],
-    lurers: &[Option<Vec2>],
+    (lurers, strong_ok): (&[Option<Vec2>], bool),
     counts: &mut Lure,
     now: f32,
 ) -> Vec<usize> {
@@ -1099,22 +1130,26 @@ fn lure_cast(
             .filter(|&&i| !tagged_by_a_lurer(&monsters[i]))
             .count()
     };
+    // With strong monsters off limits, no area cast that would catch one.
+    let allowed =
+        |hits: &[usize]| strong_ok || hits.iter().all(|&i| !monsters[i].rarity.is_strong());
     let at = p.body.position;
     let candidates = (monsters.iter().enumerate())
         .filter(|(_, m)| !tagged_by_a_lurer(m) && owner(m.body.position, lurers) == Some(lurer))
+        .filter(|(_, m)| strong_ok || !m.rarity.is_strong())
         .map(|(i, m)| (i, (m.body.position - at).length()));
     let (mut blast, mut pierce): (Vec<usize>, Vec<usize>) = (Vec::new(), Vec::new());
     for (i, d) in candidates {
         let centre = monsters[i].body.position;
         if d <= RANGED_REACH {
             let hits = in_blast(centre, LURE_BLAST, monsters);
-            if untagged(&hits) > untagged(&blast) {
+            if allowed(&hits) && untagged(&hits) > untagged(&blast) {
                 blast = hits;
             }
         }
         if d <= PIERCE_LENGTH {
             let hits = along_pierce(at, centre, monsters);
-            if untagged(&hits) > untagged(&pierce) {
+            if allowed(&hits) && untagged(&hits) > untagged(&pierce) {
                 pierce = hits;
             }
         }
@@ -1201,6 +1236,7 @@ impl Default for TrainingField {
             next_id: 0,
             deaths: 0,
             lures: vec![Lure::new(); LURERS],
+            party_hp: VecDeque::new(),
             settings: Settings::default(),
             rng: fastrand::Rng::with_seed(SEED),
             time: 0.0,
@@ -1219,6 +1255,20 @@ impl TrainingField {
         &self.monsters
     }
 
+    /// The party's mean HP in percent as the party window shows it, the dead at 0.
+    pub fn party_hp(&self) -> f32 {
+        let total: f32 = self.team.iter().map(|p| p.hp / MAX_HP * 100.0).sum();
+        total / self.team.len() as f32
+    }
+
+    /// How many points the party's mean HP fell over the last `TREND_WINDOW` (negative: rose).
+    pub fn party_drop(&self) -> f32 {
+        match (self.party_hp.front(), self.party_hp.back()) {
+            (Some(first), Some(last)) => first - last,
+            _ => 0.0,
+        }
+    }
+
     /// Spawns the missing monsters, then moves every body: a player runs inside its role's
     /// disk; a monster with a player inside its big disk closes on the nearest one (`hunt`),
     /// otherwise keeps inside `IDLE_RADIUS` of its spawn at the gait it drew for the next
@@ -1227,7 +1277,6 @@ impl TrainingField {
         self.time += dt;
         self.bury();
         self.spawn_missing();
-        let rng = &mut self.rng;
         let snap: Vec<Snap> = (self.team[..LURERS].iter())
             .map(|p| Snap {
                 at: p.body.position,
@@ -1244,6 +1293,17 @@ impl TrainingField {
         let strong = (self.monsters.iter().filter(in_disk))
             .filter(|m| m.rarity.is_strong())
             .count();
+        // The party window: the mean HP now and its fall over the trend window.
+        let window = (TREND_WINDOW / dt).round() as usize + 1;
+        self.party_hp.push_back(self.party_hp());
+        while self.party_hp.len() > window {
+            self.party_hp.pop_front();
+        }
+        let (party, drop) = (self.party_hp(), self.party_drop());
+        let safe_strong = self.settings.strong_cap == 0 || strong < self.settings.strong_cap;
+        let strong_ok = safe_strong && party >= RISKY_HP && drop <= RISKY_DROP;
+        let halt = party < HALT_HP || drop > HALT_DROP;
+        let rng = &mut self.rng;
         let mut hits = Vec::new();
         let mut tags = Vec::new();
         for (i, p) in self.team.iter_mut().enumerate() {
@@ -1288,13 +1348,16 @@ impl TrainingField {
             let positions: Vec<Option<Vec2>> = view.iter().map(|o| o.seen).collect();
             p.target = match p.role {
                 Role::Dps => nearest_monster_in_disk(p.body.position, &self.monsters),
-                Role::Lurer => untagged_in_reach(i, p.body.position, &self.monsters, &positions),
+                Role::Lurer => {
+                    untagged_in_reach(i, p.body.position, &self.monsters, &positions, strong_ok)
+                }
                 _ => None,
             };
             if p.role == Role::Lurer {
                 let (monsters, now) = (&self.monsters, self.time);
                 let lure = &mut self.lures[i];
-                let hit = lure_cast(p, i, p.target, monsters, &positions, lure, now);
+                let seen = (positions.as_slice(), strong_ok);
+                let hit = lure_cast(p, i, p.target, monsters, seen, lure, now);
                 tags.extend(hit.into_iter().map(|t| (i, t)));
                 let trip = Trip {
                     settings: &self.settings,
@@ -1303,6 +1366,8 @@ impl TrainingField {
                     chasers: chasers[i],
                     load,
                     strong,
+                    strong_ok,
+                    halt,
                     now,
                     dt,
                 };
@@ -1638,11 +1703,13 @@ impl TrainingField {
         labels.push(label(
             corner(-w, h + 3.0),
             format!(
-                "{} monsters: {}; {chasing} chasing; {} kills, {} deaths",
+                "{} monsters: {}; {chasing} chasing; {} kills, {} deaths; party HP {:.0}% ({:+.0} in 5 s)",
                 self.monsters.len(),
                 gaits.join(", "),
                 self.kills,
-                self.deaths
+                self.deaths,
+                self.party_hp(),
+                -self.party_drop()
             ),
             color::LABEL,
         ));
@@ -2334,8 +2401,9 @@ mod tests {
         field.monsters[1].body = standing(Vec2::new(62.0, 0.0));
         let ids: Vec<u32> = field.monsters().iter().map(|m| m.id).collect();
         let from = (Vec2::new(45.0, 0.0), CENTRE);
-        let plan =
-            |ids: &[u32], skills| plan_casts(from, field.monsters(), ids, 1, skills, LURE_RADIUS);
+        let plan = |ids: &[u32], skills| {
+            plan_casts(from, field.monsters(), ids, 1, skills, (LURE_RADIUS, false))
+        };
         assert_eq!(
             plan(&ids[..1], (false, false)),
             [Stop {
@@ -2355,7 +2423,7 @@ mod tests {
         let mut field = quiet_field();
         field.monsters[0].body = standing(Vec2::new(29.0, 0.0));
         field.monsters[1].body = standing(Vec2::new(31.0, 0.0));
-        let seen = tour_candidates(0, CENTRE, field.monsters(), &[Some(CENTRE), None]);
+        let seen = tour_candidates(0, CENTRE, field.monsters(), &[Some(CENTRE), None], true);
         assert_eq!(seen.len(), 1);
         assert_eq!(seen[0].0, field.monsters()[0].id);
     }
@@ -2510,6 +2578,89 @@ mod tests {
         assert_eq!(field.lures[0].trips, 1);
     }
 
+    /// A giant and a normal monster 20 out on lurer A's side, 6 apart (no cast takes both).
+    fn risky_field() -> TrainingField {
+        let mut field = quiet_field();
+        field.monsters[0].body = standing(Vec2::new(-20.0, 0.0));
+        field.monsters[0].set_rarity(Rarity::Giant);
+        field.monsters[1].body = standing(Vec2::new(-20.0, 6.0));
+        field
+    }
+
+    /// Runs `steps`, recording which monsters (by id) lurer A tagged at any point.
+    fn run_tracking_a(field: &mut TrainingField, steps: usize) -> std::collections::HashSet<u32> {
+        let mut tagged = std::collections::HashSet::new();
+        for _ in 0..steps {
+            field.update(1.0 / 60.0);
+            for m in field.monsters() {
+                if m.threat.contains_key(&0) {
+                    tagged.insert(m.id);
+                }
+            }
+        }
+        tagged
+    }
+
+    #[test]
+    fn the_lurer_reads_the_disk_and_the_party_before_tagging_a_strong_monster() {
+        // A calm party and an empty disk: A tags the normal and the giant within 8 s.
+        let mut field = risky_field();
+        let (giant, normal) = (field.monsters()[0].id, field.monsters()[1].id);
+        let tagged = run_tracking_a(&mut field, 480);
+        assert!(
+            tagged.contains(&giant) && tagged.contains(&normal),
+            "{tagged:?}"
+        );
+        // A party monster already in the dps disk (the strong cap is 1): the giant is left
+        // alone, the normal is tagged.
+        let mut field = risky_field();
+        field.monsters[2].body = standing(Vec2::new(6.0, 0.0));
+        field.monsters[2].set_rarity(Rarity::PartyNormal);
+        let tagged = run_tracking_a(&mut field, 480);
+        assert!(
+            !tagged.contains(&giant) && tagged.contains(&normal),
+            "{tagged:?}"
+        );
+        // The party's mean HP falling 15 points at once: no strong tag for the 5 s window,
+        // and the giant is tagged on a later trip once the party has recovered.
+        // (Regeneration and the buffs lift the party again within seconds, so the window
+        // closes on its own.)
+        let mut field = risky_field();
+        field.update(1.0 / 60.0);
+        for p in &mut field.team {
+            p.hp = 85.0;
+        }
+        let (mut worst_drop, mut planned_giant, mut planned_normal) = (0.0f32, false, false);
+        for _ in 0..60 {
+            field.update(1.0 / 60.0);
+            worst_drop = worst_drop.max(field.party_drop());
+            let tour = &field.lures[0].tour;
+            planned_giant |= tour.iter().any(|s| s.id == giant);
+            planned_normal |= tour.iter().any(|s| s.id == normal);
+        }
+        assert!(worst_drop > RISKY_DROP, "{worst_drop}");
+        assert!(planned_normal && !planned_giant);
+        let tagged = run_tracking_a(&mut field, (20.0 * 60.0) as usize);
+        assert!(tagged.contains(&giant), "{tagged:?}");
+        // The party at 50%: no session until it is back over 60%.
+        let mut field = risky_field();
+        for p in &mut field.team {
+            p.hp = 50.0;
+        }
+        for _ in 0..60 {
+            field.update(1.0 / 60.0);
+        }
+        assert_eq!(field.lures[0].trips, 0);
+        for _ in 0..(15.0 * 60.0) as usize {
+            field.update(1.0 / 60.0);
+        }
+        assert!(field.lures[0].trips > 0);
+        // The party window's numbers.
+        let field = TrainingField::default();
+        assert_eq!(field.party_hp(), 100.0);
+        assert_eq!(field.party_drop(), 0.0);
+    }
+
     #[test]
     fn a_killed_monster_respawns_at_its_own_nest() {
         let mut field = TrainingField::default();
@@ -2656,7 +2807,7 @@ mod tests {
                 &ids[..4],
                 3,
                 skills,
-                LURE_RADIUS,
+                (LURE_RADIUS, false),
             )
         };
         let with_blast = plan(&field, (true, false));
@@ -2680,7 +2831,7 @@ mod tests {
             &ids[..4],
             4,
             (false, true),
-            LURE_RADIUS,
+            (LURE_RADIUS, false),
         );
         assert_eq!(
             pierce,
