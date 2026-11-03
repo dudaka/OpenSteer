@@ -2861,8 +2861,9 @@ mod tests {
         field.monsters[0].spawn = field.monsters[0].body.position;
         field.team[0].guard_until = 100.0;
         step_with_parked_lurer(&mut field, den, 2);
+        // Against the literal cut, so a changed factor cannot move the expectation with it.
         let hp = field.team()[0].hp;
-        assert!((hp - (MAX_HP - BITE * GUARD_FACTOR)).abs() < 0.1, "{hp}");
+        assert!((hp - (MAX_HP - BITE * 0.8)).abs() < 0.1, "{hp}");
     }
 
     #[test]
