@@ -14,8 +14,9 @@
 //! at the centre after 5 s; a dead monster is replaced elsewhere after 3 s. A dps fires at the
 //! nearest monster inside the dps disk, an area blast that hurts every monster round the
 //! target and raises their threat. The buffers keep the team's bars up: each casts a 10 s buff
-//! that recovers HP or MP on the member with the lowest bar under the threshold. The lurer's
-//! trips come in later steps.
+//! that recovers HP or MP on the member with the lowest bar under the threshold. The lurer tags
+//! any monster in its reach it has not tagged yet, a scratch that puts the lurer on the
+//! monster's threat table so it follows. The lurer's trips come in later steps.
 
 use std::collections::HashMap;
 use std::f32::consts::TAU;
@@ -55,6 +56,11 @@ const MAX_FORCE: f32 = 8.0;
 pub const MAX_HP: f32 = 100.0;
 pub const MAX_MP: f32 = 100.0;
 pub const REGEN: f32 = 1.0;
+/// The lurer's tag: at the nearest monster within its ranged reach not yet tagged by it, every
+/// `TAG_COOLDOWN` for `TAG_MP`, `TAG_DAMAGE` off it (threat, not harm).
+pub const TAG_DAMAGE: f32 = 1.0;
+pub const TAG_MP: f32 = 2.0;
+pub const TAG_COOLDOWN: f32 = 1.0;
 /// A dps's area attack: at a monster inside the dps disk and its ranged reach, every
 /// `AOE_COOLDOWN` for `AOE_MP`, `AOE_DAMAGE` off every monster within `AOE_BLAST` of the target.
 pub const AOE_DAMAGE: f32 = 10.0;
@@ -332,6 +338,17 @@ fn threat_target(threat: &HashMap<usize, f32>, alive: &[bool]) -> Option<usize> 
         .map(|(&i, _)| i)
 }
 
+/// The monster nearest to `at` within the lurer's ranged reach that player `lurer` has not
+/// tagged yet (no threat of theirs on it): the lurer's next tag.
+fn untagged_in_reach(lurer: usize, at: Vec2, monsters: &[Monster]) -> Option<usize> {
+    (monsters.iter().enumerate())
+        .filter(|(_, m)| !m.threat.contains_key(&lurer))
+        .map(|(i, m)| (i, (m.body.position - at).length()))
+        .filter(|&(_, d)| d <= RANGED_REACH)
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|(i, _)| i)
+}
+
 /// The monster inside the dps disk nearest to `at`: a dps's target.
 fn nearest_monster_in_disk(at: Vec2, monsters: &[Monster]) -> Option<usize> {
     (monsters.iter().enumerate())
@@ -410,6 +427,7 @@ impl TrainingField {
         self.spawn_missing();
         let rng = &mut self.rng;
         let mut hits = Vec::new();
+        let mut tags = Vec::new();
         for (i, p) in self.team.iter_mut().enumerate() {
             if let Some(until) = p.dead_until {
                 if self.time >= until {
@@ -442,10 +460,21 @@ impl TrainingField {
                 };
             p.hp = (p.hp + hp_rate * dt).min(MAX_HP);
             p.mp = (p.mp + mp_rate * dt).min(MAX_MP);
-            p.target = (p.role == Role::Dps)
-                .then(|| nearest_monster_in_disk(p.body.position, &self.monsters))
-                .flatten();
-            let Some(t) = p.target else {
+            p.target = match p.role {
+                Role::Dps => nearest_monster_in_disk(p.body.position, &self.monsters),
+                Role::Lurer => untagged_in_reach(i, p.body.position, &self.monsters),
+                _ => None,
+            };
+            if p.role == Role::Lurer {
+                if let Some(t) = p.target {
+                    if self.time >= p.skill_ready && p.mp >= TAG_MP {
+                        p.mp -= TAG_MP;
+                        p.skill_ready = self.time + TAG_COOLDOWN;
+                        tags.push((i, t));
+                    }
+                }
+            }
+            let Some(t) = p.target.filter(|_| p.role == Role::Dps) else {
                 let r = p.role.radius();
                 roam(&mut p.body, Gait::Running, &mut p.spot, CENTRE, r, dt, rng);
                 continue;
@@ -464,6 +493,11 @@ impl TrainingField {
             self.cast_buff(b);
         }
         let rng = &mut self.rng;
+        for (lurer, t) in tags {
+            let m = &mut self.monsters[t];
+            m.hp -= TAG_DAMAGE;
+            *m.threat.entry(lurer).or_insert(0.0) += TAG_DAMAGE;
+        }
         for (shooter, at) in hits {
             for m in &mut self.monsters {
                 if (m.body.position - at).length() <= AOE_BLAST {
@@ -749,7 +783,7 @@ impl TrainingField {
                 (color::BODY, "a dead player, back at the centre in 5 s"),
                 (
                     color::ATTACK,
-                    "attack: a dps's target and the blast (2) every monster in it takes",
+                    "attack: a dps's target and its blast (2); the lurer's next tag",
                 ),
             ]),
             actions: Vec::new(),
@@ -852,7 +886,11 @@ mod tests {
         assert!(view.lines.iter().any(|l| l.color == color::TARGET));
         // 36 entities with two reach circles each, and the three training disks.
         let count = |c: u32| view.circles.iter().filter(|x| x.color == c).count();
-        assert_eq!((count(color::RANGED), count(color::MELEE)), (36, 36));
+        let bodies = 6 + field.monsters().len();
+        assert_eq!(
+            (count(color::RANGED), count(color::MELEE)),
+            (bodies, bodies)
+        );
         assert_eq!(count(color::RADIUS), 3);
     }
 
@@ -1066,6 +1104,49 @@ mod tests {
     }
 
     #[test]
+    fn the_lurer_tags_each_monster_in_reach_once_a_second_and_never_twice() {
+        let mut field = quiet_field();
+        // Two monsters 7 from the parked lurer, away from the team; the nearer one first.
+        let den = Vec2::new(60.0, 40.0);
+        for (k, m) in field.monsters.iter_mut().take(2).enumerate() {
+            m.body = standing(den + Vec2::new(0.0, 7.0 + k as f32 * 0.5));
+            m.spawn = m.body.position;
+        }
+        step_with_parked_lurer(&mut field, den, 2);
+        let lurer = &field.team()[0];
+        assert_eq!(field.monsters()[0].hp, MAX_HP - TAG_DAMAGE);
+        assert_eq!(field.monsters()[0].threat, HashMap::from([(0, TAG_DAMAGE)]));
+        assert_eq!(field.monsters()[0].target, Some(0));
+        assert_eq!(field.monsters()[1].hp, MAX_HP);
+        assert!((lurer.mp - (MAX_MP - TAG_MP)).abs() < 0.1);
+        // Its target is the monster it tagged this step; next step, the other.
+        assert_eq!(lurer.target, Some(0));
+        // The second a second later (the cooldown), then nothing left to tag: the first
+        // monster, already tagged, is never scratched again.
+        step_with_parked_lurer(&mut field, den, 30);
+        assert_eq!(field.monsters()[1].hp, MAX_HP);
+        step_with_parked_lurer(&mut field, den, 40);
+        assert_eq!(field.monsters()[1].hp, MAX_HP - TAG_DAMAGE);
+        step_with_parked_lurer(&mut field, den, 180);
+        assert_eq!(field.monsters()[0].hp, MAX_HP - TAG_DAMAGE);
+        assert_eq!(field.team()[0].target, None);
+        // Both tagged monsters stand biting at the parked lurer.
+        assert!(field.team()[0].hp < MAX_HP);
+    }
+
+    #[test]
+    fn the_lurer_holds_its_tag_without_the_mp() {
+        let mut field = quiet_field();
+        let den = Vec2::new(60.0, 40.0);
+        field.monsters[0].body = standing(den + Vec2::new(0.0, 7.0));
+        field.monsters[0].spawn = field.monsters[0].body.position;
+        field.team[0].mp = TAG_MP - 1.0;
+        step_with_parked_lurer(&mut field, den, 2);
+        assert_eq!(field.monsters()[0].hp, MAX_HP);
+        assert_eq!(field.team()[0].target, Some(0));
+    }
+
+    #[test]
     fn the_buffers_restore_the_lowest_bar_under_the_threshold_for_ten_seconds() {
         let mut field = quiet_field();
         field.team[1].hp = 50.0;
@@ -1149,13 +1230,19 @@ mod tests {
         let mut field = field_with_a_monster_at(Vec2::new(0.0, -4.0));
         field.update(1.0 / 60.0);
         let m = &field.monsters()[0];
-        assert_eq!(m.hp, MAX_HP - 3.0 * AOE_DAMAGE);
-        assert_eq!(m.threat, HashMap::from([(1, 10.0), (2, 10.0), (3, 10.0)]));
+        // Three shots, and the lurer's tag (4 away is inside its reach too).
+        assert_eq!(m.hp, MAX_HP - 3.0 * AOE_DAMAGE - TAG_DAMAGE);
+        let threat = HashMap::from([(0, 1.0), (1, 10.0), (2, 10.0), (3, 10.0)]);
+        assert_eq!(m.threat, threat);
         assert_eq!(m.target, Some(1));
         for (i, p) in field.team().iter().enumerate() {
-            let dps = p.role == Role::Dps;
-            assert_eq!(p.target, dps.then_some(0), "player {i}");
-            assert!((p.mp - if dps { MAX_MP - AOE_MP } else { MAX_MP }).abs() < 0.1);
+            let spent = match p.role {
+                Role::Dps => AOE_MP,
+                Role::Lurer => TAG_MP,
+                _ => 0.0,
+            };
+            assert_eq!(p.target, (spent > 0.0).then_some(0), "player {i}");
+            assert!((p.mp - (MAX_MP - spent)).abs() < 0.1, "player {i}");
         }
         // Volleys at 0, 1.5, 3 and 4.5 s: dead at the fourth, replaced 3 s later.
         for _ in 0..(5.0 * 60.0) as usize {
@@ -1172,7 +1259,8 @@ mod tests {
         field.monsters[2].body = standing(Vec2::new(0.0, -7.5));
         field.update(1.0 / 60.0);
         let hp: Vec<f32> = field.monsters().iter().map(|m| m.hp).collect();
-        assert_eq!(hp[..3], [70.0, 70.0, 100.0]);
+        // The target also carries the lurer's tag.
+        assert_eq!(hp[..3], [69.0, 70.0, 100.0]);
     }
 
     #[test]
@@ -1182,11 +1270,12 @@ mod tests {
             p.mp = AOE_MP - 1.0;
         }
         field.update(1.0 / 60.0);
-        assert_eq!(field.monsters()[0].hp, MAX_HP);
+        // No shot; only the lurer's tag.
+        assert_eq!(field.monsters()[0].hp, MAX_HP - TAG_DAMAGE);
         for _ in 0..70 {
             field.update(1.0 / 60.0);
         }
-        assert!(field.monsters()[0].hp < MAX_HP);
+        assert!(field.monsters()[0].hp <= MAX_HP - AOE_DAMAGE);
         // A monster inside the disk but out of reach of the dps at (4, 0): 10.3 away.
         let mut field = field_with_a_monster_at(Vec2::new(0.0, -9.5));
         field.update(1.0 / 60.0);
@@ -1199,7 +1288,7 @@ mod tests {
         let dps = &field.team()[1];
         let gap = (field.monsters()[0].body.position - dps.body.position).length();
         assert!(gap <= RANGED_REACH + 0.5, "{gap}");
-        assert!(field.monsters()[0].hp < MAX_HP);
+        assert!(field.monsters()[0].hp <= MAX_HP - AOE_DAMAGE);
     }
 
     #[test]

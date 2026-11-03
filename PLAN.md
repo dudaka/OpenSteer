@@ -440,6 +440,14 @@ Steps:
   at 45 with its threat cleared and no sight circle; the chase test's bound is now the line of
   sight; the roaming measurements run on a quiet field, since dps now stop to fight monsters
   that follow players in. Mutation (no sight limit) fails.
+  The lurer's tag (built, this branch): `untagged_in_reach` (the nearest monster within the
+  lurer's ranged reach with no threat of the lurer's on it), every `TAG_COOLDOWN` 1 s for
+  `TAG_MP` 2, `TAG_DAMAGE` 1 off it and onto its threat for the lurer; the lurer keeps roaming
+  (no stop to tag); its next tag drawn as the `color::ATTACK` line. Tests: two monsters 7 from a
+  parked lurer are tagged a second apart, the nearer first, each once (the first is never
+  scratched again over 3 s), both then chase and bite the lurer; no MP, no tag. The dps tests
+  now count the lurer's tag on a monster 4 from the centre. Mutation (the tagged filter
+  dropped) fails.
   Combat numbers: bite reach 2, 3 damage, 1.5 s (one monster kills an unbuffed player in
   50 s, four in 12.5 s); dps AoE reach 8, blast radius 2 round the target, 10 damage to
   every monster in it, 6 MP, 1.5 s (one dps kills a monster in 15 s, three clear a cluster of
