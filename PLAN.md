@@ -564,6 +564,25 @@ Steps:
     24 delivered, 2 lost, 21 kills, no deaths, 70% inside (short trips, the load cap holding
     it); 7 sessions of 11.9 s, back with 98 HP (lowest 97), 11 walked per delivered.
     Mutation (no fence) fails.
+  - F6h (built, this branch; the user): two lurers (A and B, `LURERS`, the first two players)
+    and four dps; `lures: Vec<Lure>`, metrics and status lines per lurer. Not kiting each
+    other's monsters from what a lurer can see: a monster any lurer has tagged is off limits
+    (`tagged_by_a_lurer`); an untagged one belongs to the nearest living lurer, the lower
+    index on a tie (`owner`), applied to the next tag, the planner's candidates and the cast
+    centres; scouting spots go on the half of the band away from a lurer that is out. Watching
+    before starting, without deadlock: A never waits; B waits while an earlier lurer is alive
+    within `WATCH_DISTANCE` 15 of the centre and out or ready to leave, at most `WATCH_TIMEOUT`
+    5 s (`Lure::ready_since`). The strong cap (`Settings::strong_cap`, slider 0-5, default 1):
+    a lurer stays while the dps disk holds that many strong monsters (`Rarity::is_strong`, HP
+    x10 or more: giants and every party monster). Tests: the owner rule (nearer, tie to A, B
+    dead); a pair of monsters each side, A tags only the left and B only the right, nobody
+    both; B leaves when A is 15 out (steps 120-300) and on the timeout with A parked; a party
+    monster in the disk holds both lurers, not with the cap off; eight roles; the dps tests
+    with four dps (a monster 4 under the centre loses 41 a volley, dies at the third). Measured,
+    two minutes: A 3 trips, 10 delivered, 0 lost, 16.1 s a session, 18 walked per delivered;
+    B 4 trips, 16 delivered, 1 lost, 8.4 s, 6 walked per delivered; 26 kills, no deaths; both
+    inside the dps disk most of the time (73% and 93%: the load cap holds them while the four
+    dps clear). Mutation (the owner rule dropped) fails.
   Combat numbers: bite reach 2, 3 damage, 1.5 s (one monster kills an unbuffed player in
   50 s, four in 12.5 s); dps AoE reach 8, blast radius 2 round the target, 10 damage to
   every monster in it, 6 MP, 1.5 s (one dps kills a monster in 15 s, three clear a cluster of
