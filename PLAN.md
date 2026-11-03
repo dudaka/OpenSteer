@@ -617,6 +617,19 @@ Steps:
     the giant is left and the normal tagged; a 15-point fall blocks the giant for the window
     and A takes it on a later trip; at 50% no trip for a second, trips once over 60%. Mutation
     (`strong_ok` always true) fails.
+  - F6k (built, this branch): the HP buffer's further skills, tried in this order before the
+    HP buff, still one cast a second (`cast_heal`, `cast_group_heal`, `cast_guard`;
+    `members_in_reach`, `spend`): a heal (+40 at once, 15 MP, 3 s) on the member in reach
+    lowest under 50%; a group heal (+20 to every member in reach, 25 MP, 10 s) when the
+    party's mean HP is under 70%; a guard (bites times 0.8 for 20 s, 10 MP, 5 s; the user:
+    the first draft's one-a-second blanket was too strong) on the unguarded member in reach
+    that a monster targets, the lowest HP first; a guarded member wears a `color::GUARD`
+    ring; the team label counts the casts. Tests: a dps at 40% is healed to 80 at once, the
+    next one gets the HP buff while the heal cools and the heal after it; the party at 65%
+    gets a group heal of 20, lurer A 40 away misses it; a monster after dps 2 brings the guard
+    onto dps 2 the step after it turns; a guarded lurer loses 2.4 to a bite, not 3. Measured,
+    two minutes at 15 monsters: the same trips (A 2/5/2, B 3/9/2), 16 kills, no deaths (5
+    before), 9 heals, 0 group heals, 10 guards. Mutation (guard factor 1) fails.
   Combat numbers: bite reach 2, 3 damage, 1.5 s (one monster kills an unbuffed player in
   50 s, four in 12.5 s); dps AoE reach 8, blast radius 2 round the target, 10 damage to
   every monster in it, 6 MP, 1.5 s (one dps kills a monster in 15 s, three clear a cluster of

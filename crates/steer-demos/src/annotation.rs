@@ -45,6 +45,8 @@ pub mod color {
     pub const SIGHT: u32 = 0x9a8fc4;
     /// The empty part of a bar (Training Field).
     pub const TRACK: u32 = 0x4a505c;
+    /// A guarded member: bites on it do less (Training Field).
+    pub const GUARD: u32 = 0x7fa7d8;
 }
 
 pub fn legend(entries: &[(u32, &str)]) -> Vec<LegendView> {

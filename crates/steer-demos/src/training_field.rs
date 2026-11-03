@@ -97,6 +97,23 @@ pub const BUFF_THRESHOLD: f32 = 0.9;
 /// A running buff is shown as a ring this far out round the body (HP inside, MP outside).
 const HP_BUFF_RING: f32 = 1.3;
 const MP_BUFF_RING: f32 = 1.5;
+/// The HP buffer's further skills (the user: fill the gap a giant opens), each tried before
+/// the HP buff, still one cast a second: a heal on a member under `HEAL_AT` of its HP, a
+/// group heal when the party's mean HP is under `GROUP_HEAL_AT` percent, a guard on the
+/// member under attack with the lowest HP (bites on it times `GUARD_FACTOR`).
+pub const HEAL_AT: f32 = 0.5;
+pub const HEAL_HP: f32 = 40.0;
+pub const HEAL_MP: f32 = 15.0;
+pub const HEAL_COOLDOWN: f32 = 3.0;
+pub const GROUP_HEAL_AT: f32 = 70.0;
+pub const GROUP_HEAL_HP: f32 = 20.0;
+pub const GROUP_HEAL_MP: f32 = 25.0;
+pub const GROUP_HEAL_COOLDOWN: f32 = 10.0;
+pub const GUARD_FACTOR: f32 = 0.8;
+pub const GUARD_DURATION: f32 = 20.0;
+pub const GUARD_MP: f32 = 10.0;
+pub const GUARD_COOLDOWN: f32 = 5.0;
+const GUARD_RING: f32 = 1.7;
 /// The spawn mix by rarity, in percent (party giants off: this team cannot kill one).
 const SPAWN_MIX: [(Rarity, u32); 6] = [
     (Rarity::Normal, 80),
@@ -319,6 +336,12 @@ pub struct Player {
     /// The lurer's area skills' cooldowns.
     blast_ready: f32,
     pierce_ready: f32,
+    /// The HP buffer's skill cooldowns.
+    heal_ready: f32,
+    group_ready: f32,
+    guard_ready: f32,
+    /// Guarded (bites do less) until this time.
+    pub guard_until: f32,
 }
 
 impl Player {
@@ -555,6 +578,10 @@ pub struct TrainingField {
     /// field whose respawns landed anywhere drained the lurer's disk).
     respawns: Vec<(f32, Vec2)>,
     pub kills: u32,
+    /// The HP buffer's casts.
+    pub heals: u32,
+    pub group_heals: u32,
+    pub guards: u32,
     next_id: u32,
     pub deaths: u32,
     /// One per lurer (A, B).
@@ -1215,6 +1242,10 @@ impl Default for TrainingField {
             mp_buff_until: 0.0,
             blast_ready: 0.0,
             pierce_ready: 0.0,
+            heal_ready: 0.0,
+            group_ready: 0.0,
+            guard_ready: 0.0,
+            guard_until: 0.0,
         };
         let eighth = TAU / 8.0;
         let team = vec![
@@ -1233,6 +1264,9 @@ impl Default for TrainingField {
             wanted: DEFAULT_MONSTERS,
             respawns: Vec::new(),
             kills: 0,
+            heals: 0,
+            group_heals: 0,
+            guards: 0,
             next_id: 0,
             deaths: 0,
             lures: vec![Lure::new(); LURERS],
@@ -1321,6 +1355,10 @@ impl TrainingField {
                         mp_buff_until: 0.0,
                         blast_ready: self.time,
                         pierce_ready: self.time,
+                        heal_ready: self.time,
+                        group_ready: self.time,
+                        guard_ready: self.time,
+                        guard_until: 0.0,
                         role: p.role,
                     };
                 }
@@ -1435,7 +1473,12 @@ impl TrainingField {
                 let in_reach = (players[i] - m.body.position).length() <= reach;
                 if in_reach && self.time >= m.bite_ready {
                     m.bite_ready = self.time + BITE_COOLDOWN;
-                    self.team[i].hp -= self.settings.bite * m.rarity.damage_multiplier();
+                    let guard = if self.time < self.team[i].guard_until {
+                        GUARD_FACTOR
+                    } else {
+                        1.0
+                    };
+                    self.team[i].hp -= self.settings.bite * m.rarity.damage_multiplier() * guard;
                 }
                 continue;
             }
@@ -1517,6 +1560,14 @@ impl TrainingField {
     fn cast_buff(&mut self, b: usize) {
         type Read = fn(&Player) -> f32;
         let buffer = &self.team[b];
+        let ready = !buffer.is_dead() && self.time >= buffer.skill_ready;
+        if buffer.role == Role::HpBuffer && ready {
+            // The most urgent first: a heal, a group heal, a guard; else the HP buff below.
+            if self.cast_heal(b) || self.cast_group_heal(b) || self.cast_guard(b) {
+                return;
+            }
+        }
+        let buffer = &self.team[b];
         let (cost, bar, until): (f32, Read, Read) = match buffer.role {
             Role::HpBuffer => (HP_BUFF_MP, |p| p.hp / MAX_HP, |p| p.hp_buff_until),
             Role::MpBuffer => (MP_BUFF_MP, |p| p.mp / MAX_MP, |p| p.mp_buff_until),
@@ -1540,6 +1591,83 @@ impl TrainingField {
         }
         self.team[b].mp -= cost;
         self.team[b].skill_ready = self.time + BUFF_COOLDOWN;
+    }
+
+    /// The living members within the buffer's ranged reach, nearest-lowest-HP order left to
+    /// the caller: (index, HP share).
+    fn members_in_reach(&self, b: usize) -> Vec<(usize, f32)> {
+        let at = self.team[b].body.position;
+        (self.team.iter().enumerate())
+            .filter(|(_, p)| !p.is_dead() && (p.body.position - at).length() <= RANGED_REACH)
+            .map(|(i, p)| (i, p.hp / MAX_HP))
+            .collect()
+    }
+
+    /// Marks a cast by buffer `b`: its MP, the one-cast-a-second gate.
+    fn spend(&mut self, b: usize, mp: f32) {
+        self.team[b].mp -= mp;
+        self.team[b].skill_ready = self.time + BUFF_COOLDOWN;
+    }
+
+    /// A heal (`HEAL_HP` at once) on the member in reach lowest under `HEAL_AT`.
+    fn cast_heal(&mut self, b: usize) -> bool {
+        let buffer = &self.team[b];
+        if self.time < buffer.heal_ready || buffer.mp < HEAL_MP {
+            return false;
+        }
+        let member = (self.members_in_reach(b).into_iter())
+            .filter(|&(_, share)| share < HEAL_AT)
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(i, _)| i);
+        let Some(i) = member else {
+            return false;
+        };
+        self.team[i].hp = (self.team[i].hp + HEAL_HP).min(MAX_HP);
+        self.team[b].heal_ready = self.time + HEAL_COOLDOWN;
+        self.spend(b, HEAL_MP);
+        self.heals += 1;
+        true
+    }
+
+    /// A group heal (`GROUP_HEAL_HP` to every member in reach) when the party's mean HP is
+    /// under `GROUP_HEAL_AT`.
+    fn cast_group_heal(&mut self, b: usize) -> bool {
+        let buffer = &self.team[b];
+        if self.time < buffer.group_ready || buffer.mp < GROUP_HEAL_MP {
+            return false;
+        }
+        if self.party_hp() >= GROUP_HEAL_AT {
+            return false;
+        }
+        for (i, _) in self.members_in_reach(b) {
+            self.team[i].hp = (self.team[i].hp + GROUP_HEAL_HP).min(MAX_HP);
+        }
+        self.team[b].group_ready = self.time + GROUP_HEAL_COOLDOWN;
+        self.spend(b, GROUP_HEAL_MP);
+        self.group_heals += 1;
+        true
+    }
+
+    /// A guard (`GUARD_DURATION` of bites times `GUARD_FACTOR`) on the unguarded member in
+    /// reach that a monster is attacking, the lowest HP first.
+    fn cast_guard(&mut self, b: usize) -> bool {
+        let buffer = &self.team[b];
+        if self.time < buffer.guard_ready || buffer.mp < GUARD_MP {
+            return false;
+        }
+        let attacked = |i: usize| self.monsters.iter().any(|m| m.target == Some(i));
+        let member = (self.members_in_reach(b).into_iter())
+            .filter(|&(i, _)| attacked(i) && self.time >= self.team[i].guard_until)
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(i, _)| i);
+        let Some(i) = member else {
+            return false;
+        };
+        self.team[i].guard_until = self.time + GUARD_DURATION;
+        self.team[b].guard_ready = self.time + GUARD_COOLDOWN;
+        self.spend(b, GUARD_MP);
+        self.guards += 1;
+        true
     }
 
     /// Deaths: a player at 0 HP dies (back after `PLAYER_RESPAWN`; every monster forgets it);
@@ -1668,6 +1796,9 @@ impl TrainingField {
             if self.time < p.mp_buff_until {
                 circles.push(circle_view(p.body.position, MP_BUFF_RING, MP_BUFFER_BODY));
             }
+            if self.time < p.guard_until {
+                circles.push(circle_view(p.body.position, GUARD_RING, color::GUARD));
+            }
         }
         for m in &self.monsters {
             if let Some(i) = m.target {
@@ -1703,13 +1834,16 @@ impl TrainingField {
         labels.push(label(
             corner(-w, h + 3.0),
             format!(
-                "{} monsters: {}; {chasing} chasing; {} kills, {} deaths; party HP {:.0}% ({:+.0} in 5 s)",
+                "{} monsters: {}; {chasing} chasing; {} kills, {} deaths; party HP {:.0}% ({:+.0} in 5 s); HP buffer: {} heals, {} group heals, {} guards",
                 self.monsters.len(),
                 gaits.join(", "),
                 self.kills,
                 self.deaths,
                 self.party_hp(),
-                -self.party_drop()
+                -self.party_drop(),
+                self.heals,
+                self.group_heals,
+                self.guards
             ),
             color::LABEL,
         ));
@@ -1782,6 +1916,7 @@ impl TrainingField {
                     MP_BUFFER_BODY,
                     "MP buffer; the MP bar over every player; a ring: its buff running",
                 ),
+                (color::GUARD, "guard: bites on the member do 20% less for 20 s"),
                 (MONSTER_BODY, "monster"),
                 (
                     color::RADIUS,
@@ -2662,6 +2797,75 @@ mod tests {
     }
 
     #[test]
+    fn the_hp_buffer_heals_group_heals_and_guards_before_buffing() {
+        // A dps at 40%: healed by 40 at once; a second one at 40% gets the HP buff while the
+        // heal cools, and the heal 3 s later.
+        let mut field = quiet_field();
+        field.team[2].hp = 40.0;
+        field.update(1.0 / 60.0);
+        assert!(
+            (field.team()[2].hp - 80.0).abs() < 0.1,
+            "{}",
+            field.team()[2].hp
+        );
+        assert_eq!(field.heals, 1);
+        assert!((field.team()[6].mp - (MAX_MP - HEAL_MP)).abs() < 0.1);
+        field.team[3].hp = 40.0;
+        for _ in 0..70 {
+            field.update(1.0 / 60.0);
+        }
+        assert!(field.team()[3].hp_buff_until > 0.0 && field.heals == 1);
+        // (The HP buff lifts it over 50% before the heal cools.) Knocked down to 30 once the
+        // cooldown is over and kept beside the buffer (both roam otherwise): healed at the
+        // buffer's next cast.
+        for _ in 0..120 {
+            field.update(1.0 / 60.0);
+        }
+        field.team[3].hp = 30.0;
+        for _ in 0..70 {
+            field.update(1.0 / 60.0);
+            field.team[3].body = standing(CENTRE + Vec2::new(0.5, 0.0));
+            field.team[6].body = standing(CENTRE + Vec2::new(-0.5, 0.0));
+        }
+        assert_eq!(field.heals, 2);
+        assert!(field.team()[3].hp > 65.0, "{}", field.team()[3].hp);
+        // The whole party at 65%: a group heal of 20 on everyone in reach; lurer A, 40
+        // away, misses it.
+        let mut field = quiet_field();
+        for p in &mut field.team {
+            p.hp = 65.0;
+        }
+        field.team[0].body = standing(Vec2::new(40.0, 0.0));
+        field.update(1.0 / 60.0);
+        assert_eq!(field.group_heals, 1);
+        assert!(
+            field.team()[1..].iter().all(|p| p.hp > 84.0),
+            "{:?}",
+            field.team()[2].hp
+        );
+        assert!(field.team()[0].hp < 66.0);
+        assert!((field.team()[6].mp - (MAX_MP - GROUP_HEAL_MP)).abs() < 0.1);
+        // A monster after dps 2: the guard goes on dps 2 once the monster has turned on it.
+        let mut field = quiet_field();
+        field.monsters[0].body = standing(Vec2::new(6.0, 0.0));
+        field.monsters[0].threat.insert(2, 1.0);
+        field.update(1.0 / 60.0);
+        field.update(1.0 / 60.0);
+        assert_eq!(field.guards, 1);
+        assert!(field.team()[2].guard_until > 0.0);
+        assert!(field.view().circles.iter().any(|c| c.color == color::GUARD));
+        // A guarded lurer bitten: 2.4 off instead of 3.
+        let mut field = quiet_field();
+        let den = Vec2::new(60.0, 40.0);
+        field.monsters[0].body = standing(den + Vec2::new(0.0, 1.5));
+        field.monsters[0].spawn = field.monsters[0].body.position;
+        field.team[0].guard_until = 100.0;
+        step_with_parked_lurer(&mut field, den, 2);
+        let hp = field.team()[0].hp;
+        assert!((hp - (MAX_HP - BITE * GUARD_FACTOR)).abs() < 0.1, "{hp}");
+    }
+
+    #[test]
     fn a_killed_monster_respawns_at_its_own_nest() {
         let mut field = TrainingField::default();
         let (nest, old) = (field.monsters()[0].spawn, field.monsters()[0].id);
@@ -2914,6 +3118,8 @@ mod tests {
         // 11.8 s, 87% inside; 16 kills, 5 deaths, all dps, to a giant and a party champion the
         // seed put near the disk (2,000 HP against four dps spreading fire, and dps roaming
         // past the HP buffer's reach). Load cap 6 at 15 monsters: 13 kills, 6 deaths; kept at 3.
+        // With the heal, group heal and guard: the same trips and deliveries (A 2/5/2, B
+        // 3/9/2), 16 kills, no deaths; 9 heals, 0 group heals, 10 guards.
         assert_eq!(stages.len(), 3);
         let delivered = a.delivered + b.delivered;
         assert!(a.trips >= 2 && b.trips >= 2, "{} {}", a.trips, b.trips);
@@ -2932,7 +3138,7 @@ mod tests {
         );
         assert!(a.mean_hp_back() > 60.0 && b.mean_hp_back() > 60.0);
         assert!(
-            field.kills >= 8 && field.deaths <= 6,
+            field.kills >= 8 && field.deaths <= 2,
             "{} {}",
             field.kills,
             field.deaths
@@ -3040,12 +3246,13 @@ mod tests {
         field.team[0].body = standing(Vec2::new(40.0, 0.0));
         field.update(1.0 / 60.0);
         assert_eq!(field.team()[0].hp_buff_until, 0.0);
-        // Three in need: the lowest first (the buffer heals itself), then the others in order
-        // of need, one cast a second, each when in reach of the roaming buffer.
+        // Three in need (all over 50%, so no heal): the lowest first (the buffer buffs
+        // itself), then the others in order of need, one cast a second, each when in reach of
+        // the roaming buffer.
         let mut field = quiet_field();
-        field.team[2].hp = 60.0;
-        field.team[3].hp = 40.0;
-        field.team[6].hp = 30.0;
+        field.team[2].hp = 85.0;
+        field.team[3].hp = 75.0;
+        field.team[6].hp = 65.0;
         let mut buffed_at = [f32::MAX; 8];
         for _ in 0..600 {
             field.update(1.0 / 60.0);
