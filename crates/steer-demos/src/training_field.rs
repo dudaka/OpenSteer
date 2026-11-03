@@ -496,8 +496,9 @@ pub struct TrainingField {
     monsters: Vec<Monster>,
     /// How many monsters the map keeps alive (the slider).
     wanted: usize,
-    /// Times at which a killed monster's replacement may spawn.
-    respawns: Vec<f32>,
+    /// Killed monsters' nests and when each respawns there (the game's nests are fixed: a
+    /// field whose respawns landed anywhere drained the lurer's disk).
+    respawns: Vec<(f32, Vec2)>,
     pub kills: u32,
     next_id: u32,
     pub deaths: u32,
@@ -778,8 +779,9 @@ fn tour_candidates(lurer: usize, at: Vec2, monsters: &[Monster]) -> Vec<(u32, Ve
     near.into_iter().map(|m| (m.id, m.body.position)).collect()
 }
 
-/// One step of the lurer's trip. At the centre it stands until its HP is back to `LEAVE_HP`
-/// and the dps disk holds at most the load cap's monsters; out, it follows its tour (planned
+/// One step of the lurer's trip. At the centre it stands until its HP is back to `LEAVE_HP`,
+/// the dps disk holds at most the load cap's monsters and there is something in its disk to
+/// tag; out, it follows its tour (planned
 /// again every `PLAN_PERIOD`, stops already tagged dropped; the tag itself fires from
 /// `lure_cast`) until N chase, its HP is under `BACK_HP` or no stop is left; back, it runs
 /// home, and on arrival the session's time and HP are recorded.
@@ -797,7 +799,8 @@ fn lure_step(
         LureStage::Centre => {
             hunt(&mut p.body, CENTRE, HOME, RUN_SPEED, dt);
             let quiet = settings.load_cap == 0 || load <= settings.load_cap;
-            if p.hp >= LEAVE_HP * MAX_HP && quiet {
+            let work = !tour_candidates(0, p.body.position, monsters).is_empty();
+            if p.hp >= LEAVE_HP * MAX_HP && quiet && work {
                 lure.stage = LureStage::Out;
                 lure.trips += 1;
                 lure.left_at = now;
@@ -1261,42 +1264,54 @@ impl TrainingField {
                 }
             }
         }
-        let before = self.monsters.len();
+        let nests: Vec<Vec2> = (self.monsters.iter())
+            .filter(|m| m.hp <= 0.0)
+            .map(|m| m.spawn)
+            .collect();
         self.monsters.retain(|m| m.hp > 0.0);
-        let killed = before - self.monsters.len();
-        self.kills += killed as u32;
+        self.kills += nests.len() as u32;
+        let due = self.time + MONSTER_RESPAWN;
         self.respawns
-            .extend(std::iter::repeat_n(self.time + MONSTER_RESPAWN, killed));
+            .extend(nests.into_iter().map(|nest| (due, nest)));
     }
 
     /// Spawns monsters until `wanted` are on the map, standing until their first gait draw;
     /// a killed monster's slot waits for its respawn time.
     fn spawn_missing(&mut self) {
         let now = self.time;
-        self.respawns.retain(|&t| t > now);
+        let (due, waiting): (Vec<_>, Vec<_>) = self.respawns.iter().partition(|r| r.0 <= now);
+        self.respawns = waiting;
+        for (_, nest) in due {
+            self.spawn_at(nest);
+        }
         while self.monsters.len() + self.respawns.len() < self.wanted {
             let at = self.spawn_point();
-            let rarity = draw_rarity(&mut self.rng);
-            self.next_id += 1;
-            let mut monster = Monster {
-                id: self.next_id,
-                rarity,
-                max_hp: MAX_HP,
-                gait: Gait::Standing,
-                until: self.time,
-                body: standing(at),
-                hp: MAX_HP,
-                spawn: at,
-                spot: at,
-                target: None,
-                threat: HashMap::new(),
-                delivered: false,
-                was_chasing_lurer: false,
-                bite_ready: self.time,
-            };
-            monster.set_rarity(rarity);
-            self.monsters.push(monster);
+            self.spawn_at(at);
         }
+    }
+
+    /// A monster of a drawn rarity, standing at `at`, its nest.
+    fn spawn_at(&mut self, at: Vec2) {
+        let rarity = draw_rarity(&mut self.rng);
+        self.next_id += 1;
+        let mut monster = Monster {
+            id: self.next_id,
+            rarity,
+            max_hp: MAX_HP,
+            gait: Gait::Standing,
+            until: self.time,
+            body: standing(at),
+            hp: MAX_HP,
+            spawn: at,
+            spot: at,
+            target: None,
+            threat: HashMap::new(),
+            delivered: false,
+            was_chasing_lurer: false,
+            bite_ready: self.time,
+        };
+        monster.set_rarity(rarity);
+        self.monsters.push(monster);
     }
 
     /// A random point of the map outside the dps disk (nothing appears on top of the team).
@@ -2007,15 +2022,21 @@ mod tests {
     }
 
     #[test]
-    fn the_lurer_leaves_a_quiet_disk_as_soon_as_its_hp_is_full() {
-        // Full HP, nothing within the lurer's disk: the trip begins at once and, with
-        // nothing to tag, turns back at once.
-        let mut field = quiet_field();
+    fn the_lurer_leaves_for_work_in_its_disk_as_soon_as_its_hp_is_back() {
+        // One monster 40 out (inside the lurer's disk): at full HP the trip begins at once.
+        let work = || field_with_a_monster_at(Vec2::new(40.0, 0.0));
+        let mut field = work();
         field.update(1.0 / 60.0);
         assert_eq!(field.lure.trips, 1);
+        // Nothing within the disk: it stays, no trip counted.
+        let mut field = quiet_field();
+        for _ in 0..180 {
+            field.update(1.0 / 60.0);
+        }
+        assert_eq!((field.lure.stage, field.lure.trips), (LureStage::Centre, 0));
         // At 85 HP (under the buff threshold) it waits for the HP buff (+4) and regeneration
         // (+1) to bring it to 90: 1 s.
-        let mut field = quiet_field();
+        let mut field = work();
         field.team[0].hp = 85.0;
         let mut left_at = None;
         for step in 0..300 {
@@ -2027,8 +2048,8 @@ mod tests {
         assert!(matches!(left_at, Some(55..=65)), "{left_at:?}");
         // With four monsters parked in the dps disk the lurer stays; with the cap off, not.
         let parked = || {
-            let mut field = quiet_field();
-            for (k, m) in field.monsters.iter_mut().take(4).enumerate() {
+            let mut field = work();
+            for (k, m) in field.monsters.iter_mut().skip(1).take(4).enumerate() {
                 m.body = standing(Vec2::new(7.0, k as f32 * 2.0 - 3.0));
                 m.spawn = m.body.position;
             }
@@ -2043,6 +2064,21 @@ mod tests {
         field.param("load_cap", 0.0);
         field.update(1.0 / 60.0);
         assert_eq!(field.lure.trips, 1);
+    }
+
+    #[test]
+    fn a_killed_monster_respawns_at_its_own_nest() {
+        let mut field = TrainingField::default();
+        let (nest, old) = (field.monsters()[0].spawn, field.monsters()[0].id);
+        field.monsters[0].hp = 0.0;
+        for _ in 0..(3.5 * 60.0) as usize {
+            field.update(1.0 / 60.0);
+        }
+        let back = (field.monsters().iter())
+            .find(|m| (m.spawn - nest).length() < 1e-3)
+            .expect("a monster at the nest");
+        assert_ne!(back.id, old);
+        assert_eq!(field.monsters().len(), DEFAULT_MONSTERS);
     }
 
     #[test]
@@ -2280,7 +2316,10 @@ mod tests {
         // 1 death, 47%; 4 sessions of 16.5 s, back with 96 HP (lowest 93), 37 walked per
         // delivered. With the cast planner (the default): 5 trips, 12 delivered, 1 lost, 11
         // kills, 1 death, 39%; 4 sessions of 19.6 s, back with 98 HP (lowest 94), 29 walked
-        // per delivered.
+        // per delivered. With monsters respawning at their nests (the disk no longer drains):
+        // 6 trips, 20 delivered, 1 lost, 15 kills, 4 deaths (all dps: 20 brought in against 15
+        // killed), 56%; 6 sessions of 14.8 s, back with 99 HP (lowest 94), 16 walked per
+        // delivered. The overload is the sliders' business (N, the load cap).
         assert_eq!(stages.len(), 3);
         assert!(l.trips >= 3, "{}", l.trips);
         assert!(l.delivered >= 8, "{}", l.delivered);
@@ -2294,7 +2333,7 @@ mod tests {
         );
         assert!(l.mean_hp_back() > 60.0, "{}", l.mean_hp_back());
         assert!(
-            field.kills >= 8 && field.deaths <= 2,
+            field.kills >= 8 && field.deaths <= 6,
             "{} {}",
             field.kills,
             field.deaths

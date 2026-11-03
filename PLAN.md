@@ -536,6 +536,19 @@ Steps:
     19.6 s, 29 walked per delivered, 39% inside, back with 98 HP (lowest 94), 11 kills, 1
     death. Mutation (the blast never offered) fails. The legend folds behind a button and the
     status lines start at the map's left edge (the user: the legend covered the disks).
+  - F6f (built, this branch; the user: "the lurer is inside the dps disk since the luring
+    disk doesn't have any monsters"): two causes. Respawns landed anywhere on the map, so
+    the lurer's disk drained while nests outside it never fed it: a killed monster now
+    respawns at its own nest after 3 s (`respawns: Vec<(time, nest)>`, `spawn_at`), as the
+    game's nests are fixed; the slider's extra monsters still spawn at random. And with
+    nothing to tag the lurer dithered (Centre, Out, Back every few steps, inflating the trip
+    count): it now leaves only with something in its disk to tag (`tour_candidates` not
+    empty). Tests: a trip at once with a monster 40 out, none within 3 s on a quiet field,
+    the 85 HP wait, the parked four and the cap; a killed monster's replacement at the same
+    nest with a new id. Measured, two minutes: 6 trips, 20 delivered, 1 lost, 15 kills, 4
+    deaths, all dps (20 brought in against 15 killed: the overload is for the sliders, N and
+    the load cap), 56% inside; 6 sessions of 14.8 s, back with 99 HP, 16 walked per
+    delivered. Mutation (respawns anywhere) fails.
   Combat numbers: bite reach 2, 3 damage, 1.5 s (one monster kills an unbuffed player in
   50 s, four in 12.5 s); dps AoE reach 8, blast radius 2 round the target, 10 damage to
   every monster in it, 6 MP, 1.5 s (one dps kills a monster in 15 s, three clear a cluster of
