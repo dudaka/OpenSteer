@@ -61,10 +61,12 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
   11. [done, this branch] The pinned measurement over five seeds with margins
       (`five_seeds_train_for_three_minutes_without_a_death`: kills, the lowest member, both
       lurers' deliveries, nothing lost, no leave while chased, at most one death in all).
-  12. Agreed with the user (2026-11-03), one small PR each: a strong pull only while the HP
-      buffer's MP (the party window shows MP bars too) is above a threshold, the sustain that
-      actually ran out; the group heal triggered by the lowest bar, not the mean (it never
-      fires). Then whatever the user observes.
+  12. [done, this branch] A strong pull only while the HP buffer's MP bar (the party window
+      shows MP too) is at least `HEALER_MP` 50: the sustain that ran out at every death seen.
+      On the five seeds with the hand-off it changes nothing (the healer's low never met a
+      strong pull on offer); it is the guard for the case the hand-off used to create.
+  13. Next (agreed 2026-11-03): the group heal triggered by the lowest bar, not the mean (it
+      never fires). Then whatever the user observes.
   The 3D options offered 2026-10-21 stay for later:
   1. Stop bodies scraping walls: add the containment side probes (the design of steps 23 and 37) to the
      Silkroad walker, so walls it runs along or corners it rounds push it off (Findings: 299 of
@@ -394,7 +396,8 @@ and 50 here. Numbers are constants at the top of the module and `Settings` slide
   8 nearest candidates (untagged by any lurer, chasing nobody, outside the dps disk; mine, by
   the nearer visible lurer with ties to A;
   within my sight 30; reachable from inside the disk; strong ones only while the disk holds
-  fewer strong than the cap, every bar >= 70% and no member fell more than 15 in 5 s): the cast
+  the backlog within the cap, every bar >= 70%, no member fell more than 15 in 5 s and the HP
+  buffer at 50 MP or more): the cast
   planner (default; a stop is a monster to get within a skill's reach of; the shortest run that
   tags N, the fewest casts on a tie) or the stops planner (button); run to the first stop; back
   when N (3) chase, HP < 40%, or nothing more is in sight after a tag; with nothing in sight and
@@ -1076,7 +1079,8 @@ trips/delivered/lost):
   strong monster while the disk holds one fewer than the cap, so two lurers can fill the disk to
   the cap plus one (with rocks: three 2,000 HP monsters from 80 s, both lurers held for minutes);
   the group heal's trigger is the party mean under 70%, which never happens; the HP buffer's MP
-  is the party's real sustain limit (5-13 MP at every death seen), and nothing reads it yet.
+  is the party's real sustain limit (5-13 MP at every death seen); strong pulls now stop under
+  50 MP, but nothing slows ordinary pulls or the dps's roaming when the healer is dry.
 
 ## Learning aids
 
