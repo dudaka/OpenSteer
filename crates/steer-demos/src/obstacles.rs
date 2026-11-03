@@ -111,6 +111,7 @@ impl Obstacles {
             view_size: 34.0,
             vehicles: vec![vehicle_view(v, color::BODY)],
             lines,
+            circles: Vec::new(),
             trails: vec![self.trail.view(p)],
             labels: vec![label(
                 p,

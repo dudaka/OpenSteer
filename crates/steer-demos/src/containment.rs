@@ -157,6 +157,7 @@ impl Containment {
                 .map(|w| vehicle_view(&w.vehicle, color::BODY))
                 .collect(),
             lines,
+            circles: Vec::new(),
             trails: self
                 .wanderers
                 .iter()

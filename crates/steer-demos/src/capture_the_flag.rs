@@ -172,6 +172,7 @@ impl CaptureTheFlag {
                 .chain(self.enemies.iter().map(|e| vehicle_view(e, ENEMY_BODY)))
                 .collect(),
             lines,
+            circles: Vec::new(),
             trails: self
                 .trails
                 .iter()

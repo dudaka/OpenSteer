@@ -4,7 +4,7 @@ use std::collections::VecDeque;
 
 use steer_core::{Vec2, Vehicle};
 
-use crate::view::{LabelView, LegendView, LineView, TrailView, VehicleView};
+use crate::view::{CircleView, LabelView, LegendView, LineView, TrailView, VehicleView};
 
 /// One meaning per color, shared by every demo. Velocity, acceleration and trail keep
 /// OpenSteer's colors; red and green are kept for the push and the want.
@@ -35,6 +35,18 @@ pub mod color {
     pub const BODY: u32 = 0x808080;
     /// The game world's terrain (Silkroad demos).
     pub const GROUND: u32 = 0x6f7d5c;
+    /// An entity's ranged reach (Training Field).
+    pub const RANGED: u32 = 0xe0b04f;
+    /// An entity's melee reach (Training Field).
+    pub const MELEE: u32 = 0xc77dff;
+    /// An attack: the shooter's line to its target and the blast round it (Training Field).
+    pub const ATTACK: u32 = 0xf4e3b2;
+    /// Line of sight: how far a chasing monster keeps its target (Training Field).
+    pub const SIGHT: u32 = 0x9a8fc4;
+    /// The empty part of a bar (Training Field).
+    pub const TRACK: u32 = 0x4a505c;
+    /// A guarded member: bites on it do less (Training Field).
+    pub const GUARD: u32 = 0x7fa7d8;
 }
 
 pub fn legend(entries: &[(u32, &str)]) -> Vec<LegendView> {
@@ -100,6 +112,15 @@ pub fn label(at: Vec2, text: impl Into<String>, color: u32) -> LabelView {
     LabelView {
         at: point(at),
         text: text.into(),
+        color,
+    }
+}
+
+/// A circle the browser draws (one record on the wire).
+pub fn circle_view(center: Vec2, radius: f32, color: u32) -> CircleView {
+    CircleView {
+        center: point(center),
+        radius,
         color,
     }
 }

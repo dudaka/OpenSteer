@@ -164,6 +164,7 @@ impl PathFollowing {
                 .map(|p| vehicle_view(&p.vehicle, color::BODY))
                 .collect(),
             lines,
+            circles: Vec::new(),
             trails: self
                 .pedestrians
                 .iter()

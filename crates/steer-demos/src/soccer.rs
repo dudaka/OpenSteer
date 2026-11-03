@@ -145,6 +145,7 @@ impl Soccer {
                 .chain([vehicle_view(&self.ball, BALL_BODY)])
                 .collect(),
             lines,
+            circles: Vec::new(),
             trails: vec![self.ball_trail.view(self.ball.position)],
             labels: vec![label(
                 Vec2::new(0.0, -11.5),

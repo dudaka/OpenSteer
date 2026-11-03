@@ -24,6 +24,16 @@ pub struct LineView {
     pub color: u32,
 }
 
+/// An annotation circle, drawn by the browser (a ring of 40 segments on the wire costs 40 lines;
+/// the Training Field draws 75 circles a frame).
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(export)]
+pub struct CircleView {
+    pub center: [f32; 2],
+    pub radius: f32,
+    pub color: u32,
+}
+
 /// A vehicle's recent path, oldest point first.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(export)]
@@ -84,10 +94,11 @@ pub struct FrameView {
     pub view_size: f32,
     pub vehicles: Vec<VehicleView>,
     pub lines: Vec<LineView>,
+    pub circles: Vec<CircleView>,
     pub trails: Vec<TrailView>,
     pub labels: Vec<LabelView>,
     pub actions: Vec<ActionView>,
     pub params: Vec<ParamView>,
-    /// What each line color means, for every color this frame draws.
+    /// What each line and circle color means, for every color this frame draws.
     pub legend: Vec<LegendView>,
 }

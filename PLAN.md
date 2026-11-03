@@ -8,7 +8,7 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
   C, D: terrain, floors, walls around Jangan). The 2D crates and demos stay alongside the 3D ones.
   What comes next is the user's choice (see Status, "Next").
 
-## Status (2026-10-21; rechecked against the code 2026-11-01, no work since)
+## Status (2026-11-02)
 
 | Part | Steps | PRs | State |
 |---|---|---|---|
@@ -18,6 +18,7 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
 | Phase 7 A/B/E: 3D core, 3D view, 3D demos | 24-37 | #23-#36 | done (steps 30-37 built as a batch) |
 | Phase 7 C: the Silkroad world (navmesh copy, standing on the ground, terrain view) | C1-C3 | #38-#40 | done |
 | Phase 7 D: walls (rectangle obstacle, wall query, the plaza with walls) | D1-D3 | #41-#43 | done |
+| Phase 8: the Silkroad training field, built for the lurer | F1-F6 | - | F1 built on `feat/training-field-arena`, not yet shown or merged |
 
 - The user looked at the 3D view (#26) and at the whole 3D batch and reported both "looking good"
   (2026-10-21); C2 (the walker on the ground) and C3 (the drawn terrain, "looks right") too; D3
@@ -25,14 +26,15 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
   confirmed in the browser.
 - Rhythm: one behavior at a time, held until the user understands it, and ask before each PR;
   batches (no holding, merge on green CI) only when the user asks for one.
-- Next (ask the user which; offered 2026-10-21, none chosen yet):
+- Next: Phase 8 (chosen by the user 2026-11-02): F1 shown to the user, its PR, then F2 (combat)
+  onward, one step at a time. The 3D options offered 2026-10-21 stay for later:
   1. Stop bodies scraping walls: add the containment side probes (the design of steps 23 and 37) to the
      Silkroad walker, so walls it runs along or corners it rounds push it off (Findings: 299 of
      9600 plaza steps over a wall, closest 0.0019).
   2. Draw building floors (object navmesh cells) so the plaza walker does not float over pits.
   3. One-way ledges: drop off, never climb (now walls both ways; sro-polyanya keeps a blocked side).
   4. Other ground demos on the terrain (Pedestrians, Capture the Flag) with the same `World`.
-- Tests: 273 Rust tests (13 in `silkroad-navmesh`, + 3 ignored full-data ones), 21 C++ oracles.
+- Tests: 278 Rust tests (13 in `silkroad-navmesh`, + 3 ignored full-data ones), 21 C++ oracles.
   Tests needing the game data skip without it (CI has none); with it, the Silkroad demo's tests
   take ~14 s in debug. 2D: `oracle_one_turning`, `oracle_seek_flee`,
   `oracle_wander`, `oracle_pursuit`, `oracle_obstacles`, `oracle_pathway`,
@@ -41,7 +43,7 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
   `steer-core-3d`): `oracle_vehicle_3d`, `oracle_seek_flee_3d`, `oracle_wander_3d`,
   `oracle_pursuit_3d`, `oracle_obstacles_3d`, `oracle_path_following_3d`, `oracle_boids_3d`,
   `oracle_neighbors_3d`, `oracle_rectangle_3d`.
-- Sidebar: 14 2D demos, then 15 3D demos (ids `3d-...`; the last is "3D Seek on Silkroad").
+- Sidebar: 15 2D demos (the last is "Training Field"), then 15 3D demos (ids `3d-...`; the last is "3D Seek on Silkroad").
 
 ## Setup, mirrored from `~/Workspace/silkroad/caravan`
 
@@ -291,6 +293,358 @@ by 1/10 (a region is 192 demo units); game units are used inside `World` and `si
     (-3.261 on legs 2-4), avoids the hole 565 steps and reaches the far side, body over a wall
     299 steps, closest 0.0019 (a corner of the hole). Mutations (unmerged walls, walls of every
     height, push not flattened) fail. ~0.6-0.9 ms per step in debug; the demo tests take ~14 s.
+
+## Phase 8 - Silkroad training field, built for the lurer (2D, no C++ oracle)
+
+Chosen by the user 2026-11-02 over the 3D options. A miniature of a Silkroad training spot,
+only what the lurer needs: a team trains round one centre while monsters spawn over a
+rectangular map. Built from the oracle-checked pieces like Phase 6 (hand-computed unit tests,
+measured facts pinned, one mutation per step), one small step and PR each.
+
+Research (caravan read-only, D105/D107, its `hunt::Lure`, status.md § Gaps "Luring"; RSBot's
+`Botbases/RSBot.Lure`; the watched PhBot lures, world units = wire / 10): a party kills at a
+training disk (20) while the lurer runs into the band up to the luring disk (60), hits each
+monster once so it chases, leads them back and waits ~2 s (PhBot's centre delay; never above 5 s
+in the small disk). The lurer never kills. Watched: trips to ~40 every ~9 s; tags a median 32-38
+out; 145 of 229 monsters attacked the lurer first, a median 2.5 s after the hit; chases end a
+median 7.4 from the lurer; half the lured reach the centre within 6 s; 5 of 111 chasers lost;
+monsters run 16.5 a second with melee reach 3; a bow reaches 18. RSBot's lure walks to random
+points at least radius / 1.5 away, attacks any monster not already attacking and cancels the
+swing. Caravan's lure (a Centre / Out / Back walk state machine, no steering) was judged by the
+user "too close to the training disk, back too soon and too often, wandering past monsters that
+wait outside"; this demo exists to compare lurer strategies with measured metrics.
+
+Requirements (the user 2026-11-02; defaults are ours, changed on their word):
+- The map: a 160 x 120 rectangle round the centre; monsters spawn at random inside it, outside
+  the dps disk, kept at a count (slider 5-60, default 30), a new one after each death.
+- The team, one centre, a radius per role: three dps (10), an HP buffer and an MP buffer (5),
+  our lurer (50). Bodies: lurer green, teammates blue, monsters red (muted tones; annotation red
+  and green stay the push and the want).
+- Combat: HP and MP on everyone, slow regeneration (1% a second). A skill has reach, effect, MP
+  cost and cooldown: dps attack (reach 2, 10 damage, 5 MP, 1 s); the lurer's tag (reach 8, 1
+  damage, 2 MP, 1 s); HP buff (+30 HP to a member under the threshold, 10 MP, 1 s); MP buff
+  (+30 MP, 5 MP, 1 s), both reaching the buffer's ranged disk (8; the user 2026-11-02: the 5
+  disk is only where a buffer moves, a teammate inside the ranged disk is recovered); a
+  monster's bite (reach 1, 5 damage, 1.5 s). HP 100,
+  MP 100. A dead monster is removed and counted; a dead player counts and returns to the centre
+  after 5 s with full bars. Buffers never attack; thresholds default 90%.
+- Monsters (decided by the user): idle at the spawn; aggro when hit **and on sight within a
+  radius** (slider, default 6); the target is the player who **dealt the most damage** (a
+  threat table per monster); chase with `pursuit`, stop at bite reach, bite on cooldown; leash
+  back to the spawn when the target is further than 70.
+- Roles: dps attack the nearest monster inside 10 (arrive at reach), never leave the disk
+  (containment on the circle); buffers stay within 5 and buff the member with the lowest bar
+  under the threshold and in reach; lurer v1 (D105's design): leave the centre when the dps
+  disk holds at most 3 monsters, pursue the nearest untagged monster inside 50, tag it, keep
+  tagging the next nearest, run back when 4 chase or none is left, wait 2 s, repeat.
+- Speeds: lurer 4, dps 3, buffers 2, monsters 3.5; max force 8 (Pedestrians'). Constants first,
+  sliders when tuning.
+- Metrics (labels, pinned in tests): kills a minute, monsters delivered into the dps disk, the
+  lurer's share of time inside 10, trip period, lost chasers, team deaths, the lowest HP a
+  teammate reached.
+
+Steps:
+- F1. [built, branch `feat/training-field-arena`] Demo "Training Field" (`steer_demos::TrainingField`,
+  id `training-field`, last of the 2D demos): the map edge, the three disks with labels, the
+  standing team (lurer on the centre, dps 3 out at thirds, buffers 2 out between them), monsters
+  spawned by a seeded `fastrand` over the map outside the dps disk, the Monsters slider (the
+  count held every step), the legend with the body colors. Tests: the six roles inside their
+  disks and apart; spawns inside the map, outside the dps disk, spread across the lurer's
+  radius; the slider's count. Mutation (spawns allowed inside the dps disk) fails the spawn test.
+  Then (the user 2026-11-02, "looking good"; no PR until the environment is done): bodies 2 units
+  across (`BODY_RADIUS` 1, a person at the map's scale); gaits at human speeds, 1 unit = 1 m
+  (`Gait`: standing 0, walking 1.5, running 5; max force 8), every body wandering at its gait's
+  speed inside its own disk (`contain` on a 40-point circle `role.radius() - BODY_RADIUS`, probe
+  1 s ahead; a runner also brakes at 4 while the push is on, since its turning radius of about 3
+  is wider than the buffers' disk; a walker turns within 0.3 and needs no brake), monsters idle
+  the same way within 6 of their spawn. No collisions between bodies (the user). Then (the user):
+  players always run; a monster draws a gait at random and keeps it 2-6 s. Measured and pinned:
+  running, the whole body stays inside (at worst 0.44 inside the ring), the lurer averages 4.6,
+  the dps 2.8-3.2, the buffers 2.2, nobody below 1.49; monsters spend about a third of the time
+  in each gait, every one visits all three in two minutes, none faster than its gait or further
+  than 4.4 from its spawn. (Measured before the change: walking, everyone holds exactly 1.5.)
+  Mutations (the players' region without the body margin; a gait never redrawn) fail.
+  Then (the user): the HP and MP buffers in their own body colors (dps blue, HP rose, MP teal);
+  sight as "a fan of raycasts in front of an entity" (`fan`, `ray_enters_circle`,
+  `TrainingField::sight`): 7 rays over 90 degrees ahead, 12 long, each cut at the near side of
+  the first body it enters (`Ray { from, to, hit }`, `hit` an index over the team then the
+  monsters), drawn in `color::SIGHT`. Tests: hand-computed entries (a radius-1 body 5 ahead is
+  entered at 4; 0.6 aside at 4.2; aside, behind or beyond the range: none), the fan symmetric
+  about forward, the lurer's middle ray cut at a monster 6 ahead, no ray ever hits its own body.
+  Mutation (the far root of the intersection) fails the entry test.
+  Then (the user: "the dps never go inside the buff disk, just around a band"): wander held in
+  by containment circles along the edge (the probe leaves, the push turns the body along the
+  wall), so the idle walk is now the game bots' random walk (`roam`): seek a random spot of
+  the disk (uniform over its area), draw the next within 1.5 of it; containment stays as the
+  guard. Measured and pinned: the dps spend 42-49% of the time inside the buffers' disk, the
+  buffers all of it, the lurer 5%; speeds now average 4.3 (lurer), 2.7 (dps), 1.5 (buffers),
+  never below 0.76 (a runner slows to turn back). Mutation (spots never redrawn) fails.
+  Then (the user changed their mind: no sight fan): every entity carries two disks on its own
+  position, `RANGED_REACH` 8 (big: a player's attack, a monster's alarm) and `MELEE_REACH` 2
+  (small: a monster's attack), drawn in `color::RANGED` / `color::MELEE`; players are ranged;
+  a monster with a player inside its big disk closes on the nearest one (`player_in_reach`,
+  `hunt`: a run by `seek` while outside melee reach, a stop inside it; `Monster::target`, a
+  `color::TARGET` line to it), else idles as before (back from a chase the spot leads home, the
+  containment guard only inside the idle disk). Tests: from 7 away the hunt ends standing at
+  the small disk's edge (gap within 0.1 of 2); the nearest player in reach is picked, none
+  beyond 8; chases happen in the first minute and only from inside the big disk; in two minutes
+  24 of 30 monsters never chased and those kept their gait shares and idle radius. Mutation (a
+  stop at ranged reach) fails the hunt test. Then (the user): a monster's big disk is its
+  alarm, `ALARM_REACH` 6, smaller than a player's 8; the buff rule above. The reach rings made
+  a frame 3004 lines and 129 KB (Boids: 49 lines, 8.9 KB), 7.7 MB/s at 60 frames: circles are
+  now a wire primitive (`CircleView`, `FrameView::circles`, `annotation::circle_view`), the
+  browser draws each as 32 segments (`draw.ts`), the Ground lift turns them into rings, and the
+  legend test checks circle colors too. The other demos still send their few circles as lines.
+- F2. Combat, agreed with the user 2026-11-02 (the numbers in the table below), built in
+  pieces: the bars, the monster's bite with the threat table and deaths, the dps AoE, the two
+  buffs, the lurer's tag. Bars (built, this branch): `MAX_HP` / `MAX_MP` 100, players regain
+  `REGEN` 1 of each a second, monsters nothing; HP and MP bars over every body (`bar`: body
+  width, 1.6 and 2.0 above the centre, the buffers' colors). Tests: regeneration 50 -> 60 in
+  10 s, a monster stays at 50, bars counted and the half bar's length. Mutation (monsters
+  regenerating) fails. Bars are twice the body's width in three strands (the user: too small).
+  The bite (built, this branch): `BITE` 3 every `BITE_COOLDOWN` 1.5 s on the target inside
+  melee reach; `Monster::threat` (damage dealt per player) picks the living player with the
+  most (`threat_target`), else the nearest in the alarm disk; a player at 0 HP dies
+  (`Player::dead_until`, drawn in `color::BODY`, every monster forgets it), back at the centre
+  with full bars after `PLAYER_RESPAWN` 5 s; a monster at 0 HP is removed and counted
+  (`kills`), its replacement due after `MONSTER_RESPAWN` 3 s (`respawns`). Tests: a parked
+  lurer loses 3, then 3 more each 1.5 s, less regeneration; a dead player is forgotten, gray,
+  and back at the centre after 5 s, not 4.5; the threat pick (most damage, dead skipped, lowest
+  index on a tie) and a monster hurt from 86 away running at the lurer; a killed monster's
+  replacement after 3 s, not 2.5. Mutation (no bite cooldown) fails the bite test.
+  The dps attack (built, this branch): a dps targets the monster inside the dps disk nearest
+  to it (`nearest_monster_in_disk`, `Player::target`), runs into its ranged reach (`hunt` now
+  takes the reach) and standing fires every `AOE_COOLDOWN` 1.5 s for `AOE_MP` 6 (waits
+  without the MP): `AOE_DAMAGE` 10 off every monster within `AOE_BLAST` 2 of the target, each
+  hit added to that monster's threat for the shooter; drawn as a `color::ATTACK` line to the
+  target and the blast circle. Tests: a monster 4 below the centre is in reach of all three
+  dps, loses 30 a volley, holds threat 10 for each, chases dps 1, dies at the fourth volley
+  and is replaced; two monsters 1.5 apart both take the blast, one 3.5 away does not; a dps
+  short of MP holds fire until regeneration; a monster inside the disk but 10.3 from a dps is
+  run at and hit within 2 s. Mutation (the blast hitting only the target) fails.
+  The buffs (built, this branch): `cast_buff`, once a second (`Player::skill_ready`, shared
+  with the dps attack) when the buffer has the MP (`HP_BUFF_MP` 4, `MP_BUFF_MP` 2), on the
+  living member within its ranged reach with the lowest bar under `BUFF_THRESHOLD` 0.9 and no
+  such buff running, itself included; the buff (`hp_buff_until` / `mp_buff_until`) adds
+  `HP_BUFF_RATE` 4 or `MP_BUFF_RATE` 3 a second to the regeneration for `BUFF_DURATION` 10 s;
+  shown as a ring round the body (1.3 rose, 1.5 teal). Tests: a dps at 50 HP and one at 50 MP
+  are buffed at once, read 75 HP and 70 MP at 5 s, full HP and 90 MP (the threshold, so no
+  fresh cast) at 10 s, no second cast meanwhile; nothing cast at 95%, nor on a member 40 away;
+  three in need are served lowest first, one cast a second, when in reach of the roaming
+  buffer, the buffer itself first. Mutation (the HP buff adding nothing) fails.
+  Line of sight (the user 2026-11-02: "it will keep chasing if the player is still in LOS",
+  a third, biggest disk, 30-40): `LOS_REACH` 35; each step a monster forgets (threat and
+  chase) every player beyond it, keeps its current target inside it even outside the alarm
+  disk, and picks by threat, then the kept target, then the alarm disk; drawn in
+  `color::SIGHT` on chasing monsters only. Tests: alarmed at 5, still chasing at 25, forgotten
+  at 45 with its threat cleared and no sight circle; the chase test's bound is now the line of
+  sight; the roaming measurements run on a quiet field, since dps now stop to fight monsters
+  that follow players in. Mutation (no sight limit) fails.
+  The lurer's tag (built, this branch): `untagged_in_reach` (the nearest monster within the
+  lurer's ranged reach with no threat of the lurer's on it), every `TAG_COOLDOWN` 1 s for
+  `TAG_MP` 2, `TAG_DAMAGE` 1 off it and onto its threat for the lurer; the lurer keeps roaming
+  (no stop to tag); its next tag drawn as the `color::ATTACK` line. Tests: two monsters 7 from a
+  parked lurer are tagged a second apart, the nearer first, each once (the first is never
+  scratched again over 3 s), both then chase and bite the lurer; no MP, no tag. The dps tests
+  now count the lurer's tag on a monster 4 from the centre. Mutation (the tagged filter
+  dropped) fails.
+- F5 (built, this branch): lurer v1, D105's design (`Lure`, `LureStage`, `lure_step`): at the
+  centre it stands `CENTRE_WAIT` 2 s and leaves when the dps disk holds at most `LEAVE_LOAD`
+  3 monsters; out, it runs to the nearest monster in its 50 disk it has not tagged
+  (`next_to_tag`; the tag fires on its own within reach 8) and on to the next, turning back
+  when `BACK_CHASERS` monsters target it (4 then; 3 since F6b), its HP is under `BACK_HP` 40% or nothing is left
+  to tag; back, it runs home (`HOME` 1) and waits again. Metrics (`count_deliveries`, the
+  second bottom label): trips, delivered (a monster chasing the lurer that enters the dps
+  disk, once), lost (one that stops chasing outside the disk), the lurer's share of time
+  inside the dps disk. Measured, two minutes of the default field: 4 trips, 10 delivered, 0
+  lost, 12 kills, no deaths, 32% of the time inside the dps disk (pinned with margins: at
+  least 3, 6, half, under 50%, at least 8 kills). Tests: the leave at 2.0-2.1 s on a quiet
+  field (and straight back, nothing to tag), no leave with four monsters in the dps disk; back
+  on four chasers (the step after they start chasing), at 30% HP, or with nothing left, then
+  home. Mutation (no return on chasers) fails. Still roaming: dps and buffers; the lurer no
+  longer does, so the roaming test covers those five.
+- F6 (the user 2026-11-02, five features; the order recommended and accepted): rarities, the
+  5-monster AoE cap and the lurer's two AoE skills, balance sliders and leaving at 100% HP, a
+  tour planner for the lurer's walk, the AoE-aware planner. Already in: monsters switch to
+  the dps in the disk (threat: a tag 1, a dps hit 10).
+  - F6a (built, this branch): `Rarity` (Normal, Champion, Giant, PartyNormal, PartyChampion,
+    PartyGiant). HP multipliers are the game client's, read by caravan (sro_client.exe 37
+    `FUN_00cbe7c0`, `views::hp_multiplier`, conventions.md): x1, x2, x20, and the party flag
+    x10 more (x10, x20, x200); live, a party Uneg had 378,440 HP = 37,844 x 10. Damage
+    multipliers are ours (caravan has none): x1, x1.5, x3, the party flag x2 on top (x2, x3,
+    x6). Bodies: champion x1.25, giant x2. Spawn mix (`SPAWN_MIX`, percent): 80 / 12 / 3 /
+    4 / 1 / 0 (party giants off: 20,000 HP is 17 minutes for this team). A label names any
+    non-normal monster; bars fill by the monster's own max. The leash: a monster inside its
+    idle disk with no target and no threat is whole again (`Monster::at_home`), as the game
+    resets a leashed monster. Tests: the multipliers; 10,000 draws within a point of the mix
+    and no party giant; a giant's body 2, label, half bar at 1,000 HP, bite 9; a hurt idle
+    monster healed at once, one dragged 20 out healed once home, a chasing one not. Mutation
+    (the party flag's x10 dropped) fails.
+  - F6b (built, this branch): every area attack hits at most `AOE_TARGETS` 5 monsters, the
+    nearest to its centre (`in_blast`) or along its line (`along_pierce`). The lurer's kit
+    (`lure_cast`): the normal attack (the tag), a blast (`LURE_BLAST` 3 round a monster within
+    reach 8, 6 MP, 4 s) and a pierce (`PIERCE_LENGTH` 12 toward a monster, `PIERCE_WIDTH` 1.5
+    either side, 8 MP, 6 s), each hit a tag (1 damage, the lurer on the threat table); it casts
+    whichever catches the most untagged monsters when that is two or more, the pierce on a
+    tie, else the normal attack; the label counts tags, blasts and pierces. N (`BACK_CHASERS`)
+    is 3 by default (the user). Tests: six monsters in a row under the three dps and the
+    lurer, five hit (69), the sixth untouched; one monster gets the normal attack, three
+    spread within 3 the blast (all tagged, 6 MP), four in a line the pierce (all tagged, 8
+    MP). Mutation (no cap) fails.
+  - F6c (built, this branch): `Settings` and sliders: N (`chasers`, 1-10, 3), the monsters'
+    running speed (3-8, default 6: faster than the players' 5, as in the game; `speed_of`
+    feeds `hunt` and `roam`), the bite's damage (1-10, 3) and reach (1-5, 2; the monsters'
+    small disk follows it), the load cap (0-10, 3; 0 none). The leave rule (the user): the
+    lurer leaves the centre as soon as its HP is full and the dps disk is within the cap; the
+    2 s wait and `centre_since` are gone. Tests: at full HP the trip starts on the first step;
+    at 85 HP it waits for the buff and regeneration (3 s, left at step 170-190); four parked
+    monsters hold it, not with the cap off; the sliders set N and the speed, a bite of 10 at
+    reach 4, a chaser's top speed 8; the params carry the values. Measured, two minutes: 4
+    trips, 13 delivered, 1 lost, 10 kills, no deaths, the lurer inside the dps disk 56%
+    (faster monsters catch it on the way home). Mutation (the leave ignoring HP) fails.
+  - F6d (built, this branch): the leave at `LEAVE_HP` 90% (the user: cut the rest). The tour
+    planner (`plan_tour`): the N stops among the `TOUR_CANDIDATES` 8 nearest untagged monsters
+    in the lurer's disk, in the order that minimises the run from the lurer through them and
+    home, an exact depth-first search with pruning (at most 8! leaves), planned again every
+    `PLAN_PERIOD` 1 s and whenever the tour empties, tagged stops dropped; stops are monster
+    ids (`Monster::id`, stable through deaths), drawn as a `color::PATH` polyline to the
+    centre. Session metrics (`Lure`): sessions done, mean session time, HP back home (mean,
+    lowest), distance walked per delivered; a third bottom label. Tests: hand-computed tours
+    (two stops: the right pair, 22.2 over 40; three: the left one last, 42.1 over 42.2; more
+    asked than exist; none); a row of three to the right with two far off: the tour is the
+    row nearest first, the lurer sets off along it, four tour lines, one session recorded with
+    its time and HP; at 85 HP the leave comes after 1 s. Measured, two minutes: 5 trips, 9
+    delivered, 3 lost, 11 kills, 1 death, 47% inside; 4 sessions of 16.5 s, back with 96 HP
+    (lowest 93), 37 walked per delivered: the baseline F6e must beat. Mutation (the planner
+    keeping the longest tour) fails.
+  - F6e (built, this branch): the cast planner (`plan_casts`, `Planner::Casts`, the default;
+    buttons switch to `Stops`): the shortest run that tags at least N monsters by casts, an
+    exact search over the 8 candidates where each stop is a monster to get within a skill's
+    reach of: the normal attack (reach 8, that monster), a blast (reach 8, every untagged
+    within 3 of it) or a pierce (reach 12, every untagged on the line from the cast point to
+    it), the area skills only when ready at planning and only when they tag two or more, the
+    rule `lure_cast` fires them by (a stop tagging one by pierce left the lurer standing at 12
+    with nothing it could cast: found by a trace, the first design's stall); a run ends when N
+    are tagged or nothing more can be, and a node with any way on is never an end, pruned or
+    not (the second bug: a pruned branch counted as finished and a cheap one-tag stop won).
+    `Stop { id, reach }` replaces the id tour. Tests: a cluster of three and a lone monster,
+    N 3: one blast stop at the cluster, without the skills three normal stops on it; a radial
+    row of four wanted whole: one pierce at the far end from 12 short (with three wanted a
+    normal attack and a shorter pierce, 28 over 34, which the planner rightly prefers); the
+    buttons. Measured, two minutes, the same seed: stops planner 9 delivered, 3 lost, 16.5 s
+    a session, 37 walked per delivered, 47% inside; cast planner 12 delivered, 1 lost,
+    19.6 s, 29 walked per delivered, 39% inside, back with 98 HP (lowest 94), 11 kills, 1
+    death. Mutation (the blast never offered) fails. The legend folds behind a button and the
+    status lines start at the map's left edge (the user: the legend covered the disks).
+  - F6f (built, this branch; the user: "the lurer is inside the dps disk since the luring
+    disk doesn't have any monsters"): two causes. Respawns landed anywhere on the map, so
+    the lurer's disk drained while nests outside it never fed it: a killed monster now
+    respawns at its own nest after 3 s (`respawns: Vec<(time, nest)>`, `spawn_at`), as the
+    game's nests are fixed; the slider's extra monsters still spawn at random. And with
+    nothing to tag the lurer dithered (Centre, Out, Back every few steps, inflating the trip
+    count): it now leaves only with something in its disk to tag (`tour_candidates` not
+    empty). Tests: a trip at once with a monster 40 out, none within 3 s on a quiet field,
+    the 85 HP wait, the parked four and the cap; a killed monster's replacement at the same
+    nest with a new id. Measured, two minutes: 6 trips, 20 delivered, 1 lost, 15 kills, 4
+    deaths, all dps (20 brought in against 15 killed: the overload is for the sliders, N and
+    the load cap), 56% inside; 6 sessions of 14.8 s, back with 99 HP, 16 walked per
+    delivered. Mutation (respawns anywhere) fails.
+  - F6g (built, this branch; the user's four changes): the map is a disk (`MAP_RADIUS` 60,
+    nests an idle radius inside; a rectangle left monsters stuck in its corners); the lurer
+    sees only monsters within `LURER_SIGHT` 30 (the game shows entities within about 30), and
+    with none in sight scouts random spots of the band between 30 and the luring disk's edge
+    less 3 (`scout_spot`, `Lure::scout`, drawn as the tour line); having tagged something and
+    seeing nothing more it turns home with what follows (`left_casts`); the luring disk fences
+    the lurer's walk, not its targets: the cast planner takes a cast point only inside it
+    (`fence`), so a monster at 55 is a normal attack from 47 and one at 62 a pierce from the
+    edge; a chasing monster inside the dps disk shows no line of sight. The leave rule no
+    longer asks for work in the disk (scouting finds it). Tests: spawns inside 54; a quiet
+    field sends the lurer scouting past 30 and never past 50; back with what follows; the
+    fence cases; the sight list at 29 and 31; the hidden LOS. Measured, two minutes: 7 trips,
+    24 delivered, 2 lost, 21 kills, no deaths, 70% inside (short trips, the load cap holding
+    it); 7 sessions of 11.9 s, back with 98 HP (lowest 97), 11 walked per delivered.
+    Mutation (no fence) fails.
+  - F6h (built, this branch; the user): two lurers (A and B, `LURERS`, the first two players)
+    and four dps; `lures: Vec<Lure>`, metrics and status lines per lurer. Not kiting each
+    other's monsters from what a lurer can see: a monster any lurer has tagged is off limits
+    (`tagged_by_a_lurer`); an untagged one belongs to the nearest living lurer, the lower
+    index on a tie (`owner`), applied to the next tag, the planner's candidates and the cast
+    centres; scouting spots go on the half of the band away from a lurer that is out. Watching
+    before starting, without deadlock: A never waits; B waits while an earlier lurer is alive
+    within `WATCH_DISTANCE` 15 of the centre and out or ready to leave, at most `WATCH_TIMEOUT`
+    5 s (`Lure::ready_since`). The strong cap (`Settings::strong_cap`, slider 0-5, default 1):
+    a lurer stays while the dps disk holds that many strong monsters (`Rarity::is_strong`, HP
+    x10 or more: giants and every party monster). Tests: the owner rule (nearer, tie to A, B
+    dead); a pair of monsters each side, A tags only the left and B only the right, nobody
+    both; B leaves when A is 15 out (steps 120-300) and on the timeout with A parked; a party
+    monster in the disk holds both lurers, not with the cap off; eight roles; the dps tests
+    with four dps (a monster 4 under the centre loses 41 a volley, dies at the third). Measured,
+    two minutes: A 3 trips, 10 delivered, 0 lost, 16.1 s a session, 18 walked per delivered;
+    B 4 trips, 16 delivered, 1 lost, 8.4 s, 6 walked per delivered; 26 kills, no deaths; both
+    inside the dps disk most of the time (73% and 93%: the load cap holds them while the four
+    dps clear). Mutation (the owner rule dropped) fails.
+  - F6i (built, this branch; the user: the lurers are independent, know nothing of each
+    other's plan, and see each other only as nearby entities): the first build read the other
+    lurer's stage and its position at any distance. Now each lurer gets its own view
+    (`Snap`, `observe`, `Observed`): the other's position and movement only within
+    `LURER_SIGHT` 30, its HP from the party window at any distance (an assumption about the
+    game's party window), never its stage; a lurer remembers where it last saw the other for
+    `SEEN_MEMORY` 10 s (`Lure::last_seen`, `Lure::new`). Ownership counts only the lurers in
+    sight (two lurers closing on one monster see each other before either is in reach); the
+    watch waits for an earlier lurer in sight within 15 of the centre that is healthy or
+    moving; scouting goes away from the last sighting. Tests: A parked 40 out is unseen by B
+    at the centre, so a monster at 20 is B's and B tags it; A parked 25 out is seen and nearer,
+    so A tags it and B does not; `observe` itself. Mutation (the sight limit dropped) fails.
+  - Default monsters 15 (the user 2026-11-03). The load cap measurement at 15, two minutes:
+    cap 3: A 2 trips, 5 delivered, B 3 trips, 9 delivered, 16 kills, 5 deaths; cap 6: 13
+    kills, 6 deaths; the cap stays 3. The deaths are all dps, to a giant and a party champion
+    that reached the dps disk: 2,000 HP against four dps spreading their fire over different
+    targets (27 damage a second at best, 75 s to kill), biting 9 every 1.5 s at dps that roam
+    out to 10 while the HP buffer reaches 8 from within 5. Open (to decide with the user):
+    the dps focusing one target; the lurers never tagging a strong monster; the buffers'
+    reach against the dps disk. Decided (the user 2026-11-03): no focus fire (AoE dps); the
+    lurer judges from the dps disk and the party window instead of a blanket "never"; the
+    buffs are extended rather than the buffers' reach.
+  - F6j (built, this branch): the lurer's risk check, from what it can see (the disk's monsters
+    within 30 of the centre) and the party window (`party_hp`, the mean HP percent with the
+    dead at 0, kept per step over `TREND_WINDOW` 5 s; `party_drop`): a strong monster is a
+    candidate, a normal-attack target or part of a blast or pierce only while the disk holds
+    fewer strong than the cap, the party's mean HP is at least `RISKY_HP` 80 and it fell at
+    most `RISKY_DROP` 10 in 5 s (`strong_ok`, through `tour_candidates`, `untagged_in_reach`,
+    `lure_cast` and `plan_casts`'s `avoid_strong`); under `HALT_HP` 60 or a fall over
+    `HALT_DROP` 20, no session starts (`halt`). The team label shows the party HP and its
+    change. Tests: calm, A tags a normal and a giant 20 out; with a party monster in the disk
+    the giant is left and the normal tagged; a 15-point fall blocks the giant for the window
+    and A takes it on a later trip; at 50% no trip for a second, trips once over 60%. Mutation
+    (`strong_ok` always true) fails.
+  - F6k (built, this branch): the HP buffer's further skills, tried in this order before the
+    HP buff, still one cast a second (`cast_heal`, `cast_group_heal`, `cast_guard`;
+    `members_in_reach`, `spend`): a heal (+40 at once, 15 MP, 3 s) on the member in reach
+    lowest under 50%; a group heal (+20 to every member in reach, 25 MP, 10 s) when the
+    party's mean HP is under 70%; a guard (bites times 0.8 for 20 s, 10 MP, 5 s; the user:
+    the first draft's one-a-second blanket was too strong) on the unguarded member in reach
+    that a monster targets, the lowest HP first; a guarded member wears a `color::GUARD`
+    ring; the team label counts the casts. Tests: a dps at 40% is healed to 80 at once, the
+    next one gets the HP buff while the heal cools and the heal after it; the party at 65%
+    gets a group heal of 20, lurer A 40 away misses it; a monster after dps 2 brings the guard
+    onto dps 2 the step after it turns; a guarded lurer loses 2.4 to a bite, not 3. Measured,
+    two minutes at 15 monsters: the same trips (A 2/5/2, B 3/9/2), 16 kills, no deaths (5
+    before), 9 heals, 0 group heals, 10 guards. Mutation (guard factor 1) fails.
+  Combat numbers: bite reach 2, 3 damage, 1.5 s (one monster kills an unbuffed player in
+  50 s, four in 12.5 s); dps AoE reach 8, blast radius 2 round the target, 10 damage to
+  every monster in it, 6 MP, 1.5 s (one dps kills a monster in 15 s, three clear a cluster of
+  five in ~5 s; 4 MP/s spent against 1 regained); tag reach 8, 1 damage, 2 MP, 1 s; HP buff
+  +4 HP/s for 10 s, 4 MP; MP buff +3 MP/s for 10 s, 2 MP; a buffer casts once a second on the
+  member (itself included) with the lowest bar under 90% and no buff running, within its
+  ranged disk 8. Threat = damage dealt per player (a tag 1, a dps hit 10: the first dps hit
+  takes a monster off the lurer). A dead player returns to the centre after 5 s with full
+  bars and is forgotten; a dead monster vanishes, a new one spawns elsewhere after 3 s; a
+  monster back home is at full HP.
+- F3. The dps role. Verify: never outside 10 (plus the body), kills happen.
+- F4. The buffers. Verify: bars stay at or above the threshold while the buffer has MP.
+- F5. Lurer v1 and the metrics; measured numbers pinned.
+- F6. Further lurer strategies side by side (PhBot's random walk, caravan's state machine),
+  switched by buttons under the same metrics.
 
 ## Each demo page
 

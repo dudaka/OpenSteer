@@ -3,8 +3,10 @@
 //! the 2D ports (already checked against the C++); this lifts a 2D demo's frame onto the ground
 //! plane: `(x, y)` is drawn at `(x, 0, y)`, with up straight up.
 
-use steer_demos::{Demo, FrameView, LabelView, LineView, TrailView, VehicleView};
+use steer_core_3d::Vec3;
+use steer_demos::{CircleView, Demo, FrameView, LabelView, LineView, TrailView, VehicleView};
 
+use crate::annotation::ring;
 use crate::view::{Frame3View, Label3View, Line3View, Trail3View, Vehicle3View};
 
 /// Annotations sit this far above the ground grid, so they do not flicker against it.
@@ -48,7 +50,9 @@ fn lift_frame(f: FrameView) -> Frame3View {
         // A perspective camera this far away shows about as much as the 2D view's width.
         view_size: f.view_size * 1.1,
         vehicles: f.vehicles.into_iter().map(lift_vehicle).collect(),
-        lines: f.lines.into_iter().map(lift_line).collect(),
+        lines: (f.lines.into_iter().map(lift_line))
+            .chain(f.circles.into_iter().flat_map(lift_circle))
+            .collect(),
         trails: f.trails.into_iter().map(lift_trail).collect(),
         labels: f.labels.into_iter().map(lift_label).collect(),
         actions: f.actions,
@@ -73,6 +77,12 @@ fn lift_line(l: LineView) -> Line3View {
         to: lift(l.to),
         color: l.color,
     }
+}
+
+/// A 2D circle as a flat ring on the ground.
+fn lift_circle(c: CircleView) -> Vec<Line3View> {
+    let [x, y, z] = lift(c.center);
+    ring(Vec3::new(x, y, z), Vec3::UP, c.radius, c.color)
 }
 
 fn lift_trail(t: TrailView) -> Trail3View {

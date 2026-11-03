@@ -123,6 +123,7 @@ impl Boids {
                 .map(|b| vehicle_view(b, color::BODY))
                 .collect(),
             lines,
+            circles: Vec::new(),
             trails: Vec::new(),
             labels: vec![label(first.position, "boid 0", color::LABEL)],
             legend: legend(&[

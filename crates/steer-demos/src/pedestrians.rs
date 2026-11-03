@@ -187,6 +187,7 @@ impl Pedestrians {
                 .map(|w| vehicle_view(&w.vehicle, color::BODY))
                 .collect(),
             lines,
+            circles: Vec::new(),
             trails: self
                 .crowd
                 .iter()

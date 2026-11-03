@@ -58,6 +58,7 @@ impl OneTurning {
                 .into_iter()
                 .chain(velocity_acceleration(v))
                 .collect(),
+            circles: Vec::new(),
             trails: vec![self.trail.view(p)],
             labels: vec![
                 label(p, format!("speed: {:.2}", v.speed), color::LABEL),

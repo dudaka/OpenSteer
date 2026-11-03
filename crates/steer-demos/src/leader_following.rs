@@ -129,6 +129,7 @@ impl LeaderFollowing {
                 )
                 .collect(),
             lines,
+            circles: Vec::new(),
             trails: [self.leader_trail.view(l.position)]
                 .into_iter()
                 .chain(
