@@ -395,8 +395,23 @@ Steps:
   now a wire primitive (`CircleView`, `FrameView::circles`, `annotation::circle_view`), the
   browser draws each as 32 segments (`draw.ts`), the Ground lift turns them into rings, and the
   legend test checks circle colors too. The other demos still send their few circles as lines.
-- F2. HP, MP, skills, the hit rule, deaths and respawns; monsters' threat table and aggro
-  (hit, on sight), pursuit, bite, leash. Hand-computed tests.
+- F2. Combat, agreed with the user 2026-11-02 (the numbers in the table below), built in
+  pieces: the bars, the monster's bite with the threat table and deaths, the dps AoE, the two
+  buffs, the lurer's tag. Bars (built, this branch): `MAX_HP` / `MAX_MP` 100, players regain
+  `REGEN` 1 of each a second, monsters nothing; HP and MP bars over every body (`bar`: body
+  width, 1.6 and 2.0 above the centre, the buffers' colors). Tests: regeneration 50 -> 60 in
+  10 s, a monster stays at 50, bars counted and the half bar's length. Mutation (monsters
+  regenerating) fails.
+  Combat numbers: bite reach 2, 3 damage, 1.5 s (one monster kills an unbuffed player in
+  50 s, four in 12.5 s); dps AoE reach 8, blast radius 2 round the target, 10 damage to
+  every monster in it, 6 MP, 1.5 s (one dps kills a monster in 15 s, three clear a cluster of
+  five in ~5 s; 4 MP/s spent against 1 regained); tag reach 8, 1 damage, 2 MP, 1 s; HP buff
+  +4 HP/s for 10 s, 4 MP; MP buff +3 MP/s for 10 s, 2 MP; a buffer casts once a second on the
+  member (itself included) with the lowest bar under 90% and no buff running, within its
+  ranged disk 8. Threat = damage dealt per player (a tag 1, a dps hit 10: the first dps hit
+  takes a monster off the lurer). A dead player returns to the centre after 5 s with full
+  bars and is forgotten; a dead monster vanishes, a new one spawns elsewhere after 3 s; a
+  monster back home is at full HP.
 - F3. The dps role. Verify: never outside 10 (plus the body), kills happen.
 - F4. The buffers. Verify: bars stay at or above the threshold while the buffer has MP.
 - F5. Lurer v1 and the metrics; measured numbers pinned.

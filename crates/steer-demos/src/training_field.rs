@@ -7,7 +7,8 @@
 //! on its own position: a big one, its ranged reach (a player's 8 is its attack and its buffs,
 //! a monster's 6 is its alarm), and a small one, its melee reach. Players are ranged; a
 //! monster is melee, and chases the nearest player inside its big disk until that player is
-//! inside its small disk. Combat and the lurer's trips come in later steps.
+//! inside its small disk. Everyone has HP (players MP too), a player's bars regenerating a point
+//! a second; nothing spends them yet. Attacks, buffs and the lurer's trips come in later steps.
 
 use std::f32::consts::TAU;
 
@@ -17,7 +18,7 @@ use steer_core::{steer, Vec2, Vehicle};
 
 use crate::annotation::{circle_view, color, label, legend, line, vehicle_view};
 use crate::controls::{slider, Range};
-use crate::view::FrameView;
+use crate::view::{FrameView, LineView};
 
 /// The map: a rectangle this wide and high, centred on the training centre.
 pub const MAP_WIDTH: f32 = 160.0;
@@ -41,6 +42,15 @@ pub const WALK_SPEED: f32 = 1.5;
 pub const RUN_SPEED: f32 = 5.0;
 /// Pedestrians' max force.
 const MAX_FORCE: f32 = 8.0;
+/// HP and MP: 100 points each (a point is a percent); a player regains `REGEN` of each a second,
+/// a monster regains nothing.
+pub const MAX_HP: f32 = 100.0;
+pub const MAX_MP: f32 = 100.0;
+pub const REGEN: f32 = 1.0;
+/// Bars over a body: as wide as the body, this far above its centre (up the screen is -y).
+const BAR_WIDTH: f32 = 2.0 * BODY_RADIUS;
+const HP_BAR_LIFT: f32 = 1.6;
+const MP_BAR_LIFT: f32 = 2.0;
 /// Every entity's two reaches, centre to centre: the big disk (a player's ranged attack and
 /// buffs; a monster's alarm, smaller) and the small disk (melee; a monster's attack).
 pub const RANGED_REACH: f32 = 8.0;
@@ -123,6 +133,8 @@ impl Gait {
 pub struct Player {
     pub role: Role,
     pub body: Vehicle,
+    pub hp: f32,
+    pub mp: f32,
     /// The spot it is running to inside its disk.
     spot: Vec2,
 }
@@ -133,6 +145,7 @@ pub struct Monster {
     /// When the next gait is drawn (simulation time).
     until: f32,
     pub body: Vehicle,
+    pub hp: f32,
     /// Where it appeared: it idles round here and (a later step) leashes back here.
     pub spawn: Vec2,
     /// The spot it is going to inside its idle disk.
@@ -166,6 +179,13 @@ fn standing(position: Vec2) -> Vehicle {
 /// A point `r` from `centre` at `angle` (radians).
 fn around(centre: Vec2, r: f32, angle: f32) -> Vec2 {
     centre + Vec2::new(angle.cos(), angle.sin()) * r
+}
+
+/// A bar over the body at `at`: `BAR_WIDTH` wide at full, `lift` above the centre, filled
+/// from the left to `fill` (0 to 1).
+fn bar(at: Vec2, lift: f32, fill: f32, color: u32) -> LineView {
+    let left = at + Vec2::new(-BAR_WIDTH / 2.0, -lift);
+    line(left, left + Vec2::new(BAR_WIDTH * fill, 0.0), color)
 }
 
 /// A disk as a containment region: a 40-point counter-clockwise polygon.
@@ -253,6 +273,8 @@ impl Default for TrainingField {
         let player = |role, at| Player {
             role,
             body: standing(at),
+            hp: MAX_HP,
+            mp: MAX_MP,
             spot: at,
         };
         let team = vec![
@@ -295,6 +317,8 @@ impl TrainingField {
         for p in &mut self.team {
             let r = p.role.radius();
             roam(&mut p.body, Gait::Running, &mut p.spot, CENTRE, r, dt, rng);
+            p.hp = (p.hp + REGEN * dt).min(MAX_HP);
+            p.mp = (p.mp + REGEN * dt).min(MAX_MP);
         }
         let players: Vec<Vec2> = self.team.iter().map(|p| p.body.position).collect();
         for m in &mut self.monsters {
@@ -337,6 +361,7 @@ impl TrainingField {
                 gait: Gait::Standing,
                 until: self.time,
                 body: standing(at),
+                hp: MAX_HP,
                 spawn: at,
                 spot: at,
                 target: None,
@@ -372,6 +397,28 @@ impl TrainingField {
             .windows(2)
             .map(|c| line(c[0], c[1], color::EDGE))
             .collect();
+        for p in &self.team {
+            lines.push(bar(
+                p.body.position,
+                HP_BAR_LIFT,
+                p.hp / MAX_HP,
+                HP_BUFFER_BODY,
+            ));
+            lines.push(bar(
+                p.body.position,
+                MP_BAR_LIFT,
+                p.mp / MAX_MP,
+                MP_BUFFER_BODY,
+            ));
+        }
+        for m in &self.monsters {
+            lines.push(bar(
+                m.body.position,
+                HP_BAR_LIFT,
+                m.hp / MAX_HP,
+                HP_BUFFER_BODY,
+            ));
+        }
         let mut circles = Vec::new();
         let reaches = (self.team.iter().map(|p| (&p.body, RANGED_REACH)))
             .chain(self.monsters.iter().map(|m| (&m.body, ALARM_REACH)));
@@ -437,8 +484,8 @@ impl TrainingField {
             legend: legend(&[
                 (LURER_BODY, "our lurer"),
                 (DPS_BODY, "dps (3)"),
-                (HP_BUFFER_BODY, "HP buffer"),
-                (MP_BUFFER_BODY, "MP buffer"),
+                (HP_BUFFER_BODY, "HP buffer; the HP bar over every body"),
+                (MP_BUFFER_BODY, "MP buffer; the MP bar over every player"),
                 (MONSTER_BODY, "monster"),
                 (
                     color::RADIUS,
@@ -552,6 +599,58 @@ mod tests {
         assert!(view.lines.iter().any(|l| l.color == color::TARGET));
         // 36 entities with two reach circles each, and the three training disks.
         assert_eq!(view.circles.len(), 2 * 36 + 3);
+    }
+
+    #[test]
+    fn bars_start_full_and_only_players_regenerate_a_point_a_second() {
+        let mut field = TrainingField::default();
+        assert!(field
+            .team()
+            .iter()
+            .all(|p| p.hp == MAX_HP && p.mp == MAX_MP));
+        assert!(field.monsters().iter().all(|m| m.hp == MAX_HP));
+        field.team[0].hp = 50.0;
+        field.team[0].mp = 20.0;
+        field.monsters[0].hp = 50.0;
+        for _ in 0..600 {
+            field.update(1.0 / 60.0);
+        }
+        assert!(
+            (field.team()[0].hp - 60.0).abs() < 0.05,
+            "{}",
+            field.team()[0].hp
+        );
+        assert!(
+            (field.team()[0].mp - 30.0).abs() < 0.05,
+            "{}",
+            field.team()[0].mp
+        );
+        assert_eq!(field.monsters()[0].hp, 50.0);
+        // The others stay capped at full.
+        assert!(field.team()[1..]
+            .iter()
+            .all(|p| p.hp == MAX_HP && p.mp == MAX_MP));
+    }
+
+    #[test]
+    fn bars_are_drawn_over_every_body_and_fill_with_the_points() {
+        let mut field = TrainingField::default();
+        field.team[0].hp = 50.0;
+        let view = field.view();
+        let hp_bars: Vec<_> = (view.lines.iter())
+            .filter(|l| l.color == HP_BUFFER_BODY)
+            .collect();
+        let mp_bars = view
+            .lines
+            .iter()
+            .filter(|l| l.color == MP_BUFFER_BODY)
+            .count();
+        assert_eq!(hp_bars.len(), 6 + DEFAULT_MONSTERS);
+        assert_eq!(mp_bars, 6);
+        // The lurer's half-full HP bar is half the body's width, above its centre.
+        let lurer = &hp_bars[0];
+        assert_eq!(lurer.from, [-BAR_WIDTH / 2.0, -HP_BAR_LIFT]);
+        assert_eq!(lurer.to, [0.0, -HP_BAR_LIFT]);
     }
 
     #[test]
