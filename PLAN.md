@@ -370,6 +370,13 @@ Steps:
   entered at 4; 0.6 aside at 4.2; aside, behind or beyond the range: none), the fan symmetric
   about forward, the lurer's middle ray cut at a monster 6 ahead, no ray ever hits its own body.
   Mutation (the far root of the intersection) fails the entry test.
+  Then (the user: "the dps never go inside the buff disk, just around a band"): wander held in
+  by containment circles along the edge (the probe leaves, the push turns the body along the
+  wall), so the idle walk is now the game bots' random walk (`roam`): seek a random spot of
+  the disk (uniform over its area), draw the next within 1.5 of it; containment stays as the
+  guard. Measured and pinned: the dps spend 42-49% of the time inside the buffers' disk, the
+  buffers all of it, the lurer 5%; speeds now average 4.3 (lurer), 2.7 (dps), 1.5 (buffers),
+  never below 0.76 (a runner slows to turn back). Mutation (spots never redrawn) fails.
 - F2. HP, MP, skills, the hit rule, deaths and respawns; monsters' threat table and aggro
   (hit, on sight), pursuit, bite, leash. Hand-computed tests.
 - F3. The dps role. Verify: never outside 10 (plus the body), kills happen.

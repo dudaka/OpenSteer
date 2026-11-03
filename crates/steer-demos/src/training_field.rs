@@ -638,29 +638,38 @@ mod tests {
         assert_eq!(field.monsters().len(), 60);
     }
 
-    /// Running inside a small disk is a run braked into every turn: the lurer, with room,
-    /// averages 4.6; the dps 2.8-3.2 in their 10; the buffers 2.2 in their 5; nobody below 1.49.
+    /// Roaming spot to spot is a run slowed at every turn-back and braked into the edge: the
+    /// lurer, with room, averages 4.3; the dps 2.7 in their 10; the buffers 1.5 in their 5;
+    /// nobody below 0.76. Spots cover the disk: the dps spend 42-49% of the time inside the
+    /// buffers' disk (the user 2026-11-02: with wander they never came in), the lurer 5%.
     #[test]
     fn players_run_inside_their_disks() {
         let mut field = TrainingField::default();
         let m = measure(&mut field, 60.0);
-        println!(
-            "over {} mean {:?} min {:?} in buff disk {:?}",
-            m.player_over, m.mean_speed, m.min_speed, m.in_buff_disk
-        );
         assert!(m.player_over <= 0.0, "{}", m.player_over);
-        assert!(m.mean_speed[0] > 4.5, "{:?}", m.mean_speed);
+        assert!(m.mean_speed[0] > 4.0, "{:?}", m.mean_speed);
         assert!(
             m.mean_speed[1..4].iter().all(|&s| s > 2.5),
             "{:?}",
             m.mean_speed
         );
         assert!(
-            m.mean_speed[4..].iter().all(|&s| s > 2.0),
+            m.mean_speed[4..].iter().all(|&s| s > 1.4),
             "{:?}",
             m.mean_speed
         );
-        assert!(m.min_speed.iter().all(|&s| s > 1.4), "{:?}", m.min_speed);
+        assert!(m.min_speed.iter().all(|&s| s > 0.7), "{:?}", m.min_speed);
+        assert!(
+            m.in_buff_disk[1..4].iter().all(|&s| s > 0.3),
+            "{:?}",
+            m.in_buff_disk
+        );
+        assert!(
+            m.in_buff_disk[4..].iter().all(|&s| s > 0.99),
+            "{:?}",
+            m.in_buff_disk
+        );
+        assert!(m.in_buff_disk[0] < 0.1, "{:?}", m.in_buff_disk);
         assert!(field
             .team()
             .iter()
