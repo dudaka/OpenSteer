@@ -167,6 +167,10 @@ pub const RISKY_HP: f32 = 70.0;
 pub const RISKY_DROP: f32 = 15.0;
 pub const HALT_HP: f32 = 50.0;
 pub const HALT_DROP: f32 = 30.0;
+/// A strong monster is a candidate only while the HP buffer's MP bar (the party window shows
+/// MP too) is at least this: at every death seen the healer had 5-13 MP with 2-4 strong
+/// monsters in the disk; its MP, not the dps's damage, is the party's sustain.
+pub const HEALER_MP: f32 = 50.0;
 pub const TREND_WINDOW: f32 = 5.0;
 /// The balance sliders and their defaults: N, the monsters' running speed (faster than the
 /// players' 5, as in the game), the bite's damage and reach, the backlog cap: a lurer waits
@@ -1546,9 +1550,13 @@ impl TrainingField {
             self.bars.pop_front();
         }
         let (lowest, fall) = (self.lowest_hp(), self.worst_fall());
+        let healer_ok = (self.team.iter())
+            .filter(|p| p.role == Role::HpBuffer)
+            .all(|p| !p.is_dead() && p.mp >= HEALER_MP);
         let cap = self.settings.backlog_cap;
+        let party_ok = healer_ok && lowest >= RISKY_HP && fall <= RISKY_DROP;
         let strong_ok: Vec<bool> = (backlogs.iter())
-            .map(|&b| (cap == 0.0 || b <= cap) && lowest >= RISKY_HP && fall <= RISKY_DROP)
+            .map(|&b| (cap == 0.0 || b <= cap) && party_ok)
             .collect();
         let halt = lowest < HALT_HP || fall > HALT_DROP;
         let rng = &mut self.rng;
@@ -3092,6 +3100,18 @@ mod tests {
             tagged.contains(&giant) != tagged.contains(&other),
             "{tagged:?}"
         );
+        // The HP buffer at 0 MP: within 8 s the normal is tagged and the giant left alone;
+        // with the MP buff (+3 a second) and regeneration the healer is back over 50 by
+        // 12.5 s and the giant is tagged on a later trip.
+        let mut field = risky_field();
+        field.team[6].mp = 0.0;
+        let tagged = run_tracking_a(&mut field, 480);
+        assert!(
+            !tagged.contains(&giant) && tagged.contains(&normal),
+            "{tagged:?}"
+        );
+        let tagged = run_tracking_a(&mut field, 30 * 60);
+        assert!(tagged.contains(&giant), "{tagged:?}");
         // One dps falling 20 points at once (the party's mean 97.5%): no strong tag for the
         // 5 s window, and the giant is tagged on a later trip once the member has recovered.
         // (Regeneration and the buffs lift it again within seconds, so the window closes on
@@ -3745,7 +3765,9 @@ mod tests {
         // B 6/12, 36 kills. Over seeds 1-5 (180 s, cap off): 166 kills and no deaths against
         // 190 kills and 5 deaths without the hand-off, which had lurers leaving with their
         // pack still behind them on 54 of 68 leaves (seed 1) and dragging strong monsters
-        // back out; cap 30 s with the hand-off: 105 kills, no deaths.
+        // back out; cap 30 s with the hand-off: 105 kills, no deaths. The healer's MP gate
+        // (no strong pull under 50 MP): the same numbers on all five seeds (the healer fell
+        // to 20 MP on seed 4 and 53-73 elsewhere, never while a strong pull was on offer).
         assert_eq!(stages.len(), 3);
         let delivered = a.delivered + b.delivered;
         assert!(a.trips >= 2 && b.trips >= 2, "{} {}", a.trips, b.trips);
