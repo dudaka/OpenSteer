@@ -502,6 +502,21 @@ Steps:
     reach 4, a chaser's top speed 8; the params carry the values. Measured, two minutes: 4
     trips, 13 delivered, 1 lost, 10 kills, no deaths, the lurer inside the dps disk 56%
     (faster monsters catch it on the way home). Mutation (the leave ignoring HP) fails.
+  - F6d (built, this branch): the leave at `LEAVE_HP` 90% (the user: cut the rest). The tour
+    planner (`plan_tour`): the N stops among the `TOUR_CANDIDATES` 8 nearest untagged monsters
+    in the lurer's disk, in the order that minimises the run from the lurer through them and
+    home, an exact depth-first search with pruning (at most 8! leaves), planned again every
+    `PLAN_PERIOD` 1 s and whenever the tour empties, tagged stops dropped; stops are monster
+    ids (`Monster::id`, stable through deaths), drawn as a `color::PATH` polyline to the
+    centre. Session metrics (`Lure`): sessions done, mean session time, HP back home (mean,
+    lowest), distance walked per delivered; a third bottom label. Tests: hand-computed tours
+    (two stops: the right pair, 22.2 over 40; three: the left one last, 42.1 over 42.2; more
+    asked than exist; none); a row of three to the right with two far off: the tour is the
+    row nearest first, the lurer sets off along it, four tour lines, one session recorded with
+    its time and HP; at 85 HP the leave comes after 1 s. Measured, two minutes: 5 trips, 9
+    delivered, 3 lost, 11 kills, 1 death, 47% inside; 4 sessions of 16.5 s, back with 96 HP
+    (lowest 93), 37 walked per delivered: the baseline F6e must beat. Mutation (the planner
+    keeping the longest tour) fails.
   Combat numbers: bite reach 2, 3 damage, 1.5 s (one monster kills an unbuffed player in
   50 s, four in 12.5 s); dps AoE reach 8, blast radius 2 round the target, 10 damage to
   every monster in it, 6 MP, 1.5 s (one dps kills a monster in 15 s, three clear a cluster of

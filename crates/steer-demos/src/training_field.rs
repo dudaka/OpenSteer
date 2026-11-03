@@ -110,12 +110,20 @@ const SPAWN_MIX: [(Rarity, u32); 6] = [
 /// times its rarity's damage multiplier.
 pub const BITE: f32 = 3.0;
 pub const BITE_COOLDOWN: f32 = 1.5;
-/// The lurer's strategy: leave the centre as soon as its HP is full (the user), with at most
+/// The lurer's strategy: leave the centre as soon as its HP is back (`LEAVE_HP`), with at most
 /// the load cap's monsters in the dps disk (0: no cap); come back with N (`Settings::chasers`)
 /// chasing, HP under `BACK_HP`, or no untagged monster left in the lurer's disk; home is
 /// within `HOME` of the centre.
 pub const BACK_HP: f32 = 0.4;
 pub const HOME: f32 = 1.0;
+/// The lurer leaves the centre once its HP is back to this share (the user: 90%, to cut the
+/// rest).
+pub const LEAVE_HP: f32 = 0.9;
+/// The tour planner: the N stops (untagged monsters in the lurer's disk) and their order that
+/// make the shortest run from the lurer through them and home, solved exactly over the
+/// `TOUR_CANDIDATES` nearest and planned again every `PLAN_PERIOD`.
+pub const TOUR_CANDIDATES: usize = 8;
+pub const PLAN_PERIOD: f32 = 1.0;
 /// The balance sliders and their defaults: N, the monsters' running speed (faster than the
 /// players' 5, as in the game), the bite's damage and reach, the load cap.
 const CHASERS: Range = Range::new(1.0, 10.0, 1.0);
@@ -344,6 +352,8 @@ fn draw_rarity(rng: &mut fastrand::Rng) -> Rarity {
 
 #[derive(Debug, Clone)]
 pub struct Monster {
+    /// Stable through deaths and respawns (indices are not): the tour names stops by it.
+    pub id: u32,
     pub rarity: Rarity,
     /// `MAX_HP` times the rarity's multiplier.
     pub max_hp: f32,
@@ -395,12 +405,70 @@ pub struct Lure {
     pub tags: u32,
     pub blasts: u32,
     pub pierces: u32,
+    /// The planned stops (monster ids) of the current trip, next first, and when they were
+    /// planned.
+    pub tour: Vec<u32>,
+    planned_at: f32,
+    /// Session metrics: when the current trip left, the trips completed, their total time,
+    /// the HP the lurer had back home (total and lowest), and the distance it walked.
+    left_at: f32,
+    pub sessions: u32,
+    pub session_time: f32,
+    pub hp_back_total: f32,
+    pub hp_back_min: f32,
+    pub walked: f32,
 }
 
 impl Lure {
     pub fn share_in_disk(&self) -> f32 {
         self.steps_in_disk as f32 / self.steps.max(1) as f32
     }
+
+    pub fn mean_session(&self) -> f32 {
+        self.session_time / self.sessions.max(1) as f32
+    }
+
+    pub fn mean_hp_back(&self) -> f32 {
+        self.hp_back_total / self.sessions.max(1) as f32
+    }
+}
+
+/// The cheapest tour of `n` of `stops` (id, position): the order that minimises the run from
+/// `from` through them to `home`, found by an exact search with pruning (at most 8 stops).
+pub fn plan_tour(from: Vec2, home: Vec2, stops: &[(u32, Vec2)], n: usize) -> Vec<u32> {
+    fn search(
+        at: Vec2,
+        home: Vec2,
+        stops: &[(u32, Vec2)],
+        left: usize,
+        used: &mut Vec<usize>,
+        cost: f32,
+        best: &mut (f32, Vec<usize>),
+    ) {
+        if left == 0 {
+            let total = cost + (home - at).length();
+            if total < best.0 {
+                *best = (total, used.clone());
+            }
+            return;
+        }
+        for (i, &(_, p)) in stops.iter().enumerate() {
+            if used.contains(&i) {
+                continue;
+            }
+            let next = cost + (p - at).length();
+            if next >= best.0 {
+                continue;
+            }
+            used.push(i);
+            search(p, home, stops, left - 1, used, next, best);
+            used.pop();
+        }
+    }
+    let n = n.min(stops.len());
+    let mut best = (f32::MAX, Vec::new());
+    search(from, home, stops, n, &mut Vec::new(), 0.0, &mut best);
+    best.1.into_iter().map(|i| stops[i].0).collect()
 }
 
 #[derive(Debug, Clone)]
@@ -413,6 +481,7 @@ pub struct TrainingField {
     /// Times at which a killed monster's replacement may spawn.
     respawns: Vec<f32>,
     pub kills: u32,
+    next_id: u32,
     pub deaths: u32,
     pub lure: Lure,
     pub settings: Settings,
@@ -564,23 +633,26 @@ fn untagged_in_reach(lurer: usize, at: Vec2, monsters: &[Monster]) -> Option<usi
         .map(|(i, _)| i)
 }
 
-/// The monster inside the lurer's disk nearest to `at` that the lurer has not tagged: the
-/// lurer's next stop on a trip.
-fn next_to_tag(lurer: usize, at: Vec2, monsters: &[Monster]) -> Option<usize> {
-    (monsters.iter().enumerate())
-        .filter(|(_, m)| !m.threat.contains_key(&lurer))
-        .filter(|(_, m)| (m.body.position - CENTRE).length() <= LURE_RADIUS)
-        .min_by(|a, b| {
-            let d = |m: &Monster| (m.body.position - at).length();
-            d(a.1).total_cmp(&d(b.1))
-        })
-        .map(|(i, _)| i)
+/// The planner's candidates: the monsters in the lurer's disk that the lurer has not tagged,
+/// the `TOUR_CANDIDATES` nearest to `at`, as (id, position).
+fn tour_candidates(lurer: usize, at: Vec2, monsters: &[Monster]) -> Vec<(u32, Vec2)> {
+    let mut near: Vec<&Monster> = (monsters.iter())
+        .filter(|m| !m.threat.contains_key(&lurer))
+        .filter(|m| (m.body.position - CENTRE).length() <= LURE_RADIUS)
+        .collect();
+    near.sort_by(|a, b| {
+        let d = |m: &Monster| (m.body.position - at).length();
+        d(a).total_cmp(&d(b))
+    });
+    near.truncate(TOUR_CANDIDATES);
+    near.into_iter().map(|m| (m.id, m.body.position)).collect()
 }
 
-/// One step of the lurer's trip. At the centre it stands until its HP is full and the dps
-/// disk holds at most the load cap's monsters; out, it runs to the next monster to tag (the
-/// tag itself fires from `lure_cast`) until N chase, its HP is under `BACK_HP` or none is
-/// left; back, it runs home and the stage is `Centre` on arrival.
+/// One step of the lurer's trip. At the centre it stands until its HP is back to `LEAVE_HP`
+/// and the dps disk holds at most the load cap's monsters; out, it follows its tour (planned
+/// again every `PLAN_PERIOD`, stops already tagged dropped; the tag itself fires from
+/// `lure_cast`) until N chase, its HP is under `BACK_HP` or no stop is left; back, it runs
+/// home, and on arrival the session's time and HP are recorded.
 fn lure_step(
     p: &mut Player,
     lure: &mut Lure,
@@ -588,34 +660,38 @@ fn lure_step(
     monsters: &[Monster],
     chasers: usize,
     load: usize,
-    dt: f32,
+    (now, dt): (f32, f32),
 ) {
+    let before = p.body.position;
     match lure.stage {
         LureStage::Centre => {
             hunt(&mut p.body, CENTRE, HOME, RUN_SPEED, dt);
             let quiet = settings.load_cap == 0 || load <= settings.load_cap;
-            if p.hp >= MAX_HP && quiet {
+            if p.hp >= LEAVE_HP * MAX_HP && quiet {
                 lure.stage = LureStage::Out;
                 lure.trips += 1;
+                lure.left_at = now;
+                lure.planned_at = f32::MIN;
             }
         }
         LureStage::Out => {
             let back = chasers >= settings.chasers || p.hp < BACK_HP * MAX_HP;
-            let next = (!back)
-                .then(|| next_to_tag(0, p.body.position, monsters))
-                .flatten();
-            match next {
-                Some(t) => {
-                    hunt(
-                        &mut p.body,
-                        monsters[t].body.position,
-                        RANGED_REACH,
-                        RUN_SPEED,
-                        dt,
-                    );
+            let at = p.body.position;
+            let stop = |id: &u32| monsters.iter().find(|m| m.id == *id);
+            lure.tour
+                .retain(|id| stop(id).is_some_and(|m| !m.threat.contains_key(&0)));
+            if !back && (lure.tour.is_empty() || now - lure.planned_at >= PLAN_PERIOD) {
+                let candidates = tour_candidates(0, at, monsters);
+                lure.tour = plan_tour(at, CENTRE, &candidates, settings.chasers);
+                lure.planned_at = now;
+            }
+            match lure.tour.first().and_then(stop) {
+                Some(m) if !back => {
+                    hunt(&mut p.body, m.body.position, RANGED_REACH, RUN_SPEED, dt);
                 }
-                None => {
+                _ => {
                     lure.stage = LureStage::Back;
+                    lure.tour.clear();
                     hunt(&mut p.body, CENTRE, HOME, RUN_SPEED, dt);
                 }
             }
@@ -623,9 +699,18 @@ fn lure_step(
         LureStage::Back => {
             if hunt(&mut p.body, CENTRE, HOME, RUN_SPEED, dt) == Gait::Standing {
                 lure.stage = LureStage::Centre;
+                lure.sessions += 1;
+                lure.session_time += now - lure.left_at;
+                lure.hp_back_total += p.hp;
+                lure.hp_back_min = if lure.sessions == 1 {
+                    p.hp
+                } else {
+                    lure.hp_back_min.min(p.hp)
+                };
             }
         }
     }
+    lure.walked += (p.body.position - before).length();
 }
 
 /// The monsters within `radius` of `at`, nearest first, at most `AOE_TARGETS`.
@@ -769,6 +854,7 @@ impl Default for TrainingField {
             wanted: DEFAULT_MONSTERS,
             respawns: Vec::new(),
             kills: 0,
+            next_id: 0,
             deaths: 0,
             lure: Lure::default(),
             settings: Settings::default(),
@@ -849,16 +935,9 @@ impl TrainingField {
                 tags.extend(hit.into_iter().map(|t| (i, t)));
             }
             if p.role == Role::Lurer {
-                let settings = &self.settings;
-                lure_step(
-                    p,
-                    &mut self.lure,
-                    settings,
-                    &self.monsters,
-                    chasers,
-                    load,
-                    dt,
-                );
+                let (settings, now) = (&self.settings, self.time);
+                let lure = &mut self.lure;
+                lure_step(p, lure, settings, &self.monsters, chasers, load, (now, dt));
                 continue;
             }
             let Some(t) = p.target else {
@@ -1045,7 +1124,9 @@ impl TrainingField {
         while self.monsters.len() + self.respawns.len() < self.wanted {
             let at = self.spawn_point();
             let rarity = draw_rarity(&mut self.rng);
+            self.next_id += 1;
             let mut monster = Monster {
+                id: self.next_id,
                 rarity,
                 max_hp: MAX_HP,
                 gait: Gait::Standing,
@@ -1191,6 +1272,28 @@ impl TrainingField {
             ),
             color::LABEL,
         ));
+        labels.push(label(
+            corner(0.0, h + 11.0),
+            format!(
+                "sessions: {} done, {:.1} s each, back with {:.0} HP (lowest {:.0}), {:.0} walked per delivered",
+                lure.sessions,
+                lure.mean_session(),
+                lure.mean_hp_back(),
+                if lure.sessions > 0 { lure.hp_back_min } else { 0.0 },
+                lure.walked / lure.delivered.max(1) as f32
+            ),
+            color::LABEL,
+        ));
+        if lure.stage == LureStage::Out {
+            let mut from = self.team[0].body.position;
+            for id in &lure.tour {
+                if let Some(m) = self.monsters.iter().find(|m| m.id == *id) {
+                    lines.push(line(from, m.body.position, color::PATH));
+                    from = m.body.position;
+                }
+            }
+            lines.push(line(from, CENTRE, color::PATH));
+        }
         let body = |p: &Player| match p.role {
             _ if p.is_dead() => color::BODY,
             Role::Lurer => LURER_BODY,
@@ -1239,6 +1342,10 @@ impl TrainingField {
                 (
                     color::SIGHT,
                     "line of sight 35: a chasing monster keeps its target inside it",
+                ),
+                (
+                    color::PATH,
+                    "the lurer's planned tour: its stops, then home",
                 ),
                 (color::TARGET, "chase: the player a monster closes on"),
                 (color::BODY, "a dead player, back at the centre in 5 s"),
@@ -1743,7 +1850,7 @@ mod tests {
         field.update(1.0 / 60.0);
         assert_eq!(field.lure.trips, 1);
         // At 85 HP (under the buff threshold) it waits for the HP buff (+4) and regeneration
-        // (+1) to fill it: 3 s.
+        // (+1) to bring it to 90: 1 s.
         let mut field = quiet_field();
         field.team[0].hp = 85.0;
         let mut left_at = None;
@@ -1753,7 +1860,7 @@ mod tests {
                 left_at = Some(step);
             }
         }
-        assert!(matches!(left_at, Some(170..=190)), "{left_at:?}");
+        assert!(matches!(left_at, Some(55..=65)), "{left_at:?}");
         // With four monsters parked in the dps disk the lurer stays; with the cap off, not.
         let parked = || {
             let mut field = quiet_field();
@@ -1812,6 +1919,78 @@ mod tests {
     }
 
     #[test]
+    fn the_planner_finds_the_shortest_tour_through_n_stops_and_home() {
+        let (a, b, c) = (
+            Vec2::new(10.0, 0.0),
+            Vec2::new(10.0, 2.0),
+            Vec2::new(-10.0, 0.0),
+        );
+        let stops = [(1, a), (2, b), (3, c)];
+        // Two stops: the pair on the right (22.2) beats any pair with the left one (40+).
+        let tour = plan_tour(Vec2::ZERO, Vec2::ZERO, &stops, 2);
+        let mut set = tour.clone();
+        set.sort();
+        assert_eq!(set, [1, 2]);
+        // Three: right pair first, then across (42.1), not the left one first (42.2).
+        assert_eq!(plan_tour(Vec2::ZERO, Vec2::ZERO, &stops, 3)[2], 3);
+        // More asked than there are: all of them; none: empty.
+        assert_eq!(plan_tour(Vec2::ZERO, Vec2::ZERO, &stops, 5).len(), 3);
+        assert!(plan_tour(Vec2::ZERO, Vec2::ZERO, &[], 3).is_empty());
+    }
+
+    #[test]
+    fn the_lurer_follows_its_tour_and_records_the_session() {
+        // Three monsters in a row to the right, two far off elsewhere: the tour is the row,
+        // nearest first, and the lurer sets off along it.
+        let mut field = quiet_field();
+        let spots = [
+            (20.0, 0.0),
+            (24.0, 0.0),
+            (28.0, 0.0),
+            (-40.0, 10.0),
+            (0.0, -45.0),
+        ];
+        for (m, &(x, y)) in field.monsters.iter_mut().zip(&spots) {
+            m.body = standing(Vec2::new(x, y));
+            m.spawn = m.body.position;
+        }
+        let ids: Vec<u32> = field.monsters().iter().map(|m| m.id).collect();
+        // The first step leaves the centre, the second plans.
+        field.update(1.0 / 60.0);
+        field.update(1.0 / 60.0);
+        assert_eq!(field.lure.stage, LureStage::Out);
+        assert_eq!(field.lure.tour, ids[..3]);
+        // A second on: heading right along the tour (the low-speed rule bends the first
+        // steps toward the starting heading), the tour unchanged by the re-plan.
+        for _ in 0..60 {
+            field.update(1.0 / 60.0);
+        }
+        assert!(field.team()[0].body.forward.x > 0.9);
+        assert_eq!(field.lure.tour, ids[..3]);
+        let tour_lines = (field.view().lines.iter())
+            .filter(|l| l.color == color::PATH)
+            .count();
+        assert_eq!(tour_lines, 4);
+        // It tags the row (the pierce takes all three at once, within 12), turns back and
+        // is home: one session recorded, with its time and the HP it came back with.
+        for _ in 0..60 * 30 {
+            field.update(1.0 / 60.0);
+            if field.lure.sessions > 0 {
+                break;
+            }
+        }
+        let l = &field.lure;
+        assert_eq!(l.sessions, 1);
+        assert!(
+            l.mean_session() > 3.0 && l.mean_session() < 20.0,
+            "{}",
+            l.mean_session()
+        );
+        assert!(l.mean_hp_back() > 0.0 && l.hp_back_min == l.mean_hp_back());
+        assert!(l.walked > 20.0, "{}", l.walked);
+    }
+
+    #[test]
     fn the_lurer_turns_back_with_n_chasers_or_low_hp_or_nothing_left() {
         // Out, an untagged monster 30 away to go for, and N (3) monsters hurt by the lurer in
         // sight: once they chase (after the first step), the next step turns back.
@@ -1866,11 +2045,21 @@ mod tests {
         // mix: 4 trips, 12 delivered, 1 lost, 12 kills, 1 death, 50% inside (a death keeps
         // it at the centre 5 s, and a loaded disk keeps it waiting). With monsters at 6 and
         // the leave at full HP: 4 trips, 13 delivered, 1 lost, 10 kills, no deaths, 56%.
+        // With the tour planner and the leave at 90%: 5 trips, 9 delivered, 3 lost, 11 kills,
+        // 1 death, 47%; 4 sessions of 16.5 s, back with 96 HP (lowest 93), 37 walked per
+        // delivered (the baseline for the AoE-aware planner).
         assert_eq!(stages.len(), 3);
         assert!(l.trips >= 3, "{}", l.trips);
         assert!(l.delivered >= 6, "{}", l.delivered);
         assert!(l.lost <= l.delivered / 2, "{} lost", l.lost);
         assert!(l.share_in_disk() < 0.65, "{}", l.share_in_disk());
+        assert!(l.sessions >= 3, "{}", l.sessions);
+        assert!(
+            l.mean_session() > 5.0 && l.mean_session() < 40.0,
+            "{}",
+            l.mean_session()
+        );
+        assert!(l.mean_hp_back() > 60.0, "{}", l.mean_hp_back());
         assert!(
             field.kills >= 8 && field.deaths <= 2,
             "{} {}",
