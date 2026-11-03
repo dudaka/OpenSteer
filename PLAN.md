@@ -27,14 +27,19 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
   confirmed in the browser.
 - Rhythm: one behavior at a time, held until the user understands it, and ask before each PR;
   batches (no holding, merge on green CI) only when the user asks for one.
-- Next (the user, 2026-11-03):
-  1. The user observes the Training Field in a fresh session (restart `scripts/dev.sh`, reload,
-     the last 2D demo). Worth watching: the two lurers' routes and tours, scouting on an empty
-     side, B waiting for A, the guard rings and the party HP line, whether anyone dies at the
-     defaults (15 monsters, N 3, load cap 3, strong cap 1), how long the lurers sit at the centre.
-  2. Random obstacles of varying shape and size inside the luring disk: design notes in Phase 8,
-     "Next step: obstacles". Then the Phase 8 Gaps worth tuning (the lurers' MP, lurer A's share,
-     the caps), each on its own small branch and PR now that the environment has a baseline.
+- The Training Field was observed in a fresh session 2026-11-03 (Findings, "Observed in the
+  browser"): no deaths, but the lurers stand at the centre two thirds of the time behind the
+  strong cap, every "lost" was a packmate splashed at the disk's edge, and lurer B's status line
+  was off the canvas. Agreed order from there (the user, 2026-11-03), one small branch and PR
+  each:
+  1. [done, this branch] The status lines inside the map's square.
+  2. "Lost" counts a monster delivered when a dps's damage takes it over within the disk plus
+     the blast's 2.
+  3. Strong cap default 1 -> 2, re-pinned, as the baseline for the obstacles' cost.
+  4. Obstacles in the luring disk, circles first: design in Phase 8, "Next step: obstacles"
+     (settled numbers there). Then rectangles; the planner's detour cost only if the gap is
+     large; no line-of-sight occlusion (Silkroad has none).
+  5. The other Phase 8 Gaps worth tuning (the lurers' MP, lurer A's share, the load cap).
   The 3D options offered 2026-10-21 stay for later:
   1. Stop bodies scraping walls: add the containment side probes (the design of steps 23 and 37) to the
      Silkroad walker, so walls it runs along or corners it rounds push it off (Findings: 299 of
@@ -42,7 +47,7 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
   2. Draw building floors (object navmesh cells) so the plaza walker does not float over pits.
   3. One-way ledges: drop off, never climb (now walls both ways; sro-polyanya keeps a blocked side).
   4. Other ground demos on the terrain (Pedestrians, Capture the Flag) with the same `World`.
-- Tests: 314 Rust tests (13 in `silkroad-navmesh`, + 3 ignored full-data ones; 40 in
+- Tests: 315 Rust tests (13 in `silkroad-navmesh`, + 3 ignored full-data ones; 41 in
   `training_field`), 21 C++ oracles.
   Tests needing the game data skip without it (CI has none); with it, the Silkroad demo's tests
   take ~14 s in debug. 2D: `oracle_one_turning`, `oracle_seek_flee`,
@@ -313,7 +318,7 @@ user called the milestone (2026-11-03).
 
 ### As built (after #46)
 
-One module, `crates/steer-demos/src/training_field.rs` (the 40 tests in the same file), demo
+One module, `crates/steer-demos/src/training_field.rs` (the 41 tests in the same file), demo
 id `training-field`, the last 2D demo. Units: 1 = 1 m; Silkroad's disks of 20 and 60 are 10
 and 50 here. Numbers are constants at the top of the module and `Settings` sliders.
 
@@ -365,7 +370,7 @@ and 50 here. Numbers are constants at the top of the module and `Settings` slide
   polyline; attack lines and blasts; buff and guard rings; rarity labels; three status lines
   (the team; lurer A; lurer B); the legend behind a button. Sliders: monsters, N, monster
   speed, bite damage, bite reach, load cap, strong cap; buttons: plan casts / plan stops.
-- Tests (40): hand-computed cases per piece, the pinned two-minute run (seed 1, 7,200 steps,
+- Tests (41): hand-computed cases per piece, the pinned two-minute run (seed 1, 7,200 steps,
   `trips_deliver_monsters_to_the_dps_disk`, its history in the comment), one mutation per step
   that failed. Helpers: `quiet_field` (five normal monsters in a far corner, outside the map),
   `field_with_a_monster_at`, `risky_field` (a giant and a normal 20 out on A's side),
@@ -907,6 +912,17 @@ trips/delivered/lost):
   "heads toward" tests check after a second, not after two steps.
 - **A mutation can pass by moving its own expectation**: the guard test compared against
   `GUARD_FACTOR`, the constant mutated; expectations must be literals.
+- **Observed in the browser 2026-11-03** (the seeded default run, the same as the pinned test's
+  and at real time; a 180 s timeline test confirmed every number). A leaves at once and runs
+  36-40 m west for 20 s trips (5 delivered in two trips); B leaves 4.3-5 s after A and runs
+  12-15 m east for 10-12 s trips (9 delivered in three). A giant and a party champion (2,000 HP
+  each) reach the disk at 50 s and die in one blast at 120.5 s; a party normal (1,000 HP) sits
+  there from 138 s on. With the strong cap at 1 (zero strong allowed) both lurers stand at the
+  centre meanwhile: A 118 s of 180, B 123 s. Party HP never fell under 90%, no deaths. All 8
+  "lost" events came within 0.1 s of a delivery: the dps blast splashes a pack's trailing
+  monsters just outside the disk, their threat switches, and they count as lost; no monster was
+  lost on the way. The status lines hung at y 63/67/71 while a landscape canvas shows 66: lurer
+  B's line was never visible (fixed: 51/55/59).
 
 ## Gaps and known issues
 
@@ -938,7 +954,8 @@ trips/delivered/lost):
   history; re-pin and say so); a test placing monsters must set their rarity to normal and
   freeze their gait when a position matters, and must track monsters by id across steps (a kill
   removes an entry); `trips` counts leaves and `sessions` returns; the party window's HP bars
-  are assumed.
+  are assumed; the status lines are about 170 characters at 12 px, so they run off the right
+  edge of a canvas narrower than about 1,250 px; labels pile up over the dps disk.
 
 ## Learning aids
 
