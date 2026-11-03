@@ -377,6 +377,17 @@ Steps:
   guard. Measured and pinned: the dps spend 42-49% of the time inside the buffers' disk, the
   buffers all of it, the lurer 5%; speeds now average 4.3 (lurer), 2.7 (dps), 1.5 (buffers),
   never below 0.76 (a runner slows to turn back). Mutation (spots never redrawn) fails.
+  Then (the user changed their mind: no sight fan): every entity carries two disks on its own
+  position, `RANGED_REACH` 8 (big: a player's attack, a monster's alarm) and `MELEE_REACH` 2
+  (small: a monster's attack), drawn in `color::RANGED` / `color::MELEE`; players are ranged;
+  a monster with a player inside its big disk closes on the nearest one (`player_in_reach`,
+  `hunt`: a run by `seek` while outside melee reach, a stop inside it; `Monster::target`, a
+  `color::TARGET` line to it), else idles as before (back from a chase the spot leads home, the
+  containment guard only inside the idle disk). Tests: from 7 away the hunt ends standing at
+  the small disk's edge (gap within 0.1 of 2); the nearest player in reach is picked, none
+  beyond 8; chases happen in the first minute and only from inside the big disk; in two minutes
+  24 of 30 monsters never chased and those kept their gait shares and idle radius. Mutation (a
+  stop at ranged reach) fails the hunt test.
 - F2. HP, MP, skills, the hit rule, deaths and respawns; monsters' threat table and aggro
   (hit, on sight), pursuit, bite, leash. Hand-computed tests.
 - F3. The dps role. Verify: never outside 10 (plus the body), kills happen.

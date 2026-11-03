@@ -35,8 +35,10 @@ pub mod color {
     pub const BODY: u32 = 0x808080;
     /// The game world's terrain (Silkroad demos).
     pub const GROUND: u32 = 0x6f7d5c;
-    /// A sight ray: what an entity sees ahead (Training Field).
-    pub const SIGHT: u32 = 0x9a8fc4;
+    /// An entity's ranged reach (Training Field).
+    pub const RANGED: u32 = 0xe0b04f;
+    /// An entity's melee reach (Training Field).
+    pub const MELEE: u32 = 0xc77dff;
 }
 
 pub fn legend(entries: &[(u32, &str)]) -> Vec<LegendView> {

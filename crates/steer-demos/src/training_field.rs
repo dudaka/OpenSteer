@@ -3,8 +3,10 @@
 //! and an MP buffer (5) and our lurer (50); monsters spawn at random over a rectangular map.
 //! Built so far (PLAN.md, Phase 8): the map, the disks, the spawns, and bodies at human speeds,
 //! each roaming its own disk from one random spot to the next: the players always run, a
-//! monster stands, walks or runs for a few seconds at a time. Every entity looks ahead through a fan of rays (`sight`), each
-//! cut at the first body it meets. Roles, combat and the lurer's trips come in later steps.
+//! monster stands, walks or runs for a few seconds at a time. Every entity carries two disks
+//! on its own position: a big one, its ranged reach, and a small one, its melee reach. Players
+//! are ranged; a monster is melee, and chases the nearest player inside its big disk until that
+//! player is inside its small disk. Combat and the lurer's trips come in later steps.
 
 use std::f32::consts::TAU;
 
@@ -38,10 +40,10 @@ pub const WALK_SPEED: f32 = 1.5;
 pub const RUN_SPEED: f32 = 5.0;
 /// Pedestrians' max force.
 const MAX_FORCE: f32 = 8.0;
-/// Sight: a fan of `FAN_RAYS` rays spread over `FAN_ANGLE` ahead, each `SIGHT_RANGE` long.
-pub const SIGHT_RANGE: f32 = 12.0;
-pub const FAN_RAYS: usize = 7;
-pub const FAN_ANGLE: f32 = TAU / 4.0;
+/// Every entity's two reaches, centre to centre: ranged (the big disk; a player's attack, a
+/// monster's alarm) and melee (the small disk; a monster's attack).
+pub const RANGED_REACH: f32 = 8.0;
+pub const MELEE_REACH: f32 = 2.0;
 /// Containment's look-ahead: the probe is `BODY_RADIUS + LOOK_AHEAD * speed` ahead.
 const LOOK_AHEAD: f32 = 1.0;
 /// A roaming body counts its spot as reached this close to it and draws the next.
@@ -133,6 +135,8 @@ pub struct Monster {
     pub spawn: Vec2,
     /// The spot it is going to inside its idle disk.
     spot: Vec2,
+    /// The player (an index into the team) inside its big disk that it is closing on.
+    pub target: Option<usize>,
 }
 
 #[derive(Debug, Clone)]
@@ -160,46 +164,6 @@ fn standing(position: Vec2) -> Vehicle {
 /// A point `r` from `centre` at `angle` (radians).
 fn around(centre: Vec2, r: f32, angle: f32) -> Vec2 {
     centre + Vec2::new(angle.cos(), angle.sin()) * r
-}
-
-/// One ray of a fan: from the eye to the first body it meets, or to the end of its range.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Ray {
-    pub from: Vec2,
-    pub to: Vec2,
-    /// The entity hit, as an index over the team then the monsters.
-    pub hit: Option<usize>,
-}
-
-/// The fan's unit directions: `FAN_RAYS` over `FAN_ANGLE`, centred on `forward`.
-pub fn fan(forward: Vec2) -> [Vec2; FAN_RAYS] {
-    std::array::from_fn(|i| {
-        let angle = FAN_ANGLE * (i as f32 / (FAN_RAYS - 1) as f32 - 0.5);
-        let (sin, cos) = angle.sin_cos();
-        Vec2::new(
-            forward.x * cos - forward.y * sin,
-            forward.x * sin + forward.y * cos,
-        )
-    })
-}
-
-/// How far along a ray from `from` in unit direction `dir` the circle (`centre`, `radius`)
-/// is first entered, if within `range`: the near root of the ray-circle intersection.
-pub fn ray_enters_circle(
-    from: Vec2,
-    dir: Vec2,
-    range: f32,
-    centre: Vec2,
-    radius: f32,
-) -> Option<f32> {
-    let to_centre = centre - from;
-    let along = to_centre.dot(dir);
-    let off_squared = to_centre.length_squared() - along * along;
-    if off_squared > radius * radius {
-        return None;
-    }
-    let t = along - (radius * radius - off_squared).sqrt();
-    (0.0..=range).contains(&t).then_some(t)
 }
 
 /// A disk as a containment region: a 40-point counter-clockwise polygon.
@@ -235,7 +199,12 @@ fn roam(
     if (*spot - body.position).length() < SPOT_REACHED {
         *spot = random_spot(centre, room, rng);
     }
-    let push = contain(body, &disk(centre, room), LOOK_AHEAD);
+    // Outside the disk (a monster back from a chase) the spot leads home; no guard.
+    let push = if (body.position - centre).length() <= room {
+        contain(body, &disk(centre, room), LOOK_AHEAD)
+    } else {
+        Vec2::ZERO
+    };
     let force = if gait == Gait::Standing {
         Vec2::ZERO
     } else if push != Vec2::ZERO {
@@ -247,6 +216,31 @@ fn roam(
         steer::seek(body, *spot)
     };
     body.apply_steering_force(force, dt);
+}
+
+/// One step of a monster closing on `target`: a run toward it while it is outside melee reach,
+/// a stop (facing it) once inside.
+fn hunt(body: &mut Vehicle, target: Vec2, dt: f32) -> Gait {
+    let gait = if (target - body.position).length() > MELEE_REACH {
+        Gait::Running
+    } else {
+        Gait::Standing
+    };
+    body.max_speed = gait.speed();
+    let force = match gait {
+        Gait::Running => steer::seek(body, target),
+        _ => Vec2::ZERO,
+    };
+    body.apply_steering_force(force, dt);
+    gait
+}
+
+/// The nearest of `players` within `RANGED_REACH` of `at`, and its distance.
+fn player_in_reach(at: Vec2, players: &[Vec2]) -> Option<(usize, f32)> {
+    (players.iter().enumerate())
+        .map(|(i, &p)| (i, (p - at).length()))
+        .filter(|&(_, d)| d <= RANGED_REACH)
+        .min_by(|a, b| a.1.total_cmp(&b.1))
 }
 
 impl Default for TrainingField {
@@ -288,35 +282,10 @@ impl TrainingField {
         &self.monsters
     }
 
-    /// Every body, the team first, then the monsters: the index space of `Ray::hit`.
-    fn bodies(&self) -> impl Iterator<Item = &Vehicle> {
-        (self.team.iter().map(|p| &p.body)).chain(self.monsters.iter().map(|m| &m.body))
-    }
-
-    /// What entity `eye` (an index over `bodies`) sees: its fan of rays, each cut at the
-    /// nearest other body it enters.
-    pub fn sight(&self, eye: usize) -> [Ray; FAN_RAYS] {
-        let me = self.bodies().nth(eye).expect("an entity");
-        fan(me.forward).map(|dir| {
-            let nearest = (self.bodies().enumerate())
-                .filter(|&(i, _)| i != eye)
-                .filter_map(|(i, b)| {
-                    ray_enters_circle(me.position, dir, SIGHT_RANGE, b.position, b.radius)
-                        .map(|t| (i, t))
-                })
-                .min_by(|a, b| a.1.total_cmp(&b.1));
-            let (hit, reach) = nearest.map_or((None, SIGHT_RANGE), |(i, t)| (Some(i), t));
-            Ray {
-                from: me.position,
-                to: me.position + dir * reach,
-                hit,
-            }
-        })
-    }
-
     /// Spawns the missing monsters, then moves every body: a player runs inside its role's
-    /// disk, a monster keeps inside `IDLE_RADIUS` of its spawn at the gait it drew for the
-    /// next `GAIT_MIN_S`-`GAIT_MAX_S` seconds, each with its whole body inside.
+    /// disk; a monster with a player inside its big disk closes on the nearest one (`hunt`),
+    /// otherwise keeps inside `IDLE_RADIUS` of its spawn at the gait it drew for the next
+    /// `GAIT_MIN_S`-`GAIT_MAX_S` seconds, each with its whole body inside.
     pub fn update(&mut self, dt: f32) {
         self.time += dt;
         self.spawn_missing();
@@ -325,7 +294,15 @@ impl TrainingField {
             let r = p.role.radius();
             roam(&mut p.body, Gait::Running, &mut p.spot, CENTRE, r, dt, rng);
         }
+        let players: Vec<Vec2> = self.team.iter().map(|p| p.body.position).collect();
         for m in &mut self.monsters {
+            m.target = player_in_reach(m.body.position, &players).map(|(i, _)| i);
+            if let Some(i) = m.target {
+                m.gait = hunt(&mut m.body, players[i], dt);
+                // A fresh gait draw as soon as the chase ends.
+                m.until = self.time;
+                continue;
+            }
             if self.time >= m.until {
                 m.gait = Gait::ALL[rng.usize(..Gait::ALL.len())];
                 m.until = self.time + GAIT_MIN_S + (GAIT_MAX_S - GAIT_MIN_S) * rng.f32();
@@ -360,6 +337,7 @@ impl TrainingField {
                 body: standing(at),
                 spawn: at,
                 spot: at,
+                target: None,
             });
         }
     }
@@ -392,12 +370,21 @@ impl TrainingField {
             .windows(2)
             .map(|c| line(c[0], c[1], color::EDGE))
             .collect();
-        let count = self.team.len() + self.monsters.len();
-        lines.extend(
-            (0..count)
-                .flat_map(|eye| self.sight(eye))
-                .map(|ray| line(ray.from, ray.to, color::SIGHT)),
-        );
+        let bodies =
+            (self.team.iter().map(|p| &p.body)).chain(self.monsters.iter().map(|m| &m.body));
+        for b in bodies {
+            lines.extend(circle(b.position, RANGED_REACH, color::RANGED));
+            lines.extend(circle(b.position, MELEE_REACH, color::MELEE));
+        }
+        for m in &self.monsters {
+            if let Some(i) = m.target {
+                lines.push(line(
+                    m.body.position,
+                    self.team[i].body.position,
+                    color::TARGET,
+                ));
+            }
+        }
         let mut labels = Vec::new();
         for (r, text) in [
             (BUFF_RADIUS, "buffers 5"),
@@ -413,9 +400,14 @@ impl TrainingField {
                 format!("{n} {}", g.name())
             })
             .collect();
+        let chasing = self.monsters.iter().filter(|m| m.target.is_some()).count();
         labels.push(label(
             corner(0.0, h + 3.0),
-            format!("{} monsters: {}", self.monsters.len(), gaits.join(", ")),
+            format!(
+                "{} monsters: {}; {chasing} chasing",
+                self.monsters.len(),
+                gaits.join(", ")
+            ),
             color::LABEL,
         ));
         let body = |p: &Player| match p.role {
@@ -450,9 +442,11 @@ impl TrainingField {
                 ),
                 (color::EDGE, "map edge: monsters spawn inside"),
                 (
-                    color::SIGHT,
-                    "sight: 7 rays over 90 degrees ahead, 12 long, cut at the first body",
+                    color::RANGED,
+                    "ranged reach 8 round each entity: a player's attack, a monster's alarm",
                 ),
+                (color::MELEE, "melee reach 2: a monster's attack"),
+                (color::TARGET, "chase: the player a monster closes on"),
             ]),
             actions: Vec::new(),
             params: vec![slider("monsters", "Monsters", MONSTERS, self.wanted as f32)],
@@ -509,74 +503,47 @@ mod tests {
     }
 
     #[test]
-    fn a_ray_enters_a_circle_at_its_near_side() {
-        let (from, up) = (Vec2::ZERO, Vec2::new(0.0, 1.0));
-        // A body of radius 1 centred 5 ahead is entered at 4.
-        assert_eq!(
-            ray_enters_circle(from, up, 12.0, Vec2::new(0.0, 5.0), 1.0),
-            Some(4.0)
-        );
-        // Off to the side by 0.6 of radius 1: entered at 5 - 0.8.
-        let t = ray_enters_circle(from, up, 12.0, Vec2::new(0.6, 5.0), 1.0).unwrap();
-        assert!((t - 4.2).abs() < 1e-6, "{t}");
-        // Off by more than the radius, behind, or beyond the range: nothing.
-        assert_eq!(
-            ray_enters_circle(from, up, 12.0, Vec2::new(1.5, 5.0), 1.0),
-            None
-        );
-        assert_eq!(
-            ray_enters_circle(from, up, 12.0, Vec2::new(0.0, -5.0), 1.0),
-            None
-        );
-        assert_eq!(
-            ray_enters_circle(from, up, 12.0, Vec2::new(0.0, 14.0), 1.0),
-            None
-        );
-    }
-
-    #[test]
-    fn the_fan_spans_the_angle_symmetrically() {
-        let rays = fan(Vec2::new(0.0, 1.0));
-        assert_eq!(rays.len(), FAN_RAYS);
-        for (i, r) in rays.iter().enumerate() {
-            assert!((r.length() - 1.0).abs() < 1e-6);
-            let mirrored = rays[FAN_RAYS - 1 - i];
-            assert!((r.x + mirrored.x).abs() < 1e-6 && (r.y - mirrored.y).abs() < 1e-6);
+    fn a_monster_closes_on_its_target_and_stops_at_melee_reach() {
+        // 7 away, within the big disk: a run that ends at the small disk's edge.
+        let mut body = standing(Vec2::ZERO);
+        let target = Vec2::new(0.0, -7.0);
+        let mut gaits = Vec::new();
+        for _ in 0..180 {
+            gaits.push(hunt(&mut body, target, 1.0 / 60.0));
         }
-        // The first ray is turned by -FAN_ANGLE / 2: for forward (0, 1) that is toward +x.
-        let half = (FAN_ANGLE / 2.0).sin();
-        assert!((rays[0].x - half).abs() < 1e-6, "{:?}", rays[0]);
-        assert!((rays[FAN_RAYS / 2].y - 1.0).abs() < 1e-6);
+        let gap = (target - body.position).length();
+        assert!(gap <= MELEE_REACH && gap > MELEE_REACH - 0.1, "{gap}");
+        assert_eq!(body.speed, 0.0);
+        assert_eq!(gaits[0], Gait::Running);
+        assert_eq!(gaits[179], Gait::Standing);
+        // Only players inside the big disk count, the nearest first.
+        let players = [
+            Vec2::new(0.0, -9.0),
+            Vec2::new(5.0, 0.0),
+            Vec2::new(-3.0, 0.0),
+        ];
+        assert_eq!(player_in_reach(Vec2::ZERO, &players), Some((2, 3.0)));
+        assert_eq!(player_in_reach(Vec2::new(0.0, 20.0), &players), None);
     }
 
     #[test]
-    fn sight_is_cut_at_the_nearest_body_and_never_at_itself() {
+    fn chases_happen_and_only_from_inside_the_big_disk() {
         let mut field = TrainingField::default();
-        // The lurer at the centre faces up the screen (-y); put a monster 6 ahead and one 9.
-        field.param("monsters", 5.0);
-        field.monsters[0].body.position = Vec2::new(0.0, -6.0);
-        field.monsters[1].body.position = Vec2::new(0.0, -9.0);
-        let rays = field.sight(0);
-        let middle = rays[FAN_RAYS / 2];
-        assert_eq!(middle.hit, Some(6));
-        assert_eq!(middle.to, Vec2::new(0.0, -5.0));
-        for _ in 0..600 {
+        let mut chase_steps = 0;
+        for _ in 0..60 * 60 {
             field.update(1.0 / 60.0);
-        }
-        let count = field.team().len() + field.monsters().len();
-        for eye in 0..count {
-            for ray in field.sight(eye) {
-                assert_ne!(ray.hit, Some(eye));
-                assert!((ray.to - ray.from).length() <= SIGHT_RANGE + 1e-4);
+            for m in field.monsters() {
+                if let Some(i) = m.target {
+                    chase_steps += 1;
+                    let d = (field.team()[i].body.position - m.body.position).length();
+                    // Chosen inside the big disk at the start of the step; both moved since.
+                    assert!(d <= RANGED_REACH + 2.0 * RUN_SPEED / 60.0, "{d}");
+                    assert!(m.gait != Gait::Walking);
+                }
             }
         }
-        let drawn = field
-            .view()
-            .lines
-            .iter()
-            .filter(|l| l.color == color::SIGHT)
-            .count();
-        assert_eq!(drawn, count * FAN_RAYS);
+        assert!(chase_steps > 60, "{chase_steps}");
+        assert!(field.view().lines.iter().any(|l| l.color == color::TARGET));
     }
 
     #[test]
@@ -677,17 +644,23 @@ mod tests {
     }
 
     /// A monster keeps each gait 2-6 s: over two minutes every monster has stood, walked and
-    /// run, each gait about a third of the time, never faster than its gait, never further
-    /// than its idle radius from the spawn.
+    /// run, each gait about a third of the time, never faster than its gait, and one that never
+    /// chased never further than its idle radius from the spawn.
     #[test]
     fn monsters_change_gait_and_keep_near_their_spawn() {
         let mut field = TrainingField::default();
         let mut steps_in = [0usize; 3];
         let mut visited = [[false; 3]; DEFAULT_MONSTERS];
-        let mut out = 0.0f32;
+        let mut chased = [false; DEFAULT_MONSTERS];
+        let mut out = [0.0f32; DEFAULT_MONSTERS];
         for _ in 0..120 * 60 {
             field.update(1.0 / 60.0);
             for (i, m) in field.monsters().iter().enumerate() {
+                chased[i] |= m.target.is_some();
+                out[i] = out[i].max((m.body.position - m.spawn).length());
+                if chased[i] {
+                    continue;
+                }
                 let g = Gait::ALL.iter().position(|&g| g == m.gait).unwrap();
                 steps_in[g] += 1;
                 visited[i][g] = true;
@@ -697,13 +670,20 @@ mod tests {
                     m.gait,
                     m.body.speed
                 );
-                out = out.max((m.body.position - m.spawn).length());
             }
         }
         let total = steps_in.iter().sum::<usize>() as f32;
         let shares = steps_in.map(|n| n as f32 / total);
         assert!(shares.iter().all(|&s| s > 0.25 && s < 0.42), "{shares:?}");
-        assert!(visited.iter().all(|v| v.iter().all(|&b| b)));
-        assert!(out <= IDLE_RADIUS - BODY_RADIUS, "{out}");
+        let quiet: Vec<usize> = (0..DEFAULT_MONSTERS).filter(|&i| !chased[i]).collect();
+        assert!(quiet.len() >= 5, "{}", quiet.len());
+        for &i in &quiet {
+            assert!(visited[i].iter().all(|&b| b), "monster {i}");
+            assert!(
+                out[i] <= IDLE_RADIUS - BODY_RADIUS,
+                "monster {i}: {}",
+                out[i]
+            );
+        }
     }
 }
