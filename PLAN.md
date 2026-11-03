@@ -51,8 +51,9 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
   8. [done, this branch] The pull rule (a monster chasing a player or inside the dps disk is
      never pulled) and the backlog cap off by default: the cap tables (Findings) show no cap
      buying safety at 15 or 30 monsters and every cap costing kills; the slider stays.
-  9. Next: a main page listing every demo, each opening its page with the controls on the
-     left (the user, 2026-11-03); then the Gaps of item 5.
+  9. [done, this branch] A main page listing every demo as a card (2D, then 3D), each
+     opening its page at `#/demo/<id>` with the controls in a panel on the left (the user,
+     2026-11-03). Next: the Gaps of item 5.
   The 3D options offered 2026-10-21 stay for later:
   1. Stop bodies scraping walls: add the containment side probes (the design of steps 23 and 37) to the
      Silkroad walker, so walls it runs along or corners it rounds push it off (Findings: 299 of
@@ -70,7 +71,7 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
   `steer-core-3d`): `oracle_vehicle_3d`, `oracle_seek_flee_3d`, `oracle_wander_3d`,
   `oracle_pursuit_3d`, `oracle_obstacles_3d`, `oracle_path_following_3d`, `oracle_boids_3d`,
   `oracle_neighbors_3d`, `oracle_rectangle_3d`.
-- Sidebar: 15 2D demos (the last is "Training Field"), then 15 3D demos (ids `3d-...`; the last is "3D Seek on Silkroad").
+- Main page (`#/`): 15 2D demos (the last is "Training Field"), then 15 3D demos (ids `3d-...`; the last is "3D Seek on Silkroad"), each a card opening `#/demo/<id>`.
 
 ## Setup, mirrored from `~/Workspace/silkroad/caravan`
 
@@ -780,8 +781,13 @@ Steps:
 
 ## Each demo page
 
-three.js view, play/pause/step/reset, parameter sliders, toggles for each annotation. Demos are listed
-in a sidebar, mirroring OpenSteerDemo's plug-in selection.
+three.js view, play/pause/step/reset, parameter sliders, toggles for each annotation. The main page
+(`#/`, `Home.tsx`) lists every demo as a card, 2D then 3D, the host's current one outlined; a card opens
+the demo's page (`#/demo/<id>`, `DemoPage.tsx`): a panel on the left with the way back, the name,
+the connection status, play/pause/step/reset, the demo's buttons and sliders, and links to the
+neighbouring demos; the scene on the right. Opening a page selects the demo on the host once
+connected, and the scene is drawn only once the host's frames are that demo's. Routing is the URL
+hash (`route.ts`, no router dependency), so a page reload and the back button keep the demo.
 
 - [done] Play/pause/step/reset: calls `sim.play|pause|step|reset`; frames carry `running`. Step = pause + one 1/60 s step, as OpenSteerDemo. A paused sim sends no frames.
 - [done] Demo selection: sidebar -> `demo.select` (unknown id refused with an error), demo enum dispatch (2D `Demo`, 3D `Demo3`), frame carries the current `demo`.

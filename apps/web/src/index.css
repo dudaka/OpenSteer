@@ -23,6 +23,108 @@ main {
   height: calc(100vh - 32px);
 }
 
+/* The main page: a card per demo. */
+.home {
+  height: auto;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.home .lead {
+  margin: 0;
+  opacity: 0.8;
+}
+
+.home h2 {
+  margin: 16px 0 8px;
+  font-size: 1.1rem;
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.card {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid rgb(128 128 128 / 0.4);
+  border-radius: 10px;
+  color: inherit;
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.card:hover {
+  border-color: #f2b134;
+}
+
+.card[aria-current="true"] {
+  outline: 2px solid #f2b134;
+}
+
+.card-index {
+  font: 12px ui-monospace, monospace;
+  opacity: 0.6;
+  min-width: 1.5em;
+}
+
+/* A demo's page: the controls in a panel on the left, the scene on the right. */
+.demo-page {
+  flex-direction: row;
+}
+
+.panel {
+  width: 260px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+}
+
+.panel h1 {
+  margin: 0;
+  font-size: 1.3rem;
+}
+
+.panel p {
+  margin: 0;
+}
+
+.panel .controls {
+  flex-wrap: wrap;
+}
+
+.panel .param {
+  width: 100%;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  font-size: 0.9rem;
+}
+
+.panel .param input {
+  width: 100%;
+  margin: 0;
+}
+
+.neighbours {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: auto;
+  font-size: 0.9rem;
+}
+
+.waiting {
+  margin: auto;
+  opacity: 0.7;
+}
+
 header {
   display: flex;
   align-items: baseline;
@@ -61,17 +163,6 @@ button[aria-pressed="true"] {
   min-height: 0;
   display: flex;
   gap: 12px;
-}
-
-.demos {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  width: 180px;
-}
-
-.demos button {
-  text-align: left;
 }
 
 .stage {
