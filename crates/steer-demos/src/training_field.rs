@@ -110,14 +110,46 @@ const SPAWN_MIX: [(Rarity, u32); 6] = [
 /// times its rarity's damage multiplier.
 pub const BITE: f32 = 3.0;
 pub const BITE_COOLDOWN: f32 = 1.5;
-/// The lurer's strategy: leave the centre after `CENTRE_WAIT` with at most `LEAVE_LOAD`
-/// monsters in the dps disk; come back with `BACK_CHASERS` chasing, HP under `BACK_HP`, or
-/// no untagged monster left in the lurer's disk; home is within `HOME` of the centre.
-pub const CENTRE_WAIT: f32 = 2.0;
-pub const LEAVE_LOAD: usize = 3;
-pub const BACK_CHASERS: usize = 3;
+/// The lurer's strategy: leave the centre as soon as its HP is full (the user), with at most
+/// the load cap's monsters in the dps disk (0: no cap); come back with N (`Settings::chasers`)
+/// chasing, HP under `BACK_HP`, or no untagged monster left in the lurer's disk; home is
+/// within `HOME` of the centre.
 pub const BACK_HP: f32 = 0.4;
 pub const HOME: f32 = 1.0;
+/// The balance sliders and their defaults: N, the monsters' running speed (faster than the
+/// players' 5, as in the game), the bite's damage and reach, the load cap.
+const CHASERS: Range = Range::new(1.0, 10.0, 1.0);
+const MONSTER_SPEED: Range = Range::new(3.0, 8.0, 0.5);
+const BITE_RANGE: Range = Range::new(1.0, 10.0, 0.5);
+const BITE_REACH: Range = Range::new(1.0, 5.0, 0.5);
+const LOAD_CAP: Range = Range::new(0.0, 10.0, 1.0);
+pub const BACK_CHASERS: usize = 3;
+pub const DEFAULT_MONSTER_SPEED: f32 = 6.0;
+pub const DEFAULT_LOAD_CAP: usize = 3;
+
+/// The slider settings.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Settings {
+    /// N: the lurer turns back with this many chasers.
+    pub chasers: usize,
+    pub monster_speed: f32,
+    pub bite: f32,
+    pub bite_reach: f32,
+    /// The lurer stays while the dps disk holds more than this; 0 for no cap.
+    pub load_cap: usize,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Settings {
+            chasers: BACK_CHASERS,
+            monster_speed: DEFAULT_MONSTER_SPEED,
+            bite: BITE,
+            bite_reach: MELEE_REACH,
+            load_cap: DEFAULT_LOAD_CAP,
+        }
+    }
+}
 /// A dead player is back at the centre with full bars after this long; a dead monster's
 /// replacement spawns after this long.
 pub const PLAYER_RESPAWN: f32 = 5.0;
@@ -350,8 +382,6 @@ pub enum LureStage {
 #[derive(Debug, Clone, Default)]
 pub struct Lure {
     pub stage: LureStage,
-    /// When the lurer last reached the centre.
-    pub centre_since: f32,
     pub trips: u32,
     /// Monsters that reached the dps disk while chasing the lurer.
     pub delivered: u32,
@@ -385,6 +415,7 @@ pub struct TrainingField {
     pub kills: u32,
     pub deaths: u32,
     pub lure: Lure,
+    pub settings: Settings,
     rng: fastrand::Rng,
     time: f32,
 }
@@ -457,14 +488,14 @@ fn random_spot(centre: Vec2, radius: f32, rng: &mut fastrand::Rng) -> Vec2 {
 fn roam(
     body: &mut Vehicle,
     gait: Gait,
+    run_speed: f32,
     spot: &mut Vec2,
-    centre: Vec2,
-    radius: f32,
+    (centre, radius): (Vec2, f32),
     dt: f32,
     rng: &mut fastrand::Rng,
 ) {
     let room = radius - BODY_RADIUS;
-    body.max_speed = gait.speed();
+    body.max_speed = speed_of(gait, run_speed);
     if (*spot - body.position).length() < SPOT_REACHED {
         *spot = random_spot(centre, room, rng);
     }
@@ -487,15 +518,24 @@ fn roam(
     body.apply_steering_force(force, dt);
 }
 
+/// A gait's speed with `run_speed` as the run (players run at `RUN_SPEED`, monsters at the
+/// slider's).
+fn speed_of(gait: Gait, run_speed: f32) -> f32 {
+    match gait {
+        Gait::Running => run_speed,
+        _ => gait.speed(),
+    }
+}
+
 /// One step of a body closing on `target`: a run toward it while it is further than `reach`,
 /// a stop (facing it) once inside.
-fn hunt(body: &mut Vehicle, target: Vec2, reach: f32, dt: f32) -> Gait {
+fn hunt(body: &mut Vehicle, target: Vec2, reach: f32, run_speed: f32, dt: f32) -> Gait {
     let gait = if (target - body.position).length() > reach {
         Gait::Running
     } else {
         Gait::Standing
     };
-    body.max_speed = gait.speed();
+    body.max_speed = speed_of(gait, run_speed);
     let force = match gait {
         Gait::Running => steer::seek(body, target),
         _ => Vec2::ZERO,
@@ -537,46 +577,52 @@ fn next_to_tag(lurer: usize, at: Vec2, monsters: &[Monster]) -> Option<usize> {
         .map(|(i, _)| i)
 }
 
-/// One step of the lurer's trip. At the centre it stands until `CENTRE_WAIT` has passed and
-/// the dps disk holds at most `LEAVE_LOAD` monsters; out, it runs to the next monster to tag
-/// (the tag itself fires from `untagged_in_reach`) until `BACK_CHASERS` chase, its HP is
-/// under `BACK_HP` or none is left; back, it runs home and the stage is `Centre` on arrival.
+/// One step of the lurer's trip. At the centre it stands until its HP is full and the dps
+/// disk holds at most the load cap's monsters; out, it runs to the next monster to tag (the
+/// tag itself fires from `lure_cast`) until N chase, its HP is under `BACK_HP` or none is
+/// left; back, it runs home and the stage is `Centre` on arrival.
 fn lure_step(
     p: &mut Player,
     lure: &mut Lure,
+    settings: &Settings,
     monsters: &[Monster],
     chasers: usize,
     load: usize,
-    now: f32,
     dt: f32,
 ) {
     match lure.stage {
         LureStage::Centre => {
-            hunt(&mut p.body, CENTRE, HOME, dt);
-            if now - lure.centre_since >= CENTRE_WAIT && load <= LEAVE_LOAD {
+            hunt(&mut p.body, CENTRE, HOME, RUN_SPEED, dt);
+            let quiet = settings.load_cap == 0 || load <= settings.load_cap;
+            if p.hp >= MAX_HP && quiet {
                 lure.stage = LureStage::Out;
                 lure.trips += 1;
             }
         }
         LureStage::Out => {
-            let back = chasers >= BACK_CHASERS || p.hp < BACK_HP * MAX_HP;
+            let back = chasers >= settings.chasers || p.hp < BACK_HP * MAX_HP;
             let next = (!back)
                 .then(|| next_to_tag(0, p.body.position, monsters))
                 .flatten();
             match next {
                 Some(t) => {
-                    hunt(&mut p.body, monsters[t].body.position, RANGED_REACH, dt);
+                    hunt(
+                        &mut p.body,
+                        monsters[t].body.position,
+                        RANGED_REACH,
+                        RUN_SPEED,
+                        dt,
+                    );
                 }
                 None => {
                     lure.stage = LureStage::Back;
-                    hunt(&mut p.body, CENTRE, HOME, dt);
+                    hunt(&mut p.body, CENTRE, HOME, RUN_SPEED, dt);
                 }
             }
         }
         LureStage::Back => {
-            if hunt(&mut p.body, CENTRE, HOME, dt) == Gait::Standing {
+            if hunt(&mut p.body, CENTRE, HOME, RUN_SPEED, dt) == Gait::Standing {
                 lure.stage = LureStage::Centre;
-                lure.centre_since = now;
             }
         }
     }
@@ -725,6 +771,7 @@ impl Default for TrainingField {
             kills: 0,
             deaths: 0,
             lure: Lure::default(),
+            settings: Settings::default(),
             rng: fastrand::Rng::with_seed(SEED),
             time: 0.0,
         };
@@ -802,17 +849,33 @@ impl TrainingField {
                 tags.extend(hit.into_iter().map(|t| (i, t)));
             }
             if p.role == Role::Lurer {
-                let t = self.time;
-                lure_step(p, &mut self.lure, &self.monsters, chasers, load, t, dt);
+                let settings = &self.settings;
+                lure_step(
+                    p,
+                    &mut self.lure,
+                    settings,
+                    &self.monsters,
+                    chasers,
+                    load,
+                    dt,
+                );
                 continue;
             }
             let Some(t) = p.target else {
                 let r = p.role.radius();
-                roam(&mut p.body, Gait::Running, &mut p.spot, CENTRE, r, dt, rng);
+                roam(
+                    &mut p.body,
+                    Gait::Running,
+                    RUN_SPEED,
+                    &mut p.spot,
+                    (CENTRE, r),
+                    dt,
+                    rng,
+                );
                 continue;
             };
             let at = self.monsters[t].body.position;
-            if hunt(&mut p.body, at, RANGED_REACH, dt) == Gait::Standing
+            if hunt(&mut p.body, at, RANGED_REACH, RUN_SPEED, dt) == Gait::Standing
                 && self.time >= p.skill_ready
                 && p.mp >= AOE_MP
             {
@@ -852,13 +915,14 @@ impl TrainingField {
                 .or(kept)
                 .or_else(|| player_in_reach(at, &living).map(|(i, _)| i));
             if let Some(i) = m.target {
-                m.gait = hunt(&mut m.body, players[i], MELEE_REACH, dt);
+                let (reach, speed) = (self.settings.bite_reach, self.settings.monster_speed);
+                m.gait = hunt(&mut m.body, players[i], reach, speed, dt);
                 // A fresh gait draw as soon as the chase ends.
                 m.until = self.time;
-                let in_reach = (players[i] - m.body.position).length() <= MELEE_REACH;
+                let in_reach = (players[i] - m.body.position).length() <= reach;
                 if in_reach && self.time >= m.bite_ready {
                     m.bite_ready = self.time + BITE_COOLDOWN;
-                    self.team[i].hp -= BITE * m.rarity.damage_multiplier();
+                    self.team[i].hp -= self.settings.bite * m.rarity.damage_multiplier();
                 }
                 continue;
             }
@@ -871,15 +935,9 @@ impl TrainingField {
                 m.gait = Gait::ALL[rng.usize(..Gait::ALL.len())];
                 m.until = self.time + GAIT_MIN_S + (GAIT_MAX_S - GAIT_MIN_S) * rng.f32();
             }
-            roam(
-                &mut m.body,
-                m.gait,
-                &mut m.spot,
-                m.spawn,
-                IDLE_RADIUS,
-                dt,
-                rng,
-            );
+            let speed = self.settings.monster_speed;
+            let disk = (m.spawn, IDLE_RADIUS);
+            roam(&mut m.body, m.gait, speed, &mut m.spot, disk, dt, rng);
         }
         self.count_deliveries();
     }
@@ -908,10 +966,19 @@ impl TrainingField {
     }
 
     pub fn param(&mut self, id: &str, value: f32) {
-        if id == "monsters" {
-            self.wanted = MONSTERS.clamp(value) as usize;
-            self.monsters.truncate(self.wanted);
-            self.spawn_missing();
+        let s = &mut self.settings;
+        match id {
+            "monsters" => {
+                self.wanted = MONSTERS.clamp(value) as usize;
+                self.monsters.truncate(self.wanted);
+                self.spawn_missing();
+            }
+            "chasers" => s.chasers = CHASERS.clamp(value) as usize,
+            "monster_speed" => s.monster_speed = MONSTER_SPEED.clamp(value),
+            "bite" => s.bite = BITE_RANGE.clamp(value),
+            "bite_reach" => s.bite_reach = BITE_REACH.clamp(value),
+            "load_cap" => s.load_cap = LOAD_CAP.clamp(value) as usize,
+            _ => {}
         }
     }
 
@@ -1036,11 +1103,19 @@ impl TrainingField {
             lines.extend(bar(at, HP_BAR_LIFT, m.hp / m.max_hp, HP_BUFFER_BODY));
         }
         let mut circles = Vec::new();
-        let reaches = (self.team.iter().map(|p| (&p.body, RANGED_REACH)))
-            .chain(self.monsters.iter().map(|m| (&m.body, ALARM_REACH)));
-        for (b, big) in reaches {
+        let bite_reach = self.settings.bite_reach;
+        let reaches = (self
+            .team
+            .iter()
+            .map(|p| (&p.body, RANGED_REACH, MELEE_REACH)))
+        .chain(
+            self.monsters
+                .iter()
+                .map(|m| (&m.body, ALARM_REACH, bite_reach)),
+        );
+        for (b, big, small) in reaches {
             circles.push(circle_view(b.position, big, color::RANGED));
-            circles.push(circle_view(b.position, MELEE_REACH, color::MELEE));
+            circles.push(circle_view(b.position, small, color::MELEE));
         }
         for m in self.monsters.iter().filter(|m| m.target.is_some()) {
             circles.push(circle_view(m.body.position, LOS_REACH, color::SIGHT));
@@ -1173,7 +1248,34 @@ impl TrainingField {
                 ),
             ]),
             actions: Vec::new(),
-            params: vec![slider("monsters", "Monsters", MONSTERS, self.wanted as f32)],
+            params: vec![
+                slider("monsters", "Monsters", MONSTERS, self.wanted as f32),
+                slider(
+                    "chasers",
+                    "N: back with chasers",
+                    CHASERS,
+                    self.settings.chasers as f32,
+                ),
+                slider(
+                    "monster_speed",
+                    "Monster speed",
+                    MONSTER_SPEED,
+                    self.settings.monster_speed,
+                ),
+                slider("bite", "Bite damage", BITE_RANGE, self.settings.bite),
+                slider(
+                    "bite_reach",
+                    "Bite reach",
+                    BITE_REACH,
+                    self.settings.bite_reach,
+                ),
+                slider(
+                    "load_cap",
+                    "Load cap (0: none)",
+                    LOAD_CAP,
+                    self.settings.load_cap as f32,
+                ),
+            ],
         }
     }
 }
@@ -1233,7 +1335,7 @@ mod tests {
         let target = Vec2::new(0.0, -7.0);
         let mut gaits = Vec::new();
         for _ in 0..180 {
-            gaits.push(hunt(&mut body, target, MELEE_REACH, 1.0 / 60.0));
+            gaits.push(hunt(&mut body, target, MELEE_REACH, RUN_SPEED, 1.0 / 60.0));
         }
         let gap = (target - body.position).length();
         assert!(gap <= MELEE_REACH && gap > MELEE_REACH - 0.1, "{gap}");
@@ -1262,7 +1364,7 @@ mod tests {
                     chase_steps += 1;
                     let d = (field.team()[i].body.position - m.body.position).length();
                     // Started inside the alarm disk, kept inside the line of sight.
-                    assert!(d <= LOS_REACH + 2.0 * RUN_SPEED / 60.0, "{d}");
+                    assert!(d <= LOS_REACH + 2.0 * DEFAULT_MONSTER_SPEED / 60.0, "{d}");
                     assert!(m.gait != Gait::Walking);
                 }
             }
@@ -1634,32 +1736,79 @@ mod tests {
     }
 
     #[test]
-    fn the_lurer_waits_two_seconds_then_leaves_a_quiet_disk() {
-        // Nothing within the lurer's disk: a trip begins at 2 s and, with nothing to tag,
-        // turns back at once.
+    fn the_lurer_leaves_a_quiet_disk_as_soon_as_its_hp_is_full() {
+        // Full HP, nothing within the lurer's disk: the trip begins at once and, with
+        // nothing to tag, turns back at once.
         let mut field = quiet_field();
+        field.update(1.0 / 60.0);
+        assert_eq!(field.lure.trips, 1);
+        // At 85 HP (under the buff threshold) it waits for the HP buff (+4) and regeneration
+        // (+1) to fill it: 3 s.
+        let mut field = quiet_field();
+        field.team[0].hp = 85.0;
         let mut left_at = None;
-        for step in 0..180 {
+        for step in 0..300 {
             field.update(1.0 / 60.0);
-            if left_at.is_none() && field.lure.stage != LureStage::Centre {
+            if left_at.is_none() && field.lure.trips > 0 {
                 left_at = Some(step);
             }
-            if step < 100 {
-                assert!((field.team()[0].body.position - CENTRE).length() < 0.1);
+        }
+        assert!(matches!(left_at, Some(170..=190)), "{left_at:?}");
+        // With four monsters parked in the dps disk the lurer stays; with the cap off, not.
+        let parked = || {
+            let mut field = quiet_field();
+            for (k, m) in field.monsters.iter_mut().take(4).enumerate() {
+                m.body = standing(Vec2::new(7.0, k as f32 * 2.0 - 3.0));
+                m.spawn = m.body.position;
             }
-        }
-        assert!(matches!(left_at, Some(120..=125)), "{left_at:?}");
-        assert_eq!(field.lure.trips, 1);
-        // With four monsters parked in the dps disk the lurer stays.
-        let mut field = quiet_field();
-        for (k, m) in field.monsters.iter_mut().take(4).enumerate() {
-            m.body = standing(Vec2::new(7.0, k as f32 * 2.0 - 3.0));
-            m.spawn = m.body.position;
-        }
+            field
+        };
+        let mut field = parked();
         for _ in 0..180 {
             field.update(1.0 / 60.0);
         }
         assert_eq!((field.lure.stage, field.lure.trips), (LureStage::Centre, 0));
+        let mut field = parked();
+        field.param("load_cap", 0.0);
+        field.update(1.0 / 60.0);
+        assert_eq!(field.lure.trips, 1);
+    }
+
+    #[test]
+    fn the_sliders_set_n_the_monsters_speed_and_the_bite() {
+        let mut field = quiet_field();
+        field.param("chasers", 5.0);
+        field.param("monster_speed", 8.0);
+        field.param("bite", 10.0);
+        field.param("bite_reach", 4.0);
+        assert_eq!(field.settings.chasers, 5);
+        assert_eq!(field.settings.monster_speed, 8.0);
+        // A monster 3.5 from the parked lurer: inside the new reach, a bite of 10.
+        let den = Vec2::new(60.0, 40.0);
+        field.monsters[0].body = standing(den + Vec2::new(0.0, 3.5));
+        field.monsters[0].spawn = field.monsters[0].body.position;
+        step_with_parked_lurer(&mut field, den, 2);
+        assert!(
+            (field.team()[0].hp - (MAX_HP - 10.0)).abs() < 0.1,
+            "{}",
+            field.team()[0].hp
+        );
+        // A chasing monster runs up to 8 (the integrator's smoothed acceleration takes it a
+        // couple of seconds) on its way to the lurer parked 30 away.
+        field.monsters[0].threat.insert(0, 1.0);
+        let mut top = 0.0f32;
+        for _ in 0..240 {
+            step_with_parked_lurer(&mut field, den + Vec2::new(0.0, -30.0), 1);
+            top = top.max(field.monsters()[0].body.speed);
+        }
+        assert!(top > 7.9 && top <= 8.0 + 1e-3, "{top}");
+        // The params carry the values.
+        let params = field.view().params;
+        let value = |id: &str| params.iter().find(|p| p.id == id).unwrap().value;
+        assert_eq!(
+            (value("chasers"), value("bite"), value("load_cap")),
+            (5.0, 10.0, 3.0)
+        );
     }
 
     #[test]
@@ -1692,10 +1841,13 @@ mod tests {
         field.team[0].body = standing(Vec2::new(10.0, 0.0));
         field.update(1.0 / 60.0);
         assert_eq!(field.lure.stage, LureStage::Back);
+        // Home within a few steps; at full HP it leaves again at once.
+        let mut came_home = false;
         for _ in 0..240 {
             field.update(1.0 / 60.0);
+            came_home |= field.lure.stage == LureStage::Centre || field.lure.trips >= 1;
         }
-        assert_eq!(field.lure.stage, LureStage::Centre);
+        assert!(came_home);
     }
 
     /// Two minutes of the default field: the lurer makes trips, brings monsters in, and is
@@ -1712,12 +1864,13 @@ mod tests {
         // Measured 2026-11-02 with normal monsters only: 4 trips, 10 delivered, 0 lost, 12
         // kills, no deaths, the lurer inside the dps disk 32% of the time. With the rarity
         // mix: 4 trips, 12 delivered, 1 lost, 12 kills, 1 death, 50% inside (a death keeps
-        // it at the centre 5 s, and a loaded disk keeps it waiting).
+        // it at the centre 5 s, and a loaded disk keeps it waiting). With monsters at 6 and
+        // the leave at full HP: 4 trips, 13 delivered, 1 lost, 10 kills, no deaths, 56%.
         assert_eq!(stages.len(), 3);
         assert!(l.trips >= 3, "{}", l.trips);
         assert!(l.delivered >= 6, "{}", l.delivered);
         assert!(l.lost <= l.delivered / 2, "{} lost", l.lost);
-        assert!(l.share_in_disk() < 0.6, "{}", l.share_in_disk());
+        assert!(l.share_in_disk() < 0.65, "{}", l.share_in_disk());
         assert!(
             field.kills >= 8 && field.deaths <= 2,
             "{} {}",
@@ -2036,8 +2189,9 @@ mod tests {
                 let g = Gait::ALL.iter().position(|&g| g == m.gait).unwrap();
                 steps_in[g] += 1;
                 visited[i][g] = true;
+                let top = speed_of(m.gait, field.settings.monster_speed);
                 assert!(
-                    m.body.speed <= m.gait.speed() + 1e-3,
+                    m.body.speed <= top + 1e-3,
                     "{:?} at {}",
                     m.gait,
                     m.body.speed

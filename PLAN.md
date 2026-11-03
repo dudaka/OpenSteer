@@ -491,6 +491,17 @@ Steps:
     lurer, five hit (69), the sixth untouched; one monster gets the normal attack, three
     spread within 3 the blast (all tagged, 6 MP), four in a line the pierce (all tagged, 8
     MP). Mutation (no cap) fails.
+  - F6c (built, this branch): `Settings` and sliders: N (`chasers`, 1-10, 3), the monsters'
+    running speed (3-8, default 6: faster than the players' 5, as in the game; `speed_of`
+    feeds `hunt` and `roam`), the bite's damage (1-10, 3) and reach (1-5, 2; the monsters'
+    small disk follows it), the load cap (0-10, 3; 0 none). The leave rule (the user): the
+    lurer leaves the centre as soon as its HP is full and the dps disk is within the cap; the
+    2 s wait and `centre_since` are gone. Tests: at full HP the trip starts on the first step;
+    at 85 HP it waits for the buff and regeneration (3 s, left at step 170-190); four parked
+    monsters hold it, not with the cap off; the sliders set N and the speed, a bite of 10 at
+    reach 4, a chaser's top speed 8; the params carry the values. Measured, two minutes: 4
+    trips, 13 delivered, 1 lost, 10 kills, no deaths, the lurer inside the dps disk 56%
+    (faster monsters catch it on the way home). Mutation (the leave ignoring HP) fails.
   Combat numbers: bite reach 2, 3 damage, 1.5 s (one monster kills an unbuffed player in
   50 s, four in 12.5 s); dps AoE reach 8, blast radius 2 round the target, 10 damage to
   every monster in it, 6 MP, 1.5 s (one dps kills a monster in 15 s, three clear a cluster of
