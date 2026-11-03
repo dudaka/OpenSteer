@@ -35,6 +35,24 @@ pub fn contain(v: &Vehicle, region: &Wall, min_time: f32) -> Vec2 {
     v.side() * (turn * v.max_force)
 }
 
+/// `contain` the other way round, for a solid `block` to stay out of: while the line to the
+/// ahead probe meets the block (a point probe would land beyond a thin one), a `max_force`
+/// push along `side` toward the side probe with less of the block (more room outside, `room`
+/// lower); `+side` on an exact tie. Zero while the way to the probe is clear. The probes are
+/// points: widen `block` by the vehicle's radius first (`Wall::offset`).
+pub fn avoid(v: &Vehicle, block: &Wall, min_time: f32) -> Vec2 {
+    let [ahead, plus, minus] = probes(v, min_time);
+    if !block.contains(v.position) && !block.crosses(v.position, ahead) {
+        return Vec2::ZERO;
+    }
+    let turn = if room(block, plus) <= room(block, minus) {
+        1.0
+    } else {
+        -1.0
+    };
+    v.side() * (turn * v.max_force)
+}
+
 /// Distance from `point` to the wall, negative outside the region.
 pub fn room(region: &Wall, point: Vec2) -> f32 {
     let d = region.distance(point);
@@ -121,5 +139,47 @@ mod tests {
     fn near_a_wall_turns_away_from_it() {
         let v = at(1.0, 8.0, Vec2::new(0.0, 1.0));
         assert_eq!(contain(&v, &room(), 1.0), Vec2::new(3.0, 0.0));
+    }
+
+    /// The 10 x 10 square as a block to avoid: the ahead probe (7.5, -5) is clear of it.
+    #[test]
+    fn no_avoidance_while_the_probe_is_clear_of_the_block() {
+        let v = at(5.0, -5.0, Vec2::new(1.0, 0.0));
+        assert_eq!(avoid(&v, &room(), 1.0), Vec2::ZERO);
+    }
+
+    /// East toward the block near its top: the ahead probe (0.5, 9) is inside; the +side
+    /// probe (-0.23, 10.77) is 0.80 out, the -side probe (-0.23, 7.23) 0.23 out: turn to
+    /// +side (0, 1), over the top.
+    #[test]
+    fn a_probe_inside_the_block_turns_toward_the_side_with_more_room_outside() {
+        let v = at(-2.0, 9.0, Vec2::new(1.0, 0.0));
+        assert_eq!(avoid(&v, &room(), 1.0), Vec2::new(0.0, 3.0));
+        // Near the bottom (ahead probe (0.5, 1)): the -side probe (-0.23, -0.77) is 0.80 out,
+        // the +side one (-0.23, 2.77) 0.23: turn to -side, under the block.
+        let v = at(-2.0, 1.0, Vec2::new(1.0, 0.0));
+        assert_eq!(avoid(&v, &room(), 1.0), Vec2::new(0.0, -3.0));
+    }
+
+    /// A thin block (10 x 1) with the vehicle 1 south of it heading north: the ahead probe
+    /// (5, 1.5) lands beyond it, but the way there meets it: a push (side is (-1, 0), a tie).
+    #[test]
+    fn a_thin_block_short_of_the_probe_still_counts() {
+        let thin = Wall::new(&[
+            Vec2::new(0.0, 0.0),
+            Vec2::new(10.0, 0.0),
+            Vec2::new(10.0, 1.0),
+            Vec2::new(0.0, 1.0),
+        ]);
+        let v = at(5.0, -1.0, Vec2::new(0.0, 1.0));
+        assert_eq!(avoid(&v, &thin, 1.0), Vec2::new(-3.0, 0.0));
+    }
+
+    /// North at the block's middle: side is (-1, 0); both side probes (3.23, -0.23) and
+    /// (6.77, -0.23) are 0.23 out, a tie: +side.
+    #[test]
+    fn head_on_at_a_block_turns_to_plus_side() {
+        let v = at(5.0, -2.0, Vec2::new(0.0, 1.0));
+        assert_eq!(avoid(&v, &room(), 1.0), Vec2::new(-3.0, 0.0));
     }
 }
