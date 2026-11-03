@@ -2,8 +2,8 @@
 //! of six trains round one centre, each role keeping to its own radius: three dps (10), an HP
 //! and an MP buffer (5) and our lurer (50); monsters spawn at random over a rectangular map.
 //! Built so far (PLAN.md, Phase 8): the map, the disks, the spawns, and bodies at human speeds,
-//! each wandering inside its own disk: the players always run, a monster stands, walks or runs
-//! for a few seconds at a time. Every entity looks ahead through a fan of rays (`sight`), each
+//! each roaming its own disk from one random spot to the next: the players always run, a
+//! monster stands, walks or runs for a few seconds at a time. Every entity looks ahead through a fan of rays (`sight`), each
 //! cut at the first body it meets. Roles, combat and the lurer's trips come in later steps.
 
 use std::f32::consts::TAU;
@@ -44,6 +44,8 @@ pub const FAN_RAYS: usize = 7;
 pub const FAN_ANGLE: f32 = TAU / 4.0;
 /// Containment's look-ahead: the probe is `BODY_RADIUS + LOOK_AHEAD * speed` ahead.
 const LOOK_AHEAD: f32 = 1.0;
+/// A roaming body counts its spot as reached this close to it and draws the next.
+const SPOT_REACHED: f32 = 1.5;
 /// A runner brakes while containment pushes (the Containment demo's finding): its turning
 /// radius (speed squared over the force, about 3) is wider than the buffers' disk. A walker
 /// turns within 0.3 and needs none.
@@ -117,7 +119,8 @@ impl Gait {
 pub struct Player {
     pub role: Role,
     pub body: Vehicle,
-    wander_side: f32,
+    /// The spot it is running to inside its disk.
+    spot: Vec2,
 }
 
 #[derive(Debug, Clone)]
@@ -128,7 +131,8 @@ pub struct Monster {
     pub body: Vehicle,
     /// Where it appeared: it idles round here and (a later step) leashes back here.
     pub spawn: Vec2,
-    wander_side: f32,
+    /// The spot it is going to inside its idle disk.
+    spot: Vec2,
 }
 
 #[derive(Debug, Clone)]
@@ -207,19 +211,31 @@ fn disk(centre: Vec2, radius: f32) -> Wall {
     Wall::new(&points)
 }
 
-/// One step of `body` at `gait` inside `region`: standing stops it; walking and running wander
-/// (the Containment demo's `forward + 3 wander`, the forward part a want of the gait's speed),
-/// turned back by containment while the probe ahead is outside the region.
-fn stroll(
+/// A random point of the disk (`centre`, `radius`), uniform over its area.
+fn random_spot(centre: Vec2, radius: f32, rng: &mut fastrand::Rng) -> Vec2 {
+    around(centre, radius * rng.f32().sqrt(), rng.f32() * TAU)
+}
+
+/// One step of `body` at `gait` roaming the disk (`centre`, `radius`) with its whole body
+/// inside: standing stops it; otherwise it seeks `spot`, drawing a new random spot of the disk
+/// each time it comes within `SPOT_REACHED` (the game bots' random walk, which covers the whole
+/// disk; a wanderer held by containment only circles along the edge). Containment stays as the
+/// guard while the probe ahead is outside, a runner braking into it.
+fn roam(
     body: &mut Vehicle,
     gait: Gait,
-    wander_side: &mut f32,
-    region: &Wall,
+    spot: &mut Vec2,
+    centre: Vec2,
+    radius: f32,
     dt: f32,
     rng: &mut fastrand::Rng,
 ) {
+    let room = radius - BODY_RADIUS;
     body.max_speed = gait.speed();
-    let push = contain(body, region, LOOK_AHEAD);
+    if (*spot - body.position).length() < SPOT_REACHED {
+        *spot = random_spot(centre, room, rng);
+    }
+    let push = contain(body, &disk(centre, room), LOOK_AHEAD);
     let force = if gait == Gait::Standing {
         Vec2::ZERO
     } else if push != Vec2::ZERO {
@@ -228,8 +244,7 @@ fn stroll(
         }
         push
     } else {
-        let wander = steer::wander(body, wander_side, dt, &mut || rng.f32());
-        steer::target_speed(body, gait.speed()) + wander * 3.0
+        steer::seek(body, *spot)
     };
     body.apply_steering_force(force, dt);
 }
@@ -242,7 +257,7 @@ impl Default for TrainingField {
         let player = |role, at| Player {
             role,
             body: standing(at),
-            wander_side: 0.0,
+            spot: at,
         };
         let team = vec![
             player(Role::Lurer, CENTRE),
@@ -307,23 +322,23 @@ impl TrainingField {
         self.spawn_missing();
         let rng = &mut self.rng;
         for p in &mut self.team {
-            let region = disk(CENTRE, p.role.radius() - BODY_RADIUS);
-            stroll(
-                &mut p.body,
-                Gait::Running,
-                &mut p.wander_side,
-                &region,
-                dt,
-                rng,
-            );
+            let r = p.role.radius();
+            roam(&mut p.body, Gait::Running, &mut p.spot, CENTRE, r, dt, rng);
         }
         for m in &mut self.monsters {
             if self.time >= m.until {
                 m.gait = Gait::ALL[rng.usize(..Gait::ALL.len())];
                 m.until = self.time + GAIT_MIN_S + (GAIT_MAX_S - GAIT_MIN_S) * rng.f32();
             }
-            let region = disk(m.spawn, IDLE_RADIUS - BODY_RADIUS);
-            stroll(&mut m.body, m.gait, &mut m.wander_side, &region, dt, rng);
+            roam(
+                &mut m.body,
+                m.gait,
+                &mut m.spot,
+                m.spawn,
+                IDLE_RADIUS,
+                dt,
+                rng,
+            );
         }
     }
 
@@ -344,7 +359,7 @@ impl TrainingField {
                 until: self.time,
                 body: standing(at),
                 spawn: at,
-                wander_side: 0.0,
+                spot: at,
             });
         }
     }
@@ -457,6 +472,8 @@ mod tests {
         monster_out: f32,
         mean_speed: [f32; 6],
         min_speed: [f32; 6],
+        /// The share of steps each player spent inside the buffers' disk.
+        in_buff_disk: [f32; 6],
     }
 
     fn measure(field: &mut TrainingField, seconds: f32) -> Measured {
@@ -466,6 +483,7 @@ mod tests {
             monster_out: 0.0,
             mean_speed: [0.0; 6],
             min_speed: [f32::MAX; 6],
+            in_buff_disk: [0.0; 6],
         };
         let steps = (seconds * 60.0) as usize;
         for step in 0..steps {
@@ -473,6 +491,9 @@ mod tests {
             for (i, p) in field.team().iter().enumerate() {
                 let over = (p.body.position - CENTRE).length() - (p.role.radius() - BODY_RADIUS);
                 m.player_over = m.player_over.max(over);
+                if (p.body.position - CENTRE).length() <= BUFF_RADIUS {
+                    m.in_buff_disk[i] += 1.0 / steps as f32;
+                }
                 if step >= WARM_UP {
                     m.mean_speed[i] += p.body.speed / (steps - WARM_UP) as f32;
                     m.min_speed[i] = m.min_speed[i].min(p.body.speed);
@@ -623,6 +644,10 @@ mod tests {
     fn players_run_inside_their_disks() {
         let mut field = TrainingField::default();
         let m = measure(&mut field, 60.0);
+        println!(
+            "over {} mean {:?} min {:?} in buff disk {:?}",
+            m.player_over, m.mean_speed, m.min_speed, m.in_buff_disk
+        );
         assert!(m.player_over <= 0.0, "{}", m.player_over);
         assert!(m.mean_speed[0] > 4.5, "{:?}", m.mean_speed);
         assert!(
