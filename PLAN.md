@@ -8,7 +8,7 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
   C, D: terrain, floors, walls around Jangan). The 2D crates and demos stay alongside the 3D ones.
   What comes next is the user's choice (see Status, "Next").
 
-## Status (2026-10-21; rechecked against the code 2026-11-01, no work since)
+## Status (2026-11-02)
 
 | Part | Steps | PRs | State |
 |---|---|---|---|
@@ -18,6 +18,7 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
 | Phase 7 A/B/E: 3D core, 3D view, 3D demos | 24-37 | #23-#36 | done (steps 30-37 built as a batch) |
 | Phase 7 C: the Silkroad world (navmesh copy, standing on the ground, terrain view) | C1-C3 | #38-#40 | done |
 | Phase 7 D: walls (rectangle obstacle, wall query, the plaza with walls) | D1-D3 | #41-#43 | done |
+| Phase 8: the Silkroad training field, built for the lurer | F1-F6 | - | F1 built on `feat/training-field-arena`, not yet shown or merged |
 
 - The user looked at the 3D view (#26) and at the whole 3D batch and reported both "looking good"
   (2026-10-21); C2 (the walker on the ground) and C3 (the drawn terrain, "looks right") too; D3
@@ -25,14 +26,15 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
   confirmed in the browser.
 - Rhythm: one behavior at a time, held until the user understands it, and ask before each PR;
   batches (no holding, merge on green CI) only when the user asks for one.
-- Next (ask the user which; offered 2026-10-21, none chosen yet):
+- Next: Phase 8 (chosen by the user 2026-11-02): F1 shown to the user, its PR, then F2 (combat)
+  onward, one step at a time. The 3D options offered 2026-10-21 stay for later:
   1. Stop bodies scraping walls: add the containment side probes (the design of steps 23 and 37) to the
      Silkroad walker, so walls it runs along or corners it rounds push it off (Findings: 299 of
      9600 plaza steps over a wall, closest 0.0019).
   2. Draw building floors (object navmesh cells) so the plaza walker does not float over pits.
   3. One-way ledges: drop off, never climb (now walls both ways; sro-polyanya keeps a blocked side).
   4. Other ground demos on the terrain (Pedestrians, Capture the Flag) with the same `World`.
-- Tests: 273 Rust tests (13 in `silkroad-navmesh`, + 3 ignored full-data ones), 21 C++ oracles.
+- Tests: 276 Rust tests (13 in `silkroad-navmesh`, + 3 ignored full-data ones), 21 C++ oracles.
   Tests needing the game data skip without it (CI has none); with it, the Silkroad demo's tests
   take ~14 s in debug. 2D: `oracle_one_turning`, `oracle_seek_flee`,
   `oracle_wander`, `oracle_pursuit`, `oracle_obstacles`, `oracle_pathway`,
@@ -41,7 +43,7 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
   `steer-core-3d`): `oracle_vehicle_3d`, `oracle_seek_flee_3d`, `oracle_wander_3d`,
   `oracle_pursuit_3d`, `oracle_obstacles_3d`, `oracle_path_following_3d`, `oracle_boids_3d`,
   `oracle_neighbors_3d`, `oracle_rectangle_3d`.
-- Sidebar: 14 2D demos, then 15 3D demos (ids `3d-...`; the last is "3D Seek on Silkroad").
+- Sidebar: 15 2D demos (the last is "Training Field"), then 15 3D demos (ids `3d-...`; the last is "3D Seek on Silkroad").
 
 ## Setup, mirrored from `~/Workspace/silkroad/caravan`
 
@@ -291,6 +293,69 @@ by 1/10 (a region is 192 demo units); game units are used inside `World` and `si
     (-3.261 on legs 2-4), avoids the hole 565 steps and reaches the far side, body over a wall
     299 steps, closest 0.0019 (a corner of the hole). Mutations (unmerged walls, walls of every
     height, push not flattened) fail. ~0.6-0.9 ms per step in debug; the demo tests take ~14 s.
+
+## Phase 8 - Silkroad training field, built for the lurer (2D, no C++ oracle)
+
+Chosen by the user 2026-11-02 over the 3D options. A miniature of a Silkroad training spot,
+only what the lurer needs: a team trains round one centre while monsters spawn over a
+rectangular map. Built from the oracle-checked pieces like Phase 6 (hand-computed unit tests,
+measured facts pinned, one mutation per step), one small step and PR each.
+
+Research (caravan read-only, D105/D107, its `hunt::Lure`, status.md § Gaps "Luring"; RSBot's
+`Botbases/RSBot.Lure`; the watched PhBot lures, world units = wire / 10): a party kills at a
+training disk (20) while the lurer runs into the band up to the luring disk (60), hits each
+monster once so it chases, leads them back and waits ~2 s (PhBot's centre delay; never above 5 s
+in the small disk). The lurer never kills. Watched: trips to ~40 every ~9 s; tags a median 32-38
+out; 145 of 229 monsters attacked the lurer first, a median 2.5 s after the hit; chases end a
+median 7.4 from the lurer; half the lured reach the centre within 6 s; 5 of 111 chasers lost;
+monsters run 16.5 a second with melee reach 3; a bow reaches 18. RSBot's lure walks to random
+points at least radius / 1.5 away, attacks any monster not already attacking and cancels the
+swing. Caravan's lure (a Centre / Out / Back walk state machine, no steering) was judged by the
+user "too close to the training disk, back too soon and too often, wandering past monsters that
+wait outside"; this demo exists to compare lurer strategies with measured metrics.
+
+Requirements (the user 2026-11-02; defaults are ours, changed on their word):
+- The map: a 160 x 120 rectangle round the centre; monsters spawn at random inside it, outside
+  the dps disk, kept at a count (slider 5-60, default 30), a new one after each death.
+- The team, one centre, a radius per role: three dps (10), an HP buffer and an MP buffer (5),
+  our lurer (50). Bodies: lurer green, teammates blue, monsters red (muted tones; annotation red
+  and green stay the push and the want).
+- Combat: HP and MP on everyone, slow regeneration (1% a second). A skill has reach, effect, MP
+  cost and cooldown: dps attack (reach 2, 10 damage, 5 MP, 1 s); the lurer's tag (reach 8, 1
+  damage, 2 MP, 1 s); HP buff (reach 15, +30 HP to a member under the threshold, 10 MP, 1 s);
+  MP buff (reach 15, +30 MP, 5 MP, 1 s); a monster's bite (reach 1, 5 damage, 1.5 s). HP 100,
+  MP 100. A dead monster is removed and counted; a dead player counts and returns to the centre
+  after 5 s with full bars. Buffers never attack; thresholds default 90%.
+- Monsters (decided by the user): idle at the spawn; aggro when hit **and on sight within a
+  radius** (slider, default 6); the target is the player who **dealt the most damage** (a
+  threat table per monster); chase with `pursuit`, stop at bite reach, bite on cooldown; leash
+  back to the spawn when the target is further than 70.
+- Roles: dps attack the nearest monster inside 10 (arrive at reach), never leave the disk
+  (containment on the circle); buffers stay within 5 and buff the member with the lowest bar
+  under the threshold and in reach; lurer v1 (D105's design): leave the centre when the dps
+  disk holds at most 3 monsters, pursue the nearest untagged monster inside 50, tag it, keep
+  tagging the next nearest, run back when 4 chase or none is left, wait 2 s, repeat.
+- Speeds: lurer 4, dps 3, buffers 2, monsters 3.5; max force 8 (Pedestrians'). Constants first,
+  sliders when tuning.
+- Metrics (labels, pinned in tests): kills a minute, monsters delivered into the dps disk, the
+  lurer's share of time inside 10, trip period, lost chasers, team deaths, the lowest HP a
+  teammate reached.
+
+Steps:
+- F1. [built, branch `feat/training-field-arena`] Demo "Training Field" (`steer_demos::TrainingField`,
+  id `training-field`, last of the 2D demos): the map edge, the three disks with labels, the
+  standing team (lurer on the centre, dps 3 out at thirds, buffers 2 out between them), monsters
+  spawned by a seeded `fastrand` over the map outside the dps disk, the Monsters slider (the
+  count held every step), the legend with the body colors. Tests: the six roles inside their
+  disks and apart; spawns inside the map, outside the dps disk, spread across the lurer's
+  radius; the slider's count. Mutation (spawns allowed inside the dps disk) fails the spawn test.
+- F2. HP, MP, skills, the hit rule, deaths and respawns; monsters' threat table and aggro
+  (hit, on sight), pursuit, bite, leash. Hand-computed tests.
+- F3. The dps role. Verify: never outside 10 (plus the body), kills happen.
+- F4. The buffers. Verify: bars stay at or above the threshold while the buffer has MP.
+- F5. Lurer v1 and the metrics; measured numbers pinned.
+- F6. Further lurer strategies side by side (PhBot's random walk, caravan's state machine),
+  switched by buttons under the same metrics.
 
 ## Each demo page
 

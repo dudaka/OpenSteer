@@ -16,6 +16,7 @@ mod pedestrians;
 mod pursuit;
 mod seek_flee;
 mod soccer;
+mod training_field;
 mod view;
 mod wall_following;
 mod wander;
@@ -37,6 +38,7 @@ pub use pedestrians::Pedestrians;
 pub use pursuit::Pursuit;
 pub use seek_flee::SeekFlee;
 pub use soccer::Soccer;
+pub use training_field::{Monster, Player, Role, TrainingField};
 pub use view::{
     ActionView, FrameView, LabelView, LegendView, LineView, ParamView, TrailView, VehicleView,
 };

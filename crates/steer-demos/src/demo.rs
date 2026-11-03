@@ -5,11 +5,11 @@ use steer_core::Vec2;
 use crate::view::FrameView;
 use crate::{
     Boids, CaptureTheFlag, Containment, Crossing, DemoInfo, LeaderFollowing, Obstacles, OneTurning,
-    PathFollowing, Pedestrians, Pursuit, SeekFlee, Soccer, WallFollowing, Wander,
+    PathFollowing, Pedestrians, Pursuit, SeekFlee, Soccer, TrainingField, WallFollowing, Wander,
 };
 
 /// Every demo in sidebar order (OpenSteerDemo's `selectionOrderSortKey`): id and name.
-const DEMOS: [(&str, &str); 14] = [
+const DEMOS: [(&str, &str); 15] = [
     ("one-turning", "One Turning Away"),
     ("seek-flee", "Seek and Flee"),
     ("wander", "Wander"),
@@ -24,6 +24,7 @@ const DEMOS: [(&str, &str); 14] = [
     ("leader-following", "Leader Following"),
     ("wall-following", "Wall Following"),
     ("containment", "Containment"),
+    ("training-field", "Training Field"),
 ];
 
 /// The demo selected at start.
@@ -45,6 +46,7 @@ pub enum Demo {
     LeaderFollowing(LeaderFollowing),
     WallFollowing(WallFollowing),
     Containment(Containment),
+    TrainingField(TrainingField),
 }
 
 impl Demo {
@@ -65,6 +67,7 @@ impl Demo {
             "leader-following" => Some(Demo::LeaderFollowing(LeaderFollowing::default())),
             "wall-following" => Some(Demo::WallFollowing(WallFollowing::default())),
             "containment" => Some(Demo::Containment(Containment::default())),
+            "training-field" => Some(Demo::TrainingField(TrainingField::default())),
             _ => None,
         }
     }
@@ -85,6 +88,7 @@ impl Demo {
             Demo::LeaderFollowing(d) => d.update(dt),
             Demo::WallFollowing(d) => d.update(dt),
             Demo::Containment(d) => d.update(dt),
+            Demo::TrainingField(d) => d.update(dt),
         }
     }
 
@@ -104,6 +108,7 @@ impl Demo {
             Demo::LeaderFollowing(d) => d.view(),
             Demo::WallFollowing(d) => d.view(),
             Demo::Containment(d) => d.view(),
+            Demo::TrainingField(d) => d.view(),
         }
     }
 
@@ -132,7 +137,8 @@ impl Demo {
             | Demo::Pedestrians(_)
             | Demo::Soccer(_)
             | Demo::LeaderFollowing(_)
-            | Demo::Containment(_) => {}
+            | Demo::Containment(_)
+            | Demo::TrainingField(_) => {}
         }
     }
 
@@ -150,6 +156,7 @@ impl Demo {
             Demo::LeaderFollowing(d) => d.param(id, value),
             Demo::WallFollowing(d) => d.param(id, value),
             Demo::Containment(d) => d.param(id, value),
+            Demo::TrainingField(d) => d.param(id, value),
             Demo::OneTurning(_) | Demo::CaptureTheFlag(_) | Demo::Soccer(_) => {}
         }
     }
