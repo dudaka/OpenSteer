@@ -175,7 +175,7 @@ const BITE_RANGE: Range = Range::new(1.0, 10.0, 0.5);
 const BITE_REACH: Range = Range::new(1.0, 5.0, 0.5);
 const LOAD_CAP: Range = Range::new(0.0, 10.0, 1.0);
 const STRONG_CAP: Range = Range::new(0.0, 5.0, 1.0);
-pub const DEFAULT_STRONG_CAP: usize = 1;
+pub const DEFAULT_STRONG_CAP: usize = 2;
 pub const BACK_CHASERS: usize = 3;
 pub const DEFAULT_MONSTER_SPEED: f32 = 6.0;
 pub const DEFAULT_LOAD_CAP: usize = 3;
@@ -2725,23 +2725,29 @@ mod tests {
     }
 
     #[test]
-    fn a_strong_monster_in_the_dps_disk_holds_the_lurers() {
-        // A party monster (HP x10) parked 6 from the centre: both lurers wait; with the strong
-        // cap off, A leaves at once.
-        let held = || {
+    fn strong_monsters_in_the_dps_disk_hold_the_lurers_from_the_cap_up() {
+        // Party monsters (HP x10) parked 6 from the centre, a normal one 25 out for work.
+        // One strong, under the default cap of 2: A leaves at once. Two: both lurers wait;
+        // with the strong cap off, A leaves at once.
+        let held = |strong: usize| {
             let mut field = quiet_field();
-            field.monsters[0].body = standing(Vec2::new(6.0, 0.0));
-            field.monsters[0].set_rarity(Rarity::PartyNormal);
-            field.monsters[1].body = standing(Vec2::new(-25.0, 0.0));
+            for (k, m) in field.monsters.iter_mut().take(strong).enumerate() {
+                m.body = standing(Vec2::new(6.0, 2.0 * k as f32));
+                m.set_rarity(Rarity::PartyNormal);
+            }
+            field.monsters[2].body = standing(Vec2::new(-25.0, 0.0));
             field
         };
-        let mut field = held();
+        let mut field = held(1);
+        field.update(1.0 / 60.0);
+        assert_eq!(field.lures[0].trips, 1);
+        let mut field = held(2);
         for _ in 0..180 {
             field.update(1.0 / 60.0);
         }
         assert_eq!((field.lures[0].trips, field.lures[1].trips), (0, 0));
         assert!(field.monsters()[0].hp < field.monsters()[0].max_hp);
-        let mut field = held();
+        let mut field = held(2);
         field.param("strong_cap", 0.0);
         field.update(1.0 / 60.0);
         assert_eq!(field.lures[0].trips, 1);
@@ -2780,9 +2786,10 @@ mod tests {
             tagged.contains(&giant) && tagged.contains(&normal),
             "{tagged:?}"
         );
-        // A party monster already in the dps disk (the strong cap is 1): the giant is left
-        // alone, the normal is tagged.
+        // A party monster already in the dps disk with the strong cap set to 1 (the default 2
+        // would let one through): the giant is left alone, the normal is tagged.
         let mut field = risky_field();
+        field.param("strong_cap", 1.0);
         field.monsters[2].body = standing(Vec2::new(6.0, 0.0));
         field.monsters[2].set_rarity(Rarity::PartyNormal);
         let tagged = run_tracking_a(&mut field, 480);
@@ -3185,6 +3192,11 @@ mod tests {
         // rule (a packmate a dps's damage takes over within the blast's 2 outside the disk
         // counts delivered): A 2/7/0, B 3/11/0, 23 / 11 walked per delivered, the same 16
         // kills, no deaths, 9 heals, 10 guards; every former "lost" was a splashed packmate.
+        // Strong cap 2 (from 1): the same two minutes (the giant and the party champion
+        // arrive together at 50 s and two strong hold both lurers until 120.5 s either way);
+        // at 180 s A 5/15/0, B 5/17/0, 24 kills, no deaths, at the centre 93 s / 113 s of
+        // 180 (cap 1: A 3 and B 4 trips, 23 kills, 118 s / 123 s; a lone party normal held
+        // both from 138 s on).
         assert_eq!(stages.len(), 3);
         let delivered = a.delivered + b.delivered;
         assert!(a.trips >= 2 && b.trips >= 2, "{} {}", a.trips, b.trips);
@@ -3203,6 +3215,13 @@ mod tests {
             field.kills,
             field.deaths
         );
+        // The third minute: one strong monster in the disk no longer holds the lurers.
+        for _ in 0..60 * 60 {
+            field.update(1.0 / 60.0);
+        }
+        let (a, b) = (&field.lures[0], &field.lures[1]);
+        assert!(a.trips >= 4 && b.trips >= 4, "{} {}", a.trips, b.trips);
+        assert!(field.deaths <= 2, "{}", field.deaths);
     }
 
     #[test]
