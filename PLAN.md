@@ -595,6 +595,14 @@ Steps:
     moving; scouting goes away from the last sighting. Tests: A parked 40 out is unseen by B
     at the centre, so a monster at 20 is B's and B tags it; A parked 25 out is seen and nearer,
     so A tags it and B does not; `observe` itself. Mutation (the sight limit dropped) fails.
+  - Default monsters 15 (the user 2026-11-03). The load cap measurement at 15, two minutes:
+    cap 3: A 2 trips, 5 delivered, B 3 trips, 9 delivered, 16 kills, 5 deaths; cap 6: 13
+    kills, 6 deaths; the cap stays 3. The deaths are all dps, to a giant and a party champion
+    that reached the dps disk: 2,000 HP against four dps spreading their fire over different
+    targets (27 damage a second at best, 75 s to kill), biting 9 every 1.5 s at dps that roam
+    out to 10 while the HP buffer reaches 8 from within 5. Open (to decide with the user):
+    the dps focusing one target; the lurers never tagging a strong monster; the buffers'
+    reach against the dps disk.
   Combat numbers: bite reach 2, 3 damage, 1.5 s (one monster kills an unbuffed player in
   50 s, four in 12.5 s); dps AoE reach 8, blast radius 2 round the target, 10 damage to
   every monster in it, 6 MP, 1.5 s (one dps kills a monster in 15 s, three clear a cluster of

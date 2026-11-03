@@ -45,7 +45,7 @@ pub const IDLE_RADIUS: f32 = 6.0;
 const GAIT_MIN_S: f32 = 2.0;
 const GAIT_MAX_S: f32 = 6.0;
 const MONSTERS: Range = Range::new(5.0, 60.0, 1.0);
-const DEFAULT_MONSTERS: usize = 30;
+const DEFAULT_MONSTERS: usize = 15;
 const SEED: u64 = 1;
 /// A body seen from above, 2 units across: a person at the map's scale (OpenSteer's default
 /// 0.5 reads as a dot on a 160-unit map).
@@ -2378,21 +2378,27 @@ mod tests {
             m.spawn = m.body.position;
             side.insert(m.id, x < 0.0);
         }
+        // Checked every step: a tagged pair is delivered, killed and reborn untagged at its
+        // nest within the ten seconds.
+        let mut tagged: [std::collections::HashSet<u32>; 2] = Default::default();
         for _ in 0..600 {
             field.update(1.0 / 60.0);
-        }
-        let mut tagged = [0, 0];
-        for m in field.monsters() {
-            let (by_a, by_b) = (m.threat.contains_key(&0), m.threat.contains_key(&1));
-            assert!(!(by_a && by_b), "monster {} tagged by both", m.id);
-            if let Some(&left) = side.get(&m.id) {
-                assert!(!by_a || left, "A tagged a right-hand monster");
-                assert!(!by_b || !left, "B tagged a left-hand monster");
+            for m in field.monsters() {
+                let (by_a, by_b) = (m.threat.contains_key(&0), m.threat.contains_key(&1));
+                assert!(!(by_a && by_b), "monster {} tagged by both", m.id);
+                if let Some(&left) = side.get(&m.id) {
+                    assert!(!by_a || left, "A tagged a right-hand monster");
+                    assert!(!by_b || !left, "B tagged a left-hand monster");
+                }
+                if by_a {
+                    tagged[0].insert(m.id);
+                }
+                if by_b {
+                    tagged[1].insert(m.id);
+                }
             }
-            tagged[0] += usize::from(by_a);
-            tagged[1] += usize::from(by_b);
         }
-        assert!(tagged[0] >= 1 && tagged[1] >= 1, "{tagged:?}");
+        assert!(!tagged[0].is_empty() && !tagged[1].is_empty(), "{tagged:?}");
     }
 
     #[test]
@@ -2752,7 +2758,11 @@ mod tests {
         // 3 sessions of 16.1 s, back with 100 HP, 18 walked per delivered, 73% inside; B 4
         // trips, 16 delivered, 1 lost, 4 sessions of 8.4 s, back with 98, 6 walked per
         // delivered, 93% inside (the load cap holds both while the dps clear); 26 kills, no
-        // deaths.
+        // deaths. With 15 monsters (the user's default): A 2 trips, 5 delivered, 2 lost, 2
+        // sessions of 20.6 s, 74% inside; B 3 trips, 9 delivered, 2 lost, 3 sessions of
+        // 11.8 s, 87% inside; 16 kills, 5 deaths, all dps, to a giant and a party champion the
+        // seed put near the disk (2,000 HP against four dps spreading fire, and dps roaming
+        // past the HP buffer's reach). Load cap 6 at 15 monsters: 13 kills, 6 deaths; kept at 3.
         assert_eq!(stages.len(), 3);
         let delivered = a.delivered + b.delivered;
         assert!(a.trips >= 2 && b.trips >= 2, "{} {}", a.trips, b.trips);
@@ -3109,7 +3119,7 @@ mod tests {
         let shares = steps_in.map(|n| n as f32 / total);
         assert!(shares.iter().all(|&s| s > 0.25 && s < 0.42), "{shares:?}");
         let quiet: Vec<usize> = (0..DEFAULT_MONSTERS).filter(|&i| !chased[i]).collect();
-        assert!(quiet.len() >= 5, "{}", quiet.len());
+        assert!(quiet.len() >= 3, "{}", quiet.len());
         for &i in &quiet {
             assert!(visited[i].iter().all(|&b| b), "monster {i}");
             assert!(
