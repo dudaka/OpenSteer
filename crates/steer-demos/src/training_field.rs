@@ -30,7 +30,7 @@ use steer_core::wall::Wall;
 use steer_core::{steer, Vec2, Vehicle};
 
 use crate::annotation::{circle_view, color, label, legend, line, vehicle_view};
-use crate::controls::{slider, Range};
+use crate::controls::{button, slider, Range};
 use crate::view::{FrameView, LineView};
 
 /// The map: a rectangle this wide and high, centred on the training centre.
@@ -135,9 +135,26 @@ pub const BACK_CHASERS: usize = 3;
 pub const DEFAULT_MONSTER_SPEED: f32 = 6.0;
 pub const DEFAULT_LOAD_CAP: usize = 3;
 
+/// Which planner lays out a trip: `Stops` visits N monsters one by one (the shortest such
+/// tour); `Casts` plans casts, a blast or pierce tagging a whole cluster at one stop, until N
+/// are tagged (the shortest such run).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Planner {
+    Stops,
+    Casts,
+}
+
+/// A stop on the lurer's tour: get within `reach` of monster `id` and cast.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Stop {
+    pub id: u32,
+    pub reach: f32,
+}
+
 /// The slider settings.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Settings {
+    pub planner: Planner,
     /// N: the lurer turns back with this many chasers.
     pub chasers: usize,
     pub monster_speed: f32,
@@ -150,6 +167,7 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Settings {
+            planner: Planner::Casts,
             chasers: BACK_CHASERS,
             monster_speed: DEFAULT_MONSTER_SPEED,
             bite: BITE,
@@ -407,7 +425,7 @@ pub struct Lure {
     pub pierces: u32,
     /// The planned stops (monster ids) of the current trip, next first, and when they were
     /// planned.
-    pub tour: Vec<u32>,
+    pub tour: Vec<Stop>,
     planned_at: f32,
     /// Session metrics: when the current trip left, the trips completed, their total time,
     /// the HP the lurer had back home (total and lowest), and the distance it walked.
@@ -633,6 +651,118 @@ fn untagged_in_reach(lurer: usize, at: Vec2, monsters: &[Monster]) -> Option<usi
         .map(|(i, _)| i)
 }
 
+/// The cheapest run that tags at least `n` monsters by casts, from `from` through its stops
+/// and home: an exact search over `candidates` (monster ids). At each stop the lurer gets
+/// within a skill's reach of a monster and casts: the normal attack tags it alone (reach 8),
+/// the blast every untagged monster within `LURE_BLAST` of it (reach 8), the pierce every
+/// untagged monster on the line from the cast point to it (reach `PIERCE_LENGTH`); the blast
+/// and pierce only when `skills` (blast ready, pierce ready) allow. The search ends a run
+/// once `n` are tagged or nothing more can be, and keeps the shortest, the fewest casts on a
+/// tie.
+pub fn plan_casts(
+    from: Vec2,
+    home: Vec2,
+    lurer: usize,
+    monsters: &[Monster],
+    candidates: &[u32],
+    n: usize,
+    skills: (bool, bool),
+) -> Vec<Stop> {
+    struct Search<'a> {
+        home: Vec2,
+        lurer: usize,
+        monsters: &'a [Monster],
+        candidates: &'a [u32],
+        n: usize,
+        skills: (bool, bool),
+        best: (f32, Vec<Stop>),
+    }
+    impl Search<'_> {
+        fn untagged(&self, hits: Vec<usize>, tagged: &[u32]) -> Vec<u32> {
+            (hits.into_iter().map(|i| &self.monsters[i]))
+                .filter(|m| !m.threat.contains_key(&self.lurer) && !tagged.contains(&m.id))
+                .map(|m| m.id)
+                .collect()
+        }
+
+        fn go(&mut self, at: Vec2, tagged: &mut Vec<u32>, cost: f32, plan: &mut Vec<Stop>) {
+            let mut expanded = false;
+            if tagged.len() < self.n {
+                for &id in self.candidates {
+                    if tagged.contains(&id) {
+                        continue;
+                    }
+                    let Some(m) = self.monsters.iter().find(|m| m.id == id) else {
+                        continue;
+                    };
+                    let target = m.body.position;
+                    let d = (target - at).length();
+                    let dir = if d > 0.0 {
+                        (target - at) / d
+                    } else {
+                        Vec2::ZERO
+                    };
+                    let cast_at = |reach: f32| at + dir * (d - reach).max(0.0);
+                    // The normal attack always; a blast or pierce only when it tags two or
+                    // more, the rule `lure_cast` fires them by.
+                    let mut options: Vec<(f32, Vec<u32>)> = vec![(RANGED_REACH, vec![id])];
+                    if self.skills.0 {
+                        let hits = in_blast(target, LURE_BLAST, self.monsters);
+                        let tags = self.untagged(hits, tagged);
+                        if tags.len() >= 2 {
+                            options.push((RANGED_REACH, tags));
+                        }
+                    }
+                    if self.skills.1 {
+                        let hits = along_pierce(cast_at(PIERCE_LENGTH), target, self.monsters);
+                        let tags = self.untagged(hits, tagged);
+                        if tags.len() >= 2 {
+                            options.push((PIERCE_LENGTH, tags));
+                        }
+                    }
+                    for (reach, tags) in options {
+                        if tags.is_empty() {
+                            continue;
+                        }
+                        // A node with any way on is no end of a run, pruned or not.
+                        expanded = true;
+                        let next = cost + (d - reach).max(0.0);
+                        if next >= self.best.0 {
+                            continue;
+                        }
+                        let before = tagged.len();
+                        tagged.extend(&tags);
+                        plan.push(Stop { id, reach });
+                        self.go(cast_at(reach), tagged, next, plan);
+                        plan.pop();
+                        tagged.truncate(before);
+                    }
+                }
+            }
+            if !expanded && !plan.is_empty() {
+                // The shortest run; on a tie (a straight row, say) the fewer casts.
+                let total = cost + (self.home - at).length();
+                let shorter =
+                    total < self.best.0 || (total == self.best.0 && plan.len() < self.best.1.len());
+                if shorter {
+                    self.best = (total, plan.clone());
+                }
+            }
+        }
+    }
+    let mut search = Search {
+        home,
+        lurer,
+        monsters,
+        candidates,
+        n,
+        skills,
+        best: (f32::MAX, Vec::new()),
+    };
+    search.go(from, &mut Vec::new(), 0.0, &mut Vec::new());
+    search.best.1
+}
+
 /// The planner's candidates: the monsters in the lurer's disk that the lurer has not tagged,
 /// the `TOUR_CANDIDATES` nearest to `at`, as (id, position).
 fn tour_candidates(lurer: usize, at: Vec2, monsters: &[Monster]) -> Vec<(u32, Vec2)> {
@@ -677,17 +807,31 @@ fn lure_step(
         LureStage::Out => {
             let back = chasers >= settings.chasers || p.hp < BACK_HP * MAX_HP;
             let at = p.body.position;
-            let stop = |id: &u32| monsters.iter().find(|m| m.id == *id);
+            let find = |id: u32| monsters.iter().find(|m| m.id == id);
             lure.tour
-                .retain(|id| stop(id).is_some_and(|m| !m.threat.contains_key(&0)));
+                .retain(|s| find(s.id).is_some_and(|m| !m.threat.contains_key(&0)));
             if !back && (lure.tour.is_empty() || now - lure.planned_at >= PLAN_PERIOD) {
                 let candidates = tour_candidates(0, at, monsters);
-                lure.tour = plan_tour(at, CENTRE, &candidates, settings.chasers);
+                let n = settings.chasers;
+                lure.tour = match settings.planner {
+                    Planner::Stops => (plan_tour(at, CENTRE, &candidates, n).into_iter())
+                        .map(|id| Stop {
+                            id,
+                            reach: RANGED_REACH,
+                        })
+                        .collect(),
+                    Planner::Casts => {
+                        let ids: Vec<u32> = candidates.iter().map(|c| c.0).collect();
+                        let skills = (now >= p.blast_ready, now >= p.pierce_ready);
+                        plan_casts(at, CENTRE, 0, monsters, &ids, n, skills)
+                    }
+                };
                 lure.planned_at = now;
             }
-            match lure.tour.first().and_then(stop) {
-                Some(m) if !back => {
-                    hunt(&mut p.body, m.body.position, RANGED_REACH, RUN_SPEED, dt);
+            let next = lure.tour.first().map(|s| (find(s.id), s.reach));
+            match next {
+                Some((Some(m), reach)) if !back => {
+                    hunt(&mut p.body, m.body.position, reach, RUN_SPEED, dt);
                 }
                 _ => {
                     lure.stage = LureStage::Back;
@@ -1044,6 +1188,15 @@ impl TrainingField {
         }
     }
 
+    /// The planner buttons.
+    pub fn action(&mut self, id: &str) {
+        match id {
+            "plan_casts" => self.settings.planner = Planner::Casts,
+            "plan_stops" => self.settings.planner = Planner::Stops,
+            _ => {}
+        }
+    }
+
     pub fn param(&mut self, id: &str, value: f32) {
         let s = &mut self.settings;
         match id {
@@ -1286,8 +1439,8 @@ impl TrainingField {
         ));
         if lure.stage == LureStage::Out {
             let mut from = self.team[0].body.position;
-            for id in &lure.tour {
-                if let Some(m) = self.monsters.iter().find(|m| m.id == *id) {
+            for stop in &lure.tour {
+                if let Some(m) = self.monsters.iter().find(|m| m.id == stop.id) {
                     lines.push(line(from, m.body.position, color::PATH));
                     from = m.body.position;
                 }
@@ -1354,7 +1507,18 @@ impl TrainingField {
                     "attack: a dps's target and its blast (2); the lurer's next tag",
                 ),
             ]),
-            actions: Vec::new(),
+            actions: vec![
+                button(
+                    "plan_casts",
+                    "Plan casts (AoE)",
+                    self.settings.planner == Planner::Casts,
+                ),
+                button(
+                    "plan_stops",
+                    "Plan stops",
+                    self.settings.planner == Planner::Stops,
+                ),
+            ],
             params: vec![
                 slider("monsters", "Monsters", MONSTERS, self.wanted as f32),
                 slider(
@@ -1955,18 +2119,21 @@ mod tests {
             m.spawn = m.body.position;
         }
         let ids: Vec<u32> = field.monsters().iter().map(|m| m.id).collect();
-        // The first step leaves the centre, the second plans.
+        let tour =
+            |field: &TrainingField| -> Vec<u32> { field.lure.tour.iter().map(|s| s.id).collect() };
+        // The stops planner; the first step leaves the centre, the second plans.
+        field.action("plan_stops");
         field.update(1.0 / 60.0);
         field.update(1.0 / 60.0);
         assert_eq!(field.lure.stage, LureStage::Out);
-        assert_eq!(field.lure.tour, ids[..3]);
+        assert_eq!(tour(&field), ids[..3]);
         // A second on: heading right along the tour (the low-speed rule bends the first
         // steps toward the starting heading), the tour unchanged by the re-plan.
         for _ in 0..60 {
             field.update(1.0 / 60.0);
         }
         assert!(field.team()[0].body.forward.x > 0.9);
-        assert_eq!(field.lure.tour, ids[..3]);
+        assert_eq!(tour(&field), ids[..3]);
         let tour_lines = (field.view().lines.iter())
             .filter(|l| l.color == color::PATH)
             .count();
@@ -1988,6 +2155,70 @@ mod tests {
         );
         assert!(l.mean_hp_back() > 0.0 && l.hp_back_min == l.mean_hp_back());
         assert!(l.walked > 20.0, "{}", l.walked);
+    }
+
+    #[test]
+    fn the_cast_planner_tags_a_cluster_at_one_stop_and_a_row_with_one_pierce() {
+        // A cluster of three 20 to the right (within one blast) and a lone monster 15 to the
+        // left; N = 3. With the blast: one stop at the cluster (12 out, 12 home). Without
+        // either skill: three normal attacks, all on the cluster, none on the lone one.
+        let mut field = quiet_field();
+        let spots = [(20.0, 0.0), (20.0, 2.0), (20.0, -2.0), (-15.0, 0.0)];
+        for (m, &(x, y)) in field.monsters.iter_mut().zip(&spots) {
+            m.body = standing(Vec2::new(x, y));
+        }
+        let ids: Vec<u32> = field.monsters().iter().map(|m| m.id).collect();
+        let plan = |field: &TrainingField, skills| {
+            plan_casts(
+                Vec2::ZERO,
+                CENTRE,
+                0,
+                field.monsters(),
+                &ids[..4],
+                3,
+                skills,
+            )
+        };
+        let with_blast = plan(&field, (true, false));
+        assert_eq!(with_blast.len(), 1);
+        assert!(ids[..3].contains(&with_blast[0].id));
+        assert_eq!(with_blast[0].reach, RANGED_REACH);
+        let plain = plan(&field, (false, false));
+        assert_eq!(plain.len(), 3);
+        assert!(plain.iter().all(|s| ids[..3].contains(&s.id)));
+        // Four in a radial row at 20, 23, 26, 29, all four wanted: one pierce aimed at the
+        // far end from 12 short of it takes them (34 there and back; with three wanted the
+        // planner rightly prefers a normal attack at 20 and a pierce for 23 and 26: 28).
+        let mut field = quiet_field();
+        for (k, m) in field.monsters.iter_mut().take(4).enumerate() {
+            m.body = standing(Vec2::new(20.0 + 3.0 * k as f32, 0.0));
+        }
+        let ids: Vec<u32> = field.monsters().iter().map(|m| m.id).collect();
+        let pierce = plan_casts(
+            Vec2::ZERO,
+            CENTRE,
+            0,
+            field.monsters(),
+            &ids[..4],
+            4,
+            (false, true),
+        );
+        assert_eq!(
+            pierce,
+            [Stop {
+                id: ids[3],
+                reach: PIERCE_LENGTH
+            }]
+        );
+        // The buttons switch the planner.
+        assert_eq!(field.settings.planner, Planner::Casts);
+        field.action("plan_stops");
+        assert_eq!(field.settings.planner, Planner::Stops);
+        let active: Vec<_> = (field.view().actions.iter())
+            .filter(|a| a.active)
+            .map(|a| a.id.clone())
+            .collect();
+        assert_eq!(active, ["plan_stops"]);
     }
 
     #[test]
@@ -2047,10 +2278,12 @@ mod tests {
         // the leave at full HP: 4 trips, 13 delivered, 1 lost, 10 kills, no deaths, 56%.
         // With the tour planner and the leave at 90%: 5 trips, 9 delivered, 3 lost, 11 kills,
         // 1 death, 47%; 4 sessions of 16.5 s, back with 96 HP (lowest 93), 37 walked per
-        // delivered (the baseline for the AoE-aware planner).
+        // delivered. With the cast planner (the default): 5 trips, 12 delivered, 1 lost, 11
+        // kills, 1 death, 39%; 4 sessions of 19.6 s, back with 98 HP (lowest 94), 29 walked
+        // per delivered.
         assert_eq!(stages.len(), 3);
         assert!(l.trips >= 3, "{}", l.trips);
-        assert!(l.delivered >= 6, "{}", l.delivered);
+        assert!(l.delivered >= 8, "{}", l.delivered);
         assert!(l.lost <= l.delivered / 2, "{} lost", l.lost);
         assert!(l.share_in_disk() < 0.65, "{}", l.share_in_disk());
         assert!(l.sessions >= 3, "{}", l.sessions);

@@ -137,8 +137,8 @@ impl Demo {
             | Demo::Pedestrians(_)
             | Demo::Soccer(_)
             | Demo::LeaderFollowing(_)
-            | Demo::Containment(_)
-            | Demo::TrainingField(_) => {}
+            | Demo::Containment(_) => {}
+            Demo::TrainingField(d) => d.action(id),
         }
     }
 

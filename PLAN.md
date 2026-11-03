@@ -517,6 +517,25 @@ Steps:
     delivered, 3 lost, 11 kills, 1 death, 47% inside; 4 sessions of 16.5 s, back with 96 HP
     (lowest 93), 37 walked per delivered: the baseline F6e must beat. Mutation (the planner
     keeping the longest tour) fails.
+  - F6e (built, this branch): the cast planner (`plan_casts`, `Planner::Casts`, the default;
+    buttons switch to `Stops`): the shortest run that tags at least N monsters by casts, an
+    exact search over the 8 candidates where each stop is a monster to get within a skill's
+    reach of: the normal attack (reach 8, that monster), a blast (reach 8, every untagged
+    within 3 of it) or a pierce (reach 12, every untagged on the line from the cast point to
+    it), the area skills only when ready at planning and only when they tag two or more, the
+    rule `lure_cast` fires them by (a stop tagging one by pierce left the lurer standing at 12
+    with nothing it could cast: found by a trace, the first design's stall); a run ends when N
+    are tagged or nothing more can be, and a node with any way on is never an end, pruned or
+    not (the second bug: a pruned branch counted as finished and a cheap one-tag stop won).
+    `Stop { id, reach }` replaces the id tour. Tests: a cluster of three and a lone monster,
+    N 3: one blast stop at the cluster, without the skills three normal stops on it; a radial
+    row of four wanted whole: one pierce at the far end from 12 short (with three wanted a
+    normal attack and a shorter pierce, 28 over 34, which the planner rightly prefers); the
+    buttons. Measured, two minutes, the same seed: stops planner 9 delivered, 3 lost, 16.5 s
+    a session, 37 walked per delivered, 47% inside; cast planner 12 delivered, 1 lost,
+    19.6 s, 29 walked per delivered, 39% inside, back with 98 HP (lowest 94), 11 kills, 1
+    death. Mutation (the blast never offered) fails. The legend folds behind a button and the
+    status lines start at the map's left edge (the user: the legend covered the disks).
   Combat numbers: bite reach 2, 3 damage, 1.5 s (one monster kills an unbuffed player in
   50 s, four in 12.5 s); dps AoE reach 8, blast radius 2 round the target, 10 damage to
   every monster in it, 6 MP, 1.5 s (one dps kills a monster in 15 s, three clear a cluster of
