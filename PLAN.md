@@ -32,9 +32,9 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
   strong cap, every "lost" was a packmate splashed at the disk's edge, and lurer B's status line
   was off the canvas. Agreed order from there (the user, 2026-11-03), one small branch and PR
   each:
-  1. [done, this branch] The status lines inside the map's square.
-  2. "Lost" counts a monster delivered when a dps's damage takes it over within the disk plus
-     the blast's 2.
+  1. [done, #48] The status lines inside the map's square.
+  2. [done, this branch] "Lost" counts a monster delivered when a dps's damage takes it over
+     within the disk plus the blast's 2 (A 2/7/0, B 3/11/0 at seed 1; nothing else moved).
   3. Strong cap default 1 -> 2, re-pinned, as the baseline for the obstacles' cost.
   4. Obstacles in the luring disk, circles first: design in Phase 8, "Next step: obstacles"
      (settled numbers there). Then rectangles; the planner's detour cost only if the gap is
@@ -47,7 +47,7 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
   2. Draw building floors (object navmesh cells) so the plaza walker does not float over pits.
   3. One-way ledges: drop off, never climb (now walls both ways; sro-polyanya keeps a blocked side).
   4. Other ground demos on the terrain (Pedestrians, Capture the Flag) with the same `World`.
-- Tests: 315 Rust tests (13 in `silkroad-navmesh`, + 3 ignored full-data ones; 41 in
+- Tests: 316 Rust tests (13 in `silkroad-navmesh`, + 3 ignored full-data ones; 42 in
   `training_field`), 21 C++ oracles.
   Tests needing the game data skip without it (CI has none); with it, the Silkroad demo's tests
   take ~14 s in debug. 2D: `oracle_one_turning`, `oracle_seek_flee`,
@@ -318,7 +318,7 @@ user called the milestone (2026-11-03).
 
 ### As built (after #46)
 
-One module, `crates/steer-demos/src/training_field.rs` (the 41 tests in the same file), demo
+One module, `crates/steer-demos/src/training_field.rs` (the 42 tests in the same file), demo
 id `training-field`, the last 2D demo. Units: 1 = 1 m; Silkroad's disks of 20 and 60 are 10
 and 50 here. Numbers are constants at the top of the module and `Settings` sliders.
 
@@ -370,17 +370,22 @@ and 50 here. Numbers are constants at the top of the module and `Settings` slide
   polyline; attack lines and blasts; buff and guard rings; rarity labels; three status lines
   (the team; lurer A; lurer B); the legend behind a button. Sliders: monsters, N, monster
   speed, bite damage, bite reach, load cap, strong cap; buttons: plan casts / plan stops.
-- Tests (41): hand-computed cases per piece, the pinned two-minute run (seed 1, 7,200 steps,
+- Tests (42): hand-computed cases per piece, the pinned two-minute run (seed 1, 7,200 steps,
   `trips_deliver_monsters_to_the_dps_disk`, its history in the comment), one mutation per step
   that failed. Helpers: `quiet_field` (five normal monsters in a far corner, outside the map),
   `field_with_a_monster_at`, `risky_field` (a giant and a normal 20 out on A's side),
   `step_with_parked_lurer` (A put back at a spot after every step), `run_tracking_a` (tags by
   monster id over a run), `measure` and `Measured` (margins, speeds, time in the buff disk).
 
-### Next step: obstacles in the luring disk (the user, 2026-11-03; not started)
+### Next step: obstacles in the luring disk (the user, 2026-11-03; settled, not started)
 
-Random obstacles of varying shape and size inside the luring disk. Design notes to settle with
-the user before building:
+Random obstacles of varying shape and size inside the luring disk. Settled with the user
+2026-11-03 (after the browser observation): circles first, a slider 0..20 (default 8), radius
+1.5..5, drawn from a second rng (seed 2) after the nests so the monsters' draws stay today's,
+clear of the dps disk by 1, of a nest's idle disk by a body, of each other by 3; avoidance first
+(look-ahead 2 s) for the lurers Out and Back and for monsters outside the dps disk; rectangles
+next; no line-of-sight occlusion (Silkroad has none); a planner detour cost only if the gap is
+large. The original notes:
 - Shapes: circles first (`steer_core::obstacle::Circle`, oracle-checked, the Obstacles demo's
   `avoid_obstacles` and its "Add a rock" placement with a clearance rule), then polygons through
   `steer_core::wall::Wall` (rectangles at any angle; `Wall::contains`, `distance`), each drawn
@@ -795,9 +800,12 @@ Decided with the user (2026-11-02 to 03, Phase 8, in order):
   from the dps disk and the party window rather than a blanket "never"; more buff skills rather
   than a longer buffer reach; the guard toned down to 20% for 20 s, 10 MP, 5 s (a one-a-second
   blanket was "quite outstanding"). The load cap stays 3 (6 measured worse at 15 monsters).
+- After the browser observation (2026-11-03): a monster a dps's damage takes over within the
+  blast's 2 outside the disk counts delivered, not lost (every lost in the seed-1 run was such a
+  packmate); the strong cap default goes from 1 to 2 before the obstacles; the obstacles'
+  design as settled in Phase 8, "Next step: obstacles", with no line-of-sight occlusion.
 
 Open (ask before acting):
-- The obstacles' design notes (Phase 8, "Next step: obstacles").
 - The party window showing members' HP bars is my assumption about the game; if it does not,
   the lurers' risk check and the watch rule lose that reading.
 - Lurer A delivers less than B in the one measured seed (the tie rule hands A the near
@@ -888,7 +896,10 @@ trips/delivered/lost):
   lurers and four dps at 30 monsters: A 3/10/0 (16.1 s, 18 walked), B 4/16/1 (8.4 s, 6 walked),
   26 kills, no deaths, inside 73% / 93%; at 15 monsters: A 2/5/2, B 3/9/2, 16 kills, 5 deaths
   (load cap 6: 13 kills, 6 deaths); with the risk check and the heal, group heal and guard: the
-  same trips, 16 kills, no deaths, 9 heals, 0 group heals, 10 guards.
+  same trips, 16 kills, no deaths, 9 heals, 0 group heals, 10 guards; the splash rule (a
+  packmate a dps's damage takes over within the blast's 2 outside the disk counts delivered):
+  A 2/7/0, B 3/11/0, 23 / 11 walked per delivered, the rest unchanged (every former lost was
+  such a packmate).
 - **Wander held in by containment circles along the edge**: the probe leaves, the push turns
   the body along the wall, and wander rarely turns it back, so the dps never crossed the buff
   disk. Seeking random spots of the disk (the game bots' random walk) put them inside it 42-49%

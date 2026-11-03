@@ -473,7 +473,8 @@ pub struct Lure {
     /// Monsters that reached the dps disk while chasing the lurer.
     pub delivered: u32,
     /// Monsters that stopped chasing the lurer outside the dps disk (out of sight, or taken
-    /// over by someone's damage).
+    /// over by someone's damage), except a packmate a dps splashed at the disk's edge, which
+    /// counts delivered.
     pub lost: u32,
     /// Steps the lurer spent inside the dps disk, of all steps.
     pub steps_in_disk: u32,
@@ -1499,22 +1500,33 @@ impl TrainingField {
     }
 
     /// The trip metrics after a step, per lurer: a monster chasing a lurer that enters the
-    /// dps disk is delivered (once, to that lurer); one that stops chasing it outside the
-    /// disk is lost; each lurer's steps inside the disk are counted.
+    /// dps disk is delivered (once, to that lurer), and so is one a dps's damage takes over
+    /// within the blast's reach of the disk (a pack's trailing monster, splashed at the edge);
+    /// one that stops chasing it anywhere else outside the disk is lost; each lurer's steps
+    /// inside the disk are counted.
     fn count_deliveries(&mut self) {
         let alive: Vec<bool> = self.team[..LURERS].iter().map(|p| !p.is_dead()).collect();
         for m in &mut self.monsters {
             let chasing = m.target.filter(|&t| t < LURERS);
-            let inside = (m.body.position - CENTRE).length() <= DPS_RADIUS;
-            if let Some(l) = chasing {
-                if inside && !m.delivered {
+            let out = (m.body.position - CENTRE).length();
+            let inside = out <= DPS_RADIUS;
+            let splashed = m.target.is_some_and(|t| t >= LURERS) && out <= DPS_RADIUS + AOE_BLAST;
+            let mut deliver = |m: &mut Monster, l: usize| {
+                if !m.delivered {
                     m.delivered = true;
                     self.lures[l].delivered += 1;
                 }
+            };
+            if let (Some(l), true) = (chasing, inside) {
+                deliver(m, l);
             }
             if let Some(l) = m.was_chasing_lurer {
                 if chasing != Some(l) && !inside && alive[l] {
-                    self.lures[l].lost += 1;
+                    if splashed {
+                        deliver(m, l);
+                    } else {
+                        self.lures[l].lost += 1;
+                    }
                 }
             }
             m.was_chasing_lurer = chasing;
@@ -3121,6 +3133,33 @@ mod tests {
         assert!(came_home);
     }
 
+    /// A pack's trailing monster that a dps's blast takes over at the disk's edge (within the
+    /// blast's 2 outside the disk) counts delivered, not lost; one taken over further out is
+    /// lost.
+    #[test]
+    fn a_monster_splashed_at_the_disks_edge_counts_delivered() {
+        for (out, delivered, lost) in [(11.0, 1, 0), (13.0, 0, 1)] {
+            let mut field = quiet_field();
+            // The monster chases lurer A, parked 9 or more away (beyond A's tag reach).
+            let park = Vec2::new(20.0, 0.0);
+            field.monsters[0].body = standing(Vec2::new(out, 0.0));
+            field.monsters[0].spawn = field.monsters[0].body.position;
+            field.monsters[0].threat.insert(0, 1.0);
+            field.monsters[0].target = Some(0);
+            step_with_parked_lurer(&mut field, park, 1);
+            assert_eq!(field.monsters[0].target, Some(0));
+            // A dps's damage tops its threat table: it turns on the dps.
+            field.monsters[0].threat.insert(2, 10.0);
+            step_with_parked_lurer(&mut field, park, 1);
+            assert_eq!(field.monsters[0].target, Some(2));
+            assert_eq!(
+                (field.lures[0].delivered, field.lures[0].lost),
+                (delivered, lost),
+                "at {out}"
+            );
+        }
+    }
+
     /// Two minutes of the default field: the lurer makes trips, brings monsters in, and is
     /// out of the dps disk most of the time.
     #[test]
@@ -3142,17 +3181,15 @@ mod tests {
         // seed put near the disk (2,000 HP against four dps spreading fire, and dps roaming
         // past the HP buffer's reach). Load cap 6 at 15 monsters: 13 kills, 6 deaths; kept at 3.
         // With the heal, group heal and guard: the same trips and deliveries (A 2/5/2, B
-        // 3/9/2), 16 kills, no deaths; 9 heals, 0 group heals, 10 guards.
+        // 3/9/2), 16 kills, no deaths; 9 heals, 0 group heals, 10 guards. With the splash
+        // rule (a packmate a dps's damage takes over within the blast's 2 outside the disk
+        // counts delivered): A 2/7/0, B 3/11/0, 23 / 11 walked per delivered, the same 16
+        // kills, no deaths, 9 heals, 10 guards; every former "lost" was a splashed packmate.
         assert_eq!(stages.len(), 3);
         let delivered = a.delivered + b.delivered;
         assert!(a.trips >= 2 && b.trips >= 2, "{} {}", a.trips, b.trips);
         assert!(delivered >= 10, "{delivered}");
-        assert!(
-            a.lost + b.lost <= delivered / 2,
-            "{} {} lost",
-            a.lost,
-            b.lost
-        );
+        assert!(a.lost + b.lost <= 1, "{} {} lost", a.lost, b.lost);
         assert!(
             a.sessions >= 2 && b.sessions >= 2,
             "{} {}",
