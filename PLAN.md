@@ -7,7 +7,9 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
 - Stage 2, 3D (Phase 7): done so far: the empty arena (steps A, B, E) and the Silkroad world (steps
   C, D: terrain, floors, walls around Jangan). The 2D crates and demos stay alongside the 3D ones.
 - Stage 3, the Training Field (Phase 8): a Silkroad training spot in miniature, built for the
-  lurer; done through F6k (#46). What comes next: Status, "Next".
+  lurer; done through F6k (#46) and the follow-ups of 2026-11-03 (#48-#60: rocks, the risk
+  check by the lowest bar, the backlog cap, the hand-off, five-seed measurements, the web main
+  page). What comes next: Status, "Next".
 
 ## Status (2026-11-03)
 
@@ -19,7 +21,8 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
 | Phase 7 A/B/E: 3D core, 3D view, 3D demos | 24-37 | #23-#36 | done (steps 30-37 built as a batch) |
 | Phase 7 C: the Silkroad world (navmesh copy, standing on the ground, terrain view) | C1-C3 | #38-#40 | done |
 | Phase 7 D: walls (rectangle obstacle, wall query, the plaza with walls) | D1-D3 | #41-#43 | done |
-| Phase 8: the Training Field, built for the lurer (field, combat, rarities, two lurers, planners, risk check, buffs) | F1-F6k | #46 | done (one branch, 35 commits; the user looked after most steps; a fresh-session observation is next) |
+| Phase 8: the Training Field, built for the lurer (field, combat, rarities, two lurers, planners, risk check, buffs) | F1-F6k | #46 | done (one branch, 35 commits) |
+| Phase 8 follow-ups after the browser observation: status lines, the lost metric, rocks (circles and rectangles), the lowest-bar risk check, the backlog cap, the pull rule, the hand-off, five-seed measurements, the healer's MP gate, the group heal; the web main page | G1-G13 | #48-#60 | done (one small branch and PR each, 2026-11-03) |
 
 - The user looked at the 3D view (#26) and at the whole 3D batch and reported both "looking good"
   (2026-10-21); C2 (the walker on the ground) and C3 (the drawn terrain, "looks right") too; D3
@@ -27,48 +30,23 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
   confirmed in the browser.
 - Rhythm: one behavior at a time, held until the user understands it, and ask before each PR;
   batches (no holding, merge on green CI) only when the user asks for one.
-- The Training Field was observed in a fresh session 2026-11-03 (Findings, "Observed in the
-  browser"): no deaths, but the lurers stand at the centre two thirds of the time behind the
-  strong cap, every "lost" was a packmate splashed at the disk's edge, and lurer B's status line
-  was off the canvas. Agreed order from there (the user, 2026-11-03), one small branch and PR
-  each:
-  1. [done, #48] The status lines inside the map's square.
-  2. [done, this branch] "Lost" counts a monster delivered when a dps's damage takes it over
-     within the disk plus the blast's 2 (A 2/7/0, B 3/11/0 at seed 1; nothing else moved).
-  3. [done, this branch] Strong cap default 1 -> 2, re-pinned, as the baseline for the
-     obstacles' cost: the two minutes do not move (two strong arrive together and hold both
-     lurers either way); at 180 s A 5 and B 5 trips, 24 kills, no deaths, at the centre
-     93 / 113 s against 118 / 123 s.
-  4. [done, #51 and this branch] Obstacles in the luring disk: 8 rocks by default, circles
-     (#51) and rectangles at any angle (the numbers in Findings). The planner's detour cost
-     only if the gap is large; no line-of-sight occlusion (Silkroad has none).
-  5. The other Phase 8 Gaps worth tuning (the lurers' MP, lurer A's share).
-  6. [done, #53] The risk check reads the party window bar by bar (the lowest member and the
-     worst fall in 5 s) instead of the mean, which hid a dps at 11% (Findings).
-  7. [done, this branch] One backlog slider (the dps work left in the disk, in seconds, default
-     30) in place of the load and strong caps, read within sight, run down while out, the
-     lurer's own chasers added (Findings: B makes many short pulls whenever the work runs low).
-  8. [done, this branch] The pull rule (a monster chasing a player or inside the dps disk is
-     never pulled) and the backlog cap off by default: the cap tables (Findings) show no cap
-     buying safety at 15 or 30 monsters and every cap costing kills; the slider stays.
-  9. [done, #56] A main page listing every demo as a card (2D, then 3D), each opening its
-     page at `#/demo/<id>` with the controls in a panel on the left (the user, 2026-11-03).
-  10. [done, this branch] The hand-off: a lurer leaves the centre only once nothing chases it.
-      Found by the first five-seed measurement (Findings): with the cap off, seeds 2-4 had
-      5 dps deaths, all with 2-4 strong monsters in the disk and the HP buffer dry, and
-      lurers left with their pack still behind them on most leaves. With the hand-off: no
-      deaths on any seed, the cap off stays.
-  11. [done, this branch] The pinned measurement over five seeds with margins
-      (`five_seeds_train_for_three_minutes_without_a_death`: kills, the lowest member, both
-      lurers' deliveries, nothing lost, no leave while chased, at most one death in all).
-  12. [done, this branch] A strong pull only while the HP buffer's MP bar (the party window
-      shows MP too) is at least `HEALER_MP` 50: the sustain that ran out at every death seen.
-      On the five seeds with the hand-off it changes nothing (the healer's low never met a
-      strong pull on offer); it is the guard for the case the hand-off used to create.
-  13. [done, this branch] The group heal on two or more members in reach under 70%, bar by
-      bar (on the party's mean it never fired): group heals 0 / 0 / 1 / 4 / 0 over the five
-      seeds, no deaths. The agreed list of 2026-11-03 is complete; next is whatever the user
-      observes in the browser (restart `scripts/dev.sh`, the main page, then Training Field).
+- Phase 8 follow-ups (2026-11-03, each its own PR; the numbers in Findings):
+  #48 the status lines inside the map's square; #49 a packmate splashed at the disk's edge
+  counts delivered, not lost; #50 strong cap 2 (later replaced); #51 rocks (circles) and #52
+  rectangles at any angle, avoided 2 s ahead; #53 the risk check by the lowest bar, not the
+  party mean (the mean hid a dps at 11%); #54 one backlog cap (seconds of dps work) in place
+  of the load and strong caps; #55 the pull rule (nothing chasing a player or inside the disk
+  is pulled) and the cap off by default; #56 the web main page of demo cards with the
+  controls in a left panel; #57 the hand-off (a lurer leaves only once nothing chases it),
+  which removed all 5 deaths the first five-seed run found; #58 the five-seed pinned test;
+  #59 a strong pull only while the HP buffer has 50 MP; #60 the group heal on two members
+  under 70%. Dropped as a non-issue: "lurer A's share" (seed 1's nest layout).
+- Next: the user observes the current build in the browser (restart `scripts/dev.sh`, the main
+  page, then Training Field: the hand-off, the rocks, the status lines' backlog and lowest-bar
+  numbers) and says what to change. Candidates from Gaps if asked: nothing slows ordinary pulls
+  when the healer is dry; scouting sweeps instead of random spots; side probes so bodies stop
+  grazing rocks; the lurers' MP economy. Rhythm as before: a design with numbers, "go", one
+  small PR each, measured on five seeds.
   The 3D options offered 2026-10-21 stay for later:
   1. Stop bodies scraping walls: add the containment side probes (the design of steps 23 and 37) to the
      Silkroad walker, so walls it runs along or corners it rounds push it off (Findings: 299 of
@@ -389,7 +367,8 @@ and 50 here. Numbers are constants at the top of the module and `Settings` slide
   6 MP, 4 s), pierce (12 long, 1.5 either side, toward a monster, 8 MP, 6 s); every hit a tag
   (the lurer on the threat table); an area skill only when it tags two or more untagged
   monsters, the pierce on a tie.
-- The lurer's trip (`Lure`, `LureStage`, `lure_step`). Centre: stand until HP >= `LEAVE_HP` 90%,
+- The lurer's trip (`Lure`, `LureStage`, `lure_step`). Centre: stand until nothing chases it
+  (the hand-off: the dps have taken its pack), HP >= `LEAVE_HP` 90%,
   the backlog it knows of within the cap (off by default, slider 0-120 s of dps work: the HP left in the dps disk
   at the four dps's focused 26.7 a second, read with the disk in sight, run down since, plus
   what chases the lurer from outside the disk; `Lure::backlog`), the party not halted (every
@@ -397,17 +376,17 @@ and 50 here. Numbers are constants at the top of the module and `Settings` slide
   within 15 of the centre that is healthy or moving (at most 5 s). Out: plan every 1 s over the
   8 nearest candidates (untagged by any lurer, chasing nobody, outside the dps disk; mine, by
   the nearer visible lurer with ties to A;
-  within my sight 30; reachable from inside the disk; strong ones only while the disk holds
-  the backlog within the cap, every bar >= 70%, no member fell more than 15 in 5 s and the HP
-  buffer at 50 MP or more): the cast
+  within my sight 30; reachable from inside the disk; strong ones only while my backlog is
+  within the cap, every bar >= 70%, no member fell more than 15 in 5 s and the HP buffer has
+  50 MP or more): the cast
   planner (default; a stop is a monster to get within a skill's reach of; the shortest run that
   tags N, the fewest casts on a tie) or the stops planner (button); run to the first stop; back
   when N (3) chase, HP < 40%, or nothing more is in sight after a tag; with nothing in sight and
   nothing tagged, scout random spots of the band 30..47 away from where the other lurer was last
   seen (10 s memory). Back: home within 1; the session's time and HP recorded.
 - What a lurer knows (`observe`): monsters and the other lurer within 30 of itself, every
-  member's HP (the party window), which player a monster chases, its own memory; never the
-  other lurer's stage or plan, never a position beyond 30.
+  member's HP and MP bars (the party window), which player a monster chases, where it stands,
+  its own memory; never the other lurer's stage or plan, never a position beyond 30.
 - The view: bodies by role color; HP/MP bars on dark tracks; every reach as circles
   (`CircleView`: ranged 8 and alarm 6 amber, melee violet, LOS 35 lilac on chasing monsters
   outside the dps disk, each lurer's sight 30); the planned tour or scouting spot as a gray
@@ -424,7 +403,7 @@ and 50 here. Numbers are constants at the top of the module and `Settings` slide
   `step_with_parked_lurer` (A put back at a spot after every step), `run_tracking_a` (tags by
   monster id over a run), `measure` and `Measured` (margins, speeds, time in the buff disk).
 
-### Next step: obstacles in the luring disk (the user, 2026-11-03; circles #51 and rectangles done)
+### Obstacles in the luring disk (the user, 2026-11-03; done: circles #51, rectangles #52)
 
 Random obstacles of varying shape and size inside the luring disk. Settled with the user
 2026-11-03 (after the browser observation): circles first, a slider 0..20 (default 8), radius
@@ -851,7 +830,8 @@ Decided with the user (2026-11-02 to 03, Phase 8, in order):
   cap. No focus fire for the dps (AoE parties do not need it); the lurer judges a strong monster
   from the dps disk and the party window rather than a blanket "never"; more buff skills rather
   than a longer buffer reach; the guard toned down to 20% for 20 s, 10 MP, 5 s (a one-a-second
-  blanket was "quite outstanding"). The load cap stays 3 (6 measured worse at 15 monsters).
+  blanket was "quite outstanding"). The load cap stayed 3 (6 measured worse at 15 monsters)
+  until the backlog cap replaced both caps (#54).
 - After the browser observation (2026-11-03): a monster a dps's damage takes over within the
   blast's 2 outside the disk counts delivered, not lost (every lost in the seed-1 run was such a
   packmate); the strong cap default goes from 1 to 2 before the obstacles; the obstacles'
@@ -863,10 +843,18 @@ Decided with the user (2026-11-02 to 03, Phase 8, in order):
   instead of head counts (what the dps still have to kill, visible as monster bars): one
   slider, default 30 s, a strong monster a candidate only under it, the lurer's own chasers
   counted (so one lurer never brings two strong ones; two lurers out of each other's sight
-  still can). The cap is off by default (my recommendation from the cap tables, 2026-11-03):
-  with the lowest-bar check nobody died at any cap, and every cap cost kills; the slider stays
-  for a cautious lurer. The pull rule: a monster already chasing a player or already inside
-  the dps disk is never a pull target (a real lurer leaves the spot's own monsters to the dps).
+  still can). The pull rule: a monster already chasing a player or already inside the dps disk
+  is never a pull target (a real lurer leaves the spot's own monsters to the dps).
+- The cap is off by default. First decided on seed 1 alone ("no cap buys safety"), which five
+  seeds contradicted (5 deaths); the real cause was lurers leaving the centre with their pack
+  still chasing them. With the hand-off (#57, a lurer leaves only once nothing chases it) the
+  cap off is safe on all five seeds and kills about a quarter more than cap 30; the slider stays
+  for a cautious lurer. Agreed from my evaluation (the user, 2026-11-03): the hand-off; every
+  tuning claim measured on five seeds (the pinned five-seed test); a strong pull only while the
+  HP buffer's MP bar is 50 or more (the party window shows MP; the healer's MP ran out at every
+  death seen); the group heal on two or more members in reach under 70% (on the mean it never
+  fired). "Lurer A's share" was dropped: independent lurers working the halves nearer to them
+  is the intended behaviour, and the five seeds show no bias.
 
 Open (ask before acting):
 - The party window showing members' HP bars is my assumption about the game; if it does not,
@@ -1061,29 +1049,25 @@ trips/delivered/lost):
 - 3D Wall Following and Containment only know an axis-aligned box (`wall::Block`); there is no concave 3D room (the 2D L-room case). Navmesh walls are used only by obstacle avoidance ("3D Seek on Silkroad"), not by wall following or containment.
 - Unproven causes, stated as "likely" in Findings: the 3D wanderer's larger speed overshoot, 3D path-following excursions, 3D Leader Following's fewer overlaps.
 
-- Training Field: time inside the dps disk is set by the backlog cap, not the lurers' walk
-  (B: 12 pulls of 4.9 s in two minutes at 30 s);
-  the group heal fires only on seeds where two members are hurt at once (4 of 5 seeds: none or
-  one); scouting is random spots, so a lurer can zigzag
-  on an empty side; the planners assume skill cooldowns stay as at planning time, and the stops
-  planner keeps the fence only by candidate distance; the fine-grained numbers are one seed (1)
-  and two minutes, the five-seed test holds only margins; dps roam to 10 while the HP buffer reaches 8 from within 5; party giants are off
-  (20,000 HP); a giant (2,000) in the disk still needs 75 s of focused fire; a monster's idle
-  run uses the chase speed slider and a gait change cuts speed at once; no MP economy for the
-  lurers' sessions; any new random draw shifts every pinned number (tests carry margins and the
-  history; re-pin and say so); a test placing monsters must set their rarity to normal and
-  freeze their gait when a position matters, and must track monsters by id across steps (a kill
-  removes an entry); `trips` counts leaves and `sessions` returns; the party window's HP bars
-  are assumed; the status lines are about 170 characters at 12 px, so they run off the right
-  edge of a canvas narrower than about 1,250 px; labels pile up over the dps disk; two strong
-  monsters arriving together (2,000 HP each, 150 s of work) still hold both lurers for two
-  minutes at a backlog cap of 30 s;
-  bodies graze rocks (avoidance looks only ahead, as on the plaza's walls); a lurer plans a
-  strong monster while the disk holds one fewer than the cap, so two lurers can fill the disk to
-  the cap plus one (with rocks: three 2,000 HP monsters from 80 s, both lurers held for minutes);
-  the HP buffer's MP
-  is the party's real sustain limit (5-13 MP at every death seen); strong pulls now stop under
-  50 MP, but nothing slows ordinary pulls or the dps's roaming when the healer is dry.
+- Training Field, the model: nothing slows ordinary pulls or the dps's roaming when the HP
+  buffer is dry (strong pulls stop under 50 MP); two lurers out of each other's sight can each
+  bring a strong monster (the knowledge rule; the healer's MP gate limits the damage); scouting
+  is random spots, so a lurer can zigzag on an empty side; the planners assume skill cooldowns
+  stay as at planning time, and the stops planner keeps the fence only by candidate distance;
+  dps roam to 10 while the HP buffer reaches 8 from within 5; party giants are off (20,000 HP);
+  a giant (2,000) in the disk still needs 75 s of focused fire; a monster's idle run uses the
+  chase speed slider and a gait change cuts speed at once; no MP economy for the lurers'
+  sessions (they never fell under 90 MP in any measured run); the party window's HP and MP
+  bars are assumed; bodies graze rocks (avoidance looks only ahead, as on the plaza's walls);
+  the group heal fires only when two members are hurt at once (1 of 5 seeds more than once).
+- Training Field, measuring: the fine-grained numbers are one seed (1) and two minutes, the
+  five-seed test holds only margins; any new random draw shifts every pinned number (tests
+  carry margins and the history; re-pin and say so); `trips` counts leaves (since the cap came
+  off, short pulls on the near ring, not excursions) and `sessions` returns; a test placing
+  monsters must set their rarity to normal and freeze their gait when a position matters, and
+  must track monsters by id across steps (a kill removes an entry).
+- Training Field, the view: the status lines are about 170 characters at 12 px, so they run off
+  the right edge of a canvas narrower than about 1,250 px; labels pile up over the dps disk.
 
 ## Learning aids
 
