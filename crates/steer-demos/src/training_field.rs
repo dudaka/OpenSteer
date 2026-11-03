@@ -1,9 +1,9 @@
 //! "Training Field": a Silkroad training spot in miniature, built to work on the lurer. A team
 //! of six trains round one centre, each role keeping to its own radius: three dps (10), an HP
 //! and an MP buffer (5) and our lurer (50); monsters spawn at random over a rectangular map.
-//! Built so far (PLAN.md, Phase 8): the map, the disks, the spawns, and bodies that stand, walk
-//! or run at human speeds, each wandering inside its own disk. Roles, combat and the lurer's
-//! trips come in later steps.
+//! Built so far (PLAN.md, Phase 8): the map, the disks, the spawns, and bodies at human speeds,
+//! each wandering inside its own disk: the players always run, a monster stands, walks or runs
+//! for a few seconds at a time. Roles, combat and the lurer's trips come in later steps.
 
 use std::f32::consts::TAU;
 
@@ -12,7 +12,7 @@ use steer_core::wall::Wall;
 use steer_core::{steer, Vec2, Vehicle};
 
 use crate::annotation::{circle, color, label, legend, line, vehicle_view};
-use crate::controls::{button, slider, Range};
+use crate::controls::{slider, Range};
 use crate::view::FrameView;
 
 /// The map: a rectangle this wide and high, centred on the training centre.
@@ -22,8 +22,10 @@ pub const CENTRE: Vec2 = Vec2::ZERO;
 pub const DPS_RADIUS: f32 = 10.0;
 pub const BUFF_RADIUS: f32 = 5.0;
 pub const LURE_RADIUS: f32 = 50.0;
-/// How far from its spawn an idle monster wanders.
+/// How far from its spawn an idle monster wanders, and how long it keeps a gait.
 pub const IDLE_RADIUS: f32 = 6.0;
+const GAIT_MIN_S: f32 = 2.0;
+const GAIT_MAX_S: f32 = 6.0;
 const MONSTERS: Range = Range::new(5.0, 60.0, 1.0);
 const DEFAULT_MONSTERS: usize = 30;
 const SEED: u64 = 1;
@@ -75,7 +77,8 @@ impl Role {
     }
 }
 
-/// How a body moves: at rest, or wandering at a human walk or run.
+/// How a body moves: at rest, or wandering at a human walk or run. Players always run; a
+/// monster draws a gait every few seconds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Gait {
     Standing,
@@ -92,17 +95,9 @@ impl Gait {
         }
     }
 
-    const ALL: [Gait; 3] = [Gait::Standing, Gait::Walking, Gait::Running];
+    pub const ALL: [Gait; 3] = [Gait::Standing, Gait::Walking, Gait::Running];
 
-    fn id(self) -> &'static str {
-        match self {
-            Gait::Standing => "stand",
-            Gait::Walking => "walk",
-            Gait::Running => "run",
-        }
-    }
-
-    fn name(self) -> &'static str {
+    pub fn name(self) -> &'static str {
         match self {
             Gait::Standing => "standing",
             Gait::Walking => "walking",
@@ -114,7 +109,6 @@ impl Gait {
 #[derive(Debug, Clone)]
 pub struct Player {
     pub role: Role,
-    pub gait: Gait,
     pub body: Vehicle,
     wander_side: f32,
 }
@@ -122,6 +116,8 @@ pub struct Player {
 #[derive(Debug, Clone)]
 pub struct Monster {
     pub gait: Gait,
+    /// When the next gait is drawn (simulation time).
+    until: f32,
     pub body: Vehicle,
     /// Where it appeared: it idles round here and (a later step) leashes back here.
     pub spawn: Vec2,
@@ -135,8 +131,6 @@ pub struct TrainingField {
     monsters: Vec<Monster>,
     /// How many monsters the map keeps alive (the slider).
     wanted: usize,
-    /// The gait the buttons last gave the whole team.
-    team_gait: Gait,
     rng: fastrand::Rng,
     time: f32,
 }
@@ -195,12 +189,11 @@ fn stroll(
 
 impl Default for TrainingField {
     /// The team round the centre: the lurer on it, the dps 4 out at thirds of the circle,
-    /// the buffers 2.5 out between them, all walking; `DEFAULT_MONSTERS` spawned.
+    /// the buffers 2.5 out between them; `DEFAULT_MONSTERS` spawned.
     fn default() -> Self {
         let third = TAU / 3.0;
         let player = |role, at| Player {
             role,
-            gait: Gait::Walking,
             body: standing(at),
             wander_side: 0.0,
         };
@@ -216,7 +209,6 @@ impl Default for TrainingField {
             team,
             monsters: Vec::new(),
             wanted: DEFAULT_MONSTERS,
-            team_gait: Gait::Walking,
             rng: fastrand::Rng::with_seed(SEED),
             time: 0.0,
         };
@@ -234,29 +226,31 @@ impl TrainingField {
         &self.monsters
     }
 
-    /// Spawns the missing monsters, then moves every body: a player inside its role's disk, a
-    /// monster inside `IDLE_RADIUS` of its spawn, each with its whole body inside.
+    /// Spawns the missing monsters, then moves every body: a player runs inside its role's
+    /// disk, a monster keeps inside `IDLE_RADIUS` of its spawn at the gait it drew for the
+    /// next `GAIT_MIN_S`-`GAIT_MAX_S` seconds, each with its whole body inside.
     pub fn update(&mut self, dt: f32) {
         self.time += dt;
         self.spawn_missing();
         let rng = &mut self.rng;
         for p in &mut self.team {
             let region = disk(CENTRE, p.role.radius() - BODY_RADIUS);
-            stroll(&mut p.body, p.gait, &mut p.wander_side, &region, dt, rng);
+            stroll(
+                &mut p.body,
+                Gait::Running,
+                &mut p.wander_side,
+                &region,
+                dt,
+                rng,
+            );
         }
         for m in &mut self.monsters {
+            if self.time >= m.until {
+                m.gait = Gait::ALL[rng.usize(..Gait::ALL.len())];
+                m.until = self.time + GAIT_MIN_S + (GAIT_MAX_S - GAIT_MIN_S) * rng.f32();
+            }
             let region = disk(m.spawn, IDLE_RADIUS - BODY_RADIUS);
             stroll(&mut m.body, m.gait, &mut m.wander_side, &region, dt, rng);
-        }
-    }
-
-    /// The gait buttons: the whole team stands, walks or runs.
-    pub fn action(&mut self, id: &str) {
-        if let Some(gait) = Gait::ALL.into_iter().find(|g| g.id() == id) {
-            self.team_gait = gait;
-            for p in &mut self.team {
-                p.gait = gait;
-            }
         }
     }
 
@@ -268,12 +262,13 @@ impl TrainingField {
         }
     }
 
-    /// Spawns monsters until `wanted` are on the map, walking round their spawn.
+    /// Spawns monsters until `wanted` are on the map, standing until their first gait draw.
     fn spawn_missing(&mut self) {
         while self.monsters.len() < self.wanted {
             let at = self.spawn_point();
             self.monsters.push(Monster {
-                gait: Gait::Walking,
+                gait: Gait::Standing,
+                until: self.time,
                 body: standing(at),
                 spawn: at,
                 wander_side: 0.0,
@@ -318,14 +313,15 @@ impl TrainingField {
             lines.extend(circle(CENTRE, r, color::RADIUS));
             labels.push(label(CENTRE + Vec2::new(0.0, -r - 1.0), text, color::LABEL));
         }
+        let gaits: Vec<String> = (Gait::ALL.iter())
+            .map(|g| {
+                let n = self.monsters.iter().filter(|m| m.gait == *g).count();
+                format!("{n} {}", g.name())
+            })
+            .collect();
         labels.push(label(
             corner(0.0, h + 3.0),
-            format!(
-                "{} monsters walking; the team {} ({} m/s)",
-                self.monsters.len(),
-                self.team_gait.name(),
-                self.team_gait.speed()
-            ),
+            format!("{} monsters: {}", self.monsters.len(), gaits.join(", ")),
             color::LABEL,
         ));
         let body = |p: &Player| match p.role {
@@ -356,10 +352,7 @@ impl TrainingField {
                 ),
                 (color::EDGE, "map edge: monsters spawn inside"),
             ]),
-            actions: Gait::ALL
-                .iter()
-                .map(|g| button(g.id(), g.name(), *g == self.team_gait))
-                .collect(),
+            actions: Vec::new(),
             params: vec![slider("monsters", "Monsters", MONSTERS, self.wanted as f32)],
         }
     }
@@ -472,35 +465,16 @@ mod tests {
         assert_eq!(field.monsters().len(), 60);
     }
 
-    #[test]
-    fn walking_bodies_hold_walking_speed_inside_their_disks() {
-        let mut field = TrainingField::default();
-        let m = measure(&mut field, 120.0);
-        assert!(m.player_over <= 0.0, "{}", m.player_over);
-        assert!(
-            m.monster_out <= IDLE_RADIUS - BODY_RADIUS,
-            "{}",
-            m.monster_out
-        );
-        for speed in m.mean_speed {
-            assert!((speed - WALK_SPEED).abs() < 0.01, "{speed}");
-        }
-        for monster in field.monsters() {
-            assert!((monster.body.speed - WALK_SPEED).abs() < 0.01);
-        }
-        // They did wander: no teammate is still at its start.
-        let moved = (field.team().iter())
-            .filter(|p| (p.body.position - CENTRE).length() > 1.0 || p.role == Role::Lurer);
-        assert_eq!(moved.count(), 6);
-    }
-
     /// Running inside a small disk is a run braked into every turn: the lurer, with room,
     /// averages 4.6; the dps 3.4 in their 10; the buffers 2.1 in their 5; nobody below 1.47.
     #[test]
-    fn the_buttons_make_the_team_run_or_stand() {
+    fn players_run_inside_their_disks() {
         let mut field = TrainingField::default();
-        field.action("run");
         let m = measure(&mut field, 60.0);
+        println!(
+            "players: over {} mean {:?} min {:?}",
+            m.player_over, m.mean_speed, m.min_speed
+        );
         assert!(m.player_over <= 0.0, "{}", m.player_over);
         assert!(m.mean_speed[0] > 4.5, "{:?}", m.mean_speed);
         assert!(
@@ -518,17 +492,37 @@ mod tests {
             .team()
             .iter()
             .all(|p| p.body.speed <= RUN_SPEED + 1e-3));
-        let active: Vec<_> = (field.view().actions.iter())
-            .filter(|a| a.active)
-            .map(|a| a.id.clone())
-            .collect();
-        assert_eq!(active, ["run"]);
-        field.action("stand");
-        let before: Vec<Vec2> = field.team().iter().map(|p| p.body.position).collect();
-        run(&mut field, 1.0);
-        for (p, at) in field.team().iter().zip(before) {
-            assert_eq!(p.body.speed, 0.0);
-            assert!((p.body.position - at).length() < RUN_SPEED / 60.0);
+    }
+
+    /// A monster keeps each gait 2-6 s: over two minutes every monster has stood, walked and
+    /// run, each gait about a third of the time, never faster than its gait, never further
+    /// than its idle radius from the spawn.
+    #[test]
+    fn monsters_change_gait_and_keep_near_their_spawn() {
+        let mut field = TrainingField::default();
+        let mut steps_in = [0usize; 3];
+        let mut visited = vec![[false; 3]; DEFAULT_MONSTERS];
+        let mut out = 0.0f32;
+        for _ in 0..120 * 60 {
+            field.update(1.0 / 60.0);
+            for (i, m) in field.monsters().iter().enumerate() {
+                let g = Gait::ALL.iter().position(|&g| g == m.gait).unwrap();
+                steps_in[g] += 1;
+                visited[i][g] = true;
+                assert!(
+                    m.body.speed <= m.gait.speed() + 1e-3,
+                    "{:?} at {}",
+                    m.gait,
+                    m.body.speed
+                );
+                out = out.max((m.body.position - m.spawn).length());
+            }
         }
+        let total = steps_in.iter().sum::<usize>() as f32;
+        let shares = steps_in.map(|n| n as f32 / total);
+        println!("monsters: gait shares {shares:?}, furthest out {out}");
+        assert!(shares.iter().all(|&s| s > 0.25 && s < 0.42), "{shares:?}");
+        assert!(visited.iter().all(|v| v.iter().all(|&b| b)));
+        assert!(out <= IDLE_RADIUS - BODY_RADIUS, "{out}");
     }
 }

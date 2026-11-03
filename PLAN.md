@@ -355,11 +355,13 @@ Steps:
   speed inside its own disk (`contain` on a 40-point circle `role.radius() - BODY_RADIUS`, probe
   1 s ahead; a runner also brakes at 4 while the push is on, since its turning radius of about 3
   is wider than the buffers' disk; a walker turns within 0.3 and needs no brake), monsters idle
-  the same way within 6 of their spawn, buttons Stand / Walk / Run for the whole team. No
-  collisions between bodies (the user). Measured and pinned: walking, everyone holds 1.5 and the
-  whole body stays inside (at worst 0.41 inside the ring); running, the lurer averages 4.6, the
-  dps 3.4, the buffers 2.1, nobody below 1.47, all inside. Mutation (the players' region without
-  the body margin) fails the walking test.
+  the same way within 6 of their spawn. No collisions between bodies (the user). Then (the user):
+  players always run; a monster draws a gait at random and keeps it 2-6 s. Measured and pinned:
+  running, the whole body stays inside (at worst 0.44 inside the ring), the lurer averages 4.6,
+  the dps 2.8-3.2, the buffers 2.2, nobody below 1.49; monsters spend about a third of the time
+  in each gait, every one visits all three in two minutes, none faster than its gait or further
+  than 4.4 from its spawn. (Measured before the change: walking, everyone holds exactly 1.5.)
+  Mutations (the players' region without the body margin; a gait never redrawn) fail.
 - F2. HP, MP, skills, the hit rule, deaths and respawns; monsters' threat table and aggro
   (hit, on sight), pursuit, bite, leash. Hand-computed tests.
 - F3. The dps role. Verify: never outside 10 (plus the body), kills happen.
