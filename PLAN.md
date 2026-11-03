@@ -322,8 +322,10 @@ Requirements (the user 2026-11-02; defaults are ours, changed on their word):
   and green stay the push and the want).
 - Combat: HP and MP on everyone, slow regeneration (1% a second). A skill has reach, effect, MP
   cost and cooldown: dps attack (reach 2, 10 damage, 5 MP, 1 s); the lurer's tag (reach 8, 1
-  damage, 2 MP, 1 s); HP buff (reach 15, +30 HP to a member under the threshold, 10 MP, 1 s);
-  MP buff (reach 15, +30 MP, 5 MP, 1 s); a monster's bite (reach 1, 5 damage, 1.5 s). HP 100,
+  damage, 2 MP, 1 s); HP buff (+30 HP to a member under the threshold, 10 MP, 1 s); MP buff
+  (+30 MP, 5 MP, 1 s), both reaching the buffer's ranged disk (8; the user 2026-11-02: the 5
+  disk is only where a buffer moves, a teammate inside the ranged disk is recovered); a
+  monster's bite (reach 1, 5 damage, 1.5 s). HP 100,
   MP 100. A dead monster is removed and counted; a dead player counts and returns to the centre
   after 5 s with full bars. Buffers never attack; thresholds default 90%.
 - Monsters (decided by the user): idle at the spawn; aggro when hit **and on sight within a
@@ -387,7 +389,8 @@ Steps:
   the small disk's edge (gap within 0.1 of 2); the nearest player in reach is picked, none
   beyond 8; chases happen in the first minute and only from inside the big disk; in two minutes
   24 of 30 monsters never chased and those kept their gait shares and idle radius. Mutation (a
-  stop at ranged reach) fails the hunt test.
+  stop at ranged reach) fails the hunt test. Then (the user): a monster's big disk is its
+  alarm, `ALARM_REACH` 6, smaller than a player's 8; the buff rule above.
 - F2. HP, MP, skills, the hit rule, deaths and respawns; monsters' threat table and aggro
   (hit, on sight), pursuit, bite, leash. Hand-computed tests.
 - F3. The dps role. Verify: never outside 10 (plus the body), kills happen.

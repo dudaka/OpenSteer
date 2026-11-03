@@ -4,9 +4,10 @@
 //! Built so far (PLAN.md, Phase 8): the map, the disks, the spawns, and bodies at human speeds,
 //! each roaming its own disk from one random spot to the next: the players always run, a
 //! monster stands, walks or runs for a few seconds at a time. Every entity carries two disks
-//! on its own position: a big one, its ranged reach, and a small one, its melee reach. Players
-//! are ranged; a monster is melee, and chases the nearest player inside its big disk until that
-//! player is inside its small disk. Combat and the lurer's trips come in later steps.
+//! on its own position: a big one, its ranged reach (a player's 8 is its attack and its buffs,
+//! a monster's 6 is its alarm), and a small one, its melee reach. Players are ranged; a
+//! monster is melee, and chases the nearest player inside its big disk until that player is
+//! inside its small disk. Combat and the lurer's trips come in later steps.
 
 use std::f32::consts::TAU;
 
@@ -40,9 +41,10 @@ pub const WALK_SPEED: f32 = 1.5;
 pub const RUN_SPEED: f32 = 5.0;
 /// Pedestrians' max force.
 const MAX_FORCE: f32 = 8.0;
-/// Every entity's two reaches, centre to centre: ranged (the big disk; a player's attack, a
-/// monster's alarm) and melee (the small disk; a monster's attack).
+/// Every entity's two reaches, centre to centre: the big disk (a player's ranged attack and
+/// buffs; a monster's alarm, smaller) and the small disk (melee; a monster's attack).
 pub const RANGED_REACH: f32 = 8.0;
+pub const ALARM_REACH: f32 = 6.0;
 pub const MELEE_REACH: f32 = 2.0;
 /// Containment's look-ahead: the probe is `BODY_RADIUS + LOOK_AHEAD * speed` ahead.
 const LOOK_AHEAD: f32 = 1.0;
@@ -235,11 +237,11 @@ fn hunt(body: &mut Vehicle, target: Vec2, dt: f32) -> Gait {
     gait
 }
 
-/// The nearest of `players` within `RANGED_REACH` of `at`, and its distance.
+/// The nearest of `players` within `ALARM_REACH` of `at`, and its distance.
 fn player_in_reach(at: Vec2, players: &[Vec2]) -> Option<(usize, f32)> {
     (players.iter().enumerate())
         .map(|(i, &p)| (i, (p - at).length()))
-        .filter(|&(_, d)| d <= RANGED_REACH)
+        .filter(|&(_, d)| d <= ALARM_REACH)
         .min_by(|a, b| a.1.total_cmp(&b.1))
 }
 
@@ -370,10 +372,10 @@ impl TrainingField {
             .windows(2)
             .map(|c| line(c[0], c[1], color::EDGE))
             .collect();
-        let bodies =
-            (self.team.iter().map(|p| &p.body)).chain(self.monsters.iter().map(|m| &m.body));
-        for b in bodies {
-            lines.extend(circle(b.position, RANGED_REACH, color::RANGED));
+        let reaches = (self.team.iter().map(|p| (&p.body, RANGED_REACH)))
+            .chain(self.monsters.iter().map(|m| (&m.body, ALARM_REACH)));
+        for (b, big) in reaches {
+            lines.extend(circle(b.position, big, color::RANGED));
             lines.extend(circle(b.position, MELEE_REACH, color::MELEE));
         }
         for m in &self.monsters {
@@ -443,7 +445,7 @@ impl TrainingField {
                 (color::EDGE, "map edge: monsters spawn inside"),
                 (
                     color::RANGED,
-                    "ranged reach 8 round each entity: a player's attack, a monster's alarm",
+                    "big disk: a player's ranged reach 8 (attack, buffs), a monster's alarm 6",
                 ),
                 (color::MELEE, "melee reach 2: a monster's attack"),
                 (color::TARGET, "chase: the player a monster closes on"),
@@ -516,9 +518,10 @@ mod tests {
         assert_eq!(body.speed, 0.0);
         assert_eq!(gaits[0], Gait::Running);
         assert_eq!(gaits[179], Gait::Standing);
-        // Only players inside the big disk count, the nearest first.
+        // Only players inside the alarm disk count, the nearest first; 7 is inside a player's
+        // reach but outside a monster's alarm.
         let players = [
-            Vec2::new(0.0, -9.0),
+            Vec2::new(0.0, -7.0),
             Vec2::new(5.0, 0.0),
             Vec2::new(-3.0, 0.0),
         ];
@@ -537,7 +540,7 @@ mod tests {
                     chase_steps += 1;
                     let d = (field.team()[i].body.position - m.body.position).length();
                     // Chosen inside the big disk at the start of the step; both moved since.
-                    assert!(d <= RANGED_REACH + 2.0 * RUN_SPEED / 60.0, "{d}");
+                    assert!(d <= ALARM_REACH + 2.0 * RUN_SPEED / 60.0, "{d}");
                     assert!(m.gait != Gait::Walking);
                 }
             }
