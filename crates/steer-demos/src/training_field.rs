@@ -47,10 +47,13 @@ const MAX_FORCE: f32 = 8.0;
 pub const MAX_HP: f32 = 100.0;
 pub const MAX_MP: f32 = 100.0;
 pub const REGEN: f32 = 1.0;
-/// Bars over a body: as wide as the body, this far above its centre (up the screen is -y).
-const BAR_WIDTH: f32 = 2.0 * BODY_RADIUS;
-const HP_BAR_LIFT: f32 = 1.6;
-const MP_BAR_LIFT: f32 = 2.0;
+/// Bars over a body: twice the body's width, this far above its centre (up the screen is -y),
+/// each `BAR_STRANDS` lines `BAR_STRAND_GAP` apart, since a WebGL line is always 1 px.
+const BAR_WIDTH: f32 = 4.0 * BODY_RADIUS;
+const HP_BAR_LIFT: f32 = 1.8;
+const MP_BAR_LIFT: f32 = 2.5;
+const BAR_STRANDS: usize = 3;
+const BAR_STRAND_GAP: f32 = 0.12;
 /// Every entity's two reaches, centre to centre: the big disk (a player's ranged attack and
 /// buffs; a monster's alarm, smaller) and the small disk (melee; a monster's attack).
 pub const RANGED_REACH: f32 = 8.0;
@@ -182,10 +185,12 @@ fn around(centre: Vec2, r: f32, angle: f32) -> Vec2 {
 }
 
 /// A bar over the body at `at`: `BAR_WIDTH` wide at full, `lift` above the centre, filled
-/// from the left to `fill` (0 to 1).
-fn bar(at: Vec2, lift: f32, fill: f32, color: u32) -> LineView {
-    let left = at + Vec2::new(-BAR_WIDTH / 2.0, -lift);
-    line(left, left + Vec2::new(BAR_WIDTH * fill, 0.0), color)
+/// from the left to `fill` (0 to 1); `BAR_STRANDS` lines stacked for thickness.
+fn bar(at: Vec2, lift: f32, fill: f32, color: u32) -> impl Iterator<Item = LineView> {
+    (0..BAR_STRANDS).map(move |i| {
+        let left = at + Vec2::new(-BAR_WIDTH / 2.0, -lift - i as f32 * BAR_STRAND_GAP);
+        line(left, left + Vec2::new(BAR_WIDTH * fill, 0.0), color)
+    })
 }
 
 /// A disk as a containment region: a 40-point counter-clockwise polygon.
@@ -398,21 +403,12 @@ impl TrainingField {
             .map(|c| line(c[0], c[1], color::EDGE))
             .collect();
         for p in &self.team {
-            lines.push(bar(
-                p.body.position,
-                HP_BAR_LIFT,
-                p.hp / MAX_HP,
-                HP_BUFFER_BODY,
-            ));
-            lines.push(bar(
-                p.body.position,
-                MP_BAR_LIFT,
-                p.mp / MAX_MP,
-                MP_BUFFER_BODY,
-            ));
+            let at = p.body.position;
+            lines.extend(bar(at, HP_BAR_LIFT, p.hp / MAX_HP, HP_BUFFER_BODY));
+            lines.extend(bar(at, MP_BAR_LIFT, p.mp / MAX_MP, MP_BUFFER_BODY));
         }
         for m in &self.monsters {
-            lines.push(bar(
+            lines.extend(bar(
                 m.body.position,
                 HP_BAR_LIFT,
                 m.hp / MAX_HP,
@@ -645,12 +641,14 @@ mod tests {
             .iter()
             .filter(|l| l.color == MP_BUFFER_BODY)
             .count();
-        assert_eq!(hp_bars.len(), 6 + DEFAULT_MONSTERS);
-        assert_eq!(mp_bars, 6);
-        // The lurer's half-full HP bar is half the body's width, above its centre.
+        assert_eq!(hp_bars.len(), (6 + DEFAULT_MONSTERS) * BAR_STRANDS);
+        assert_eq!(mp_bars, 6 * BAR_STRANDS);
+        // The lurer's half-full HP bar is half the bar's width, above its centre; its
+        // strands sit one gap apart.
         let lurer = &hp_bars[0];
         assert_eq!(lurer.from, [-BAR_WIDTH / 2.0, -HP_BAR_LIFT]);
         assert_eq!(lurer.to, [0.0, -HP_BAR_LIFT]);
+        assert_eq!(hp_bars[1].from[1], -HP_BAR_LIFT - BAR_STRAND_GAP);
     }
 
     #[test]
