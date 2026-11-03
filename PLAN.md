@@ -463,6 +463,23 @@ Steps:
   on four chasers (the step after they start chasing), at 30% HP, or with nothing left, then
   home. Mutation (no return on chasers) fails. Still roaming: dps and buffers; the lurer no
   longer does, so the roaming test covers those five.
+- F6 (the user 2026-11-02, five features; the order recommended and accepted): rarities, the
+  5-monster AoE cap and the lurer's two AoE skills, balance sliders and leaving at 100% HP, a
+  tour planner for the lurer's walk, the AoE-aware planner. Already in: monsters switch to
+  the dps in the disk (threat: a tag 1, a dps hit 10).
+  - F6a (built, this branch): `Rarity` (Normal, Champion, Giant, PartyNormal, PartyChampion,
+    PartyGiant). HP multipliers are the game client's, read by caravan (sro_client.exe 37
+    `FUN_00cbe7c0`, `views::hp_multiplier`, conventions.md): x1, x2, x20, and the party flag
+    x10 more (x10, x20, x200); live, a party Uneg had 378,440 HP = 37,844 x 10. Damage
+    multipliers are ours (caravan has none): x1, x1.5, x3, the party flag x2 on top (x2, x3,
+    x6). Bodies: champion x1.25, giant x2. Spawn mix (`SPAWN_MIX`, percent): 80 / 12 / 3 /
+    4 / 1 / 0 (party giants off: 20,000 HP is 17 minutes for this team). A label names any
+    non-normal monster; bars fill by the monster's own max. The leash: a monster inside its
+    idle disk with no target and no threat is whole again (`Monster::at_home`), as the game
+    resets a leashed monster. Tests: the multipliers; 10,000 draws within a point of the mix
+    and no party giant; a giant's body 2, label, half bar at 1,000 HP, bite 9; a hurt idle
+    monster healed at once, one dragged 20 out healed once home, a chasing one not. Mutation
+    (the party flag's x10 dropped) fails.
   Combat numbers: bite reach 2, 3 damage, 1.5 s (one monster kills an unbuffed player in
   50 s, four in 12.5 s); dps AoE reach 8, blast radius 2 round the target, 10 damage to
   every monster in it, 6 MP, 1.5 s (one dps kills a monster in 15 s, three clear a cluster of

@@ -6,7 +6,8 @@
 //! monster stands, walks or runs for a few seconds at a time. Every entity carries two disks
 //! on its own position: a big one, its ranged reach (a player's 8 is its attack and its buffs,
 //! a monster's 6 is its alarm), and a small one, its melee reach. Players are ranged; a
-//! monster is melee, and chases the nearest player inside its big disk until that player is
+//! monster is melee (its rarity scaling its HP, as the game client does, and its bite, our
+//! assumption), and chases the nearest player inside its big disk until that player is
 //! inside its small disk, and keeps chasing while that player stays in its line of sight (a
 //! third, biggest disk), forgetting it beyond. Everyone has HP (players MP too), a player's bars regenerating a point
 //! a second. A monster bites the player it closes on once inside melee reach, and chases
@@ -83,7 +84,17 @@ pub const BUFF_THRESHOLD: f32 = 0.9;
 /// A running buff is shown as a ring this far out round the body (HP inside, MP outside).
 const HP_BUFF_RING: f32 = 1.3;
 const MP_BUFF_RING: f32 = 1.5;
-/// A monster's bite: `BITE` HP off its target every `BITE_COOLDOWN` while inside melee reach.
+/// The spawn mix by rarity, in percent (party giants off: this team cannot kill one).
+const SPAWN_MIX: [(Rarity, u32); 6] = [
+    (Rarity::Normal, 80),
+    (Rarity::Champion, 12),
+    (Rarity::Giant, 3),
+    (Rarity::PartyNormal, 4),
+    (Rarity::PartyChampion, 1),
+    (Rarity::PartyGiant, 0),
+];
+/// A monster's bite: `BITE` HP off its target every `BITE_COOLDOWN` while inside melee reach,
+/// times its rarity's damage multiplier.
 pub const BITE: f32 = 3.0;
 pub const BITE_COOLDOWN: f32 = 1.5;
 /// The lurer's strategy: leave the centre after `CENTRE_WAIT` with at most `LEAVE_LOAD`
@@ -211,14 +222,89 @@ impl Player {
     }
 }
 
+/// A monster's rarity. HP multipliers are the game client's (caravan read them out of
+/// sro_client.exe 37: champion x2, giant x20, a party monster x10 more). Damage multipliers
+/// are our assumption (champion x1.5, giant x3, the party flag x2 on top); caravan has no
+/// verified numbers for them. Body size is ours too.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Rarity {
+    Normal,
+    Champion,
+    Giant,
+    PartyNormal,
+    PartyChampion,
+    PartyGiant,
+}
+
+impl Rarity {
+    pub fn hp_multiplier(self) -> f32 {
+        match self {
+            Rarity::Normal => 1.0,
+            Rarity::Champion => 2.0,
+            Rarity::Giant => 20.0,
+            Rarity::PartyNormal => 10.0,
+            Rarity::PartyChampion => 20.0,
+            Rarity::PartyGiant => 200.0,
+        }
+    }
+
+    pub fn damage_multiplier(self) -> f32 {
+        match self {
+            Rarity::Normal => 1.0,
+            Rarity::Champion => 1.5,
+            Rarity::Giant => 3.0,
+            Rarity::PartyNormal => 2.0,
+            Rarity::PartyChampion => 3.0,
+            Rarity::PartyGiant => 6.0,
+        }
+    }
+
+    /// The body's radius: a champion a quarter bigger, a giant twice.
+    pub fn body_radius(self) -> f32 {
+        match self {
+            Rarity::Normal | Rarity::PartyNormal => BODY_RADIUS,
+            Rarity::Champion | Rarity::PartyChampion => 1.25 * BODY_RADIUS,
+            Rarity::Giant | Rarity::PartyGiant => 2.0 * BODY_RADIUS,
+        }
+    }
+
+    /// The label over a monster; none for a normal one.
+    pub fn name(self) -> Option<&'static str> {
+        match self {
+            Rarity::Normal => None,
+            Rarity::Champion => Some("champion"),
+            Rarity::Giant => Some("giant"),
+            Rarity::PartyNormal => Some("party"),
+            Rarity::PartyChampion => Some("party champion"),
+            Rarity::PartyGiant => Some("party giant"),
+        }
+    }
+}
+
+/// A rarity drawn by `SPAWN_MIX`.
+fn draw_rarity(rng: &mut fastrand::Rng) -> Rarity {
+    let total: u32 = SPAWN_MIX.iter().map(|&(_, w)| w).sum();
+    let mut roll = rng.u32(..total);
+    for &(rarity, weight) in &SPAWN_MIX {
+        if roll < weight {
+            return rarity;
+        }
+        roll -= weight;
+    }
+    Rarity::Normal
+}
+
 #[derive(Debug, Clone)]
 pub struct Monster {
+    pub rarity: Rarity,
+    /// `MAX_HP` times the rarity's multiplier.
+    pub max_hp: f32,
     pub gait: Gait,
     /// When the next gait is drawn (simulation time).
     until: f32,
     pub body: Vehicle,
     pub hp: f32,
-    /// Where it appeared: it idles round here and (a later step) leashes back here.
+    /// Where it appeared: it idles round here and, its target lost, walks back here.
     pub spawn: Vec2,
     /// The spot it is going to inside its idle disk.
     spot: Vec2,
@@ -281,6 +367,23 @@ pub struct TrainingField {
     pub lure: Lure,
     rng: fastrand::Rng,
     time: f32,
+}
+
+impl Monster {
+    /// Makes it a `rarity` monster at full HP, its body sized to match.
+    pub fn set_rarity(&mut self, rarity: Rarity) {
+        self.rarity = rarity;
+        self.max_hp = MAX_HP * rarity.hp_multiplier();
+        self.hp = self.max_hp;
+        self.body.radius = rarity.body_radius();
+    }
+
+    /// Idle at home: inside its idle disk with nobody to chase and nobody who hurt it.
+    fn at_home(&self) -> bool {
+        self.target.is_none()
+            && self.threat.is_empty()
+            && (self.body.position - self.spawn).length() <= IDLE_RADIUS
+    }
 }
 
 /// A body at rest at `position`, facing up the screen.
@@ -647,9 +750,14 @@ impl TrainingField {
                 let in_reach = (players[i] - m.body.position).length() <= MELEE_REACH;
                 if in_reach && self.time >= m.bite_ready {
                     m.bite_ready = self.time + BITE_COOLDOWN;
-                    self.team[i].hp -= BITE;
+                    self.team[i].hp -= BITE * m.rarity.damage_multiplier();
                 }
                 continue;
+            }
+            // Back home with nobody after it, a monster is whole again (the game resets a
+            // leashed monster's HP).
+            if m.at_home() {
+                m.hp = m.max_hp;
             }
             if self.time >= m.until {
                 m.gait = Gait::ALL[rng.usize(..Gait::ALL.len())];
@@ -761,7 +869,10 @@ impl TrainingField {
         self.respawns.retain(|&t| t > now);
         while self.monsters.len() + self.respawns.len() < self.wanted {
             let at = self.spawn_point();
-            self.monsters.push(Monster {
+            let rarity = draw_rarity(&mut self.rng);
+            let mut monster = Monster {
+                rarity,
+                max_hp: MAX_HP,
                 gait: Gait::Standing,
                 until: self.time,
                 body: standing(at),
@@ -773,7 +884,9 @@ impl TrainingField {
                 delivered: false,
                 was_chasing_lurer: false,
                 bite_ready: self.time,
-            });
+            };
+            monster.set_rarity(rarity);
+            self.monsters.push(monster);
         }
     }
 
@@ -811,12 +924,8 @@ impl TrainingField {
             lines.extend(bar(at, MP_BAR_LIFT, p.mp / MAX_MP, MP_BUFFER_BODY));
         }
         for m in &self.monsters {
-            lines.extend(bar(
-                m.body.position,
-                HP_BAR_LIFT,
-                m.hp / MAX_HP,
-                HP_BUFFER_BODY,
-            ));
+            let at = m.body.position;
+            lines.extend(bar(at, HP_BAR_LIFT, m.hp / m.max_hp, HP_BUFFER_BODY));
         }
         let mut circles = Vec::new();
         let reaches = (self.team.iter().map(|p| (&p.body, RANGED_REACH)))
@@ -858,6 +967,12 @@ impl TrainingField {
         ] {
             circles.push(circle_view(CENTRE, r, color::RADIUS));
             labels.push(label(CENTRE + Vec2::new(0.0, -r - 1.0), text, color::LABEL));
+        }
+        for m in &self.monsters {
+            if let Some(name) = m.rarity.name() {
+                let at = m.body.position + Vec2::new(-BAR_WIDTH / 2.0, -HP_BAR_LIFT - 0.6);
+                labels.push(label(at, name, color::LABEL));
+            }
         }
         let gaits: Vec<String> = (Gait::ALL.iter())
             .map(|g| {
@@ -1056,16 +1171,23 @@ mod tests {
 
     #[test]
     fn bars_start_full_and_only_players_regenerate_a_point_a_second() {
-        let mut field = TrainingField::default();
+        // A quiet field: the lurer's trip finds nothing and nobody bites it.
+        let mut field = quiet_field();
         assert!(field
             .team()
             .iter()
             .all(|p| p.hp == MAX_HP && p.mp == MAX_MP));
-        assert!(field.monsters().iter().all(|m| m.hp == MAX_HP));
-        // Above the buff threshold, so only regeneration moves them.
+        assert!(field.monsters().iter().all(|m| m.hp == m.max_hp));
+        // Above the buff threshold, so only regeneration moves them. The monster is kept
+        // standing 20 from home (at home it would be made whole).
         field.team[0].hp = 92.0;
         field.team[0].mp = 92.0;
-        field.monsters[0].hp = 50.0;
+        let m = &mut field.monsters[0];
+        m.set_rarity(Rarity::Normal);
+        m.hp = 50.0;
+        m.body = standing(m.spawn + Vec2::new(20.0, 0.0));
+        m.gait = Gait::Standing;
+        m.until = f32::MAX;
         for _ in 0..300 {
             field.update(1.0 / 60.0);
         }
@@ -1169,6 +1291,9 @@ mod tests {
             m.body = standing(Vec2::new(-70.0, -50.0));
             m.spawn = m.body.position;
         }
+        for m in &mut field.monsters {
+            m.set_rarity(Rarity::Normal);
+        }
         let hp_after = |field: &mut TrainingField, seconds: f32| {
             step_with_parked_lurer(field, at, (seconds * 60.0) as usize);
             field.team()[0].hp
@@ -1261,10 +1386,78 @@ mod tests {
         for m in &mut field.monsters {
             m.body = standing(Vec2::new(-70.0, -50.0));
             m.spawn = m.body.position;
+            m.set_rarity(Rarity::Normal);
         }
         field.monsters[0].body = standing(near);
         field.monsters[0].spawn = near;
         field
+    }
+
+    #[test]
+    fn rarities_scale_hp_body_and_bite_and_the_mix_is_drawn_as_set() {
+        assert_eq!(Rarity::Champion.hp_multiplier(), 2.0);
+        assert_eq!(Rarity::Giant.hp_multiplier(), 20.0);
+        assert_eq!(Rarity::PartyNormal.hp_multiplier(), 10.0);
+        assert_eq!(Rarity::PartyChampion.hp_multiplier(), 20.0);
+        assert_eq!(Rarity::PartyGiant.hp_multiplier(), 200.0);
+        // Drawn 10,000 times: the mix within a point of its weights, no party giant.
+        let mut rng = fastrand::Rng::with_seed(7);
+        let mut counts: HashMap<Rarity, u32> = HashMap::new();
+        for _ in 0..10_000 {
+            *counts.entry(draw_rarity(&mut rng)).or_insert(0) += 1;
+        }
+        for &(rarity, weight) in &SPAWN_MIX {
+            let share = *counts.get(&rarity).unwrap_or(&0) as f32 / 100.0;
+            assert!((share - weight as f32).abs() <= 1.0, "{rarity:?}: {share}%");
+        }
+        // A giant: 2,000 HP, a body of radius 2, a bite of 9; its bar fills by its own max.
+        let mut field = quiet_field();
+        let den = Vec2::new(60.0, 40.0);
+        field.monsters[0].body = standing(den + Vec2::new(0.0, 1.5));
+        field.monsters[0].spawn = field.monsters[0].body.position;
+        field.monsters[0].set_rarity(Rarity::Giant);
+        field.monsters[0].hp = 1000.0;
+        let view = field.view();
+        assert_eq!(view.vehicles[6].radius, 2.0);
+        assert!(view.labels.iter().any(|l| l.text == "giant"));
+        let bar = (view.lines.iter())
+            .filter(|l| l.color == HP_BUFFER_BODY)
+            .nth(6 * BAR_STRANDS)
+            .unwrap();
+        assert_eq!(bar.to[0] - bar.from[0], BAR_WIDTH / 2.0);
+        step_with_parked_lurer(&mut field, den, 2);
+        assert!((field.team()[0].hp - (MAX_HP - BITE * 3.0)).abs() < 0.1);
+    }
+
+    #[test]
+    fn a_monster_back_home_with_nobody_after_it_is_whole_again() {
+        // Hurt and idle at home: whole at once.
+        let mut field = quiet_field();
+        field.monsters[0].hp = 50.0;
+        field.update(1.0 / 60.0);
+        assert_eq!(field.monsters()[0].hp, MAX_HP);
+        // Hurt and dragged 20 from home with nobody after it: whole once it has walked back.
+        let mut field = quiet_field();
+        let m = &mut field.monsters[0];
+        m.hp = 50.0;
+        m.body = standing(m.spawn + Vec2::new(20.0, 0.0));
+        for _ in 0..60 * 60 {
+            field.update(1.0 / 60.0);
+            if field.monsters()[0].hp == MAX_HP {
+                break;
+            }
+        }
+        let m = &field.monsters()[0];
+        assert_eq!(m.hp, MAX_HP);
+        assert!((m.body.position - m.spawn).length() <= IDLE_RADIUS);
+        // Hurt by the lurer and chasing it: not healed.
+        let mut field = quiet_field();
+        field.monsters[0].hp = 50.0;
+        field.monsters[0].threat.insert(0, 1.0);
+        field.monsters[0].body = standing(Vec2::new(20.0, 0.0));
+        field.monsters[0].spawn = Vec2::new(20.0, 0.0);
+        field.update(1.0 / 60.0);
+        assert_eq!(field.monsters()[0].hp, 50.0);
     }
 
     /// Five monsters, all far away in a corner: nobody fights.
@@ -1348,15 +1541,17 @@ mod tests {
             stages.insert(field.lure.stage);
         }
         let l = &field.lure;
-        // Measured 2026-11-02: 4 trips, 10 delivered, 0 lost, 12 kills, no deaths, the
-        // lurer inside the dps disk 32% of the time.
+        // Measured 2026-11-02 with normal monsters only: 4 trips, 10 delivered, 0 lost, 12
+        // kills, no deaths, the lurer inside the dps disk 32% of the time. With the rarity
+        // mix: 4 trips, 12 delivered, 1 lost, 12 kills, 1 death, 50% inside (a death keeps
+        // it at the centre 5 s, and a loaded disk keeps it waiting).
         assert_eq!(stages.len(), 3);
         assert!(l.trips >= 3, "{}", l.trips);
         assert!(l.delivered >= 6, "{}", l.delivered);
         assert!(l.lost <= l.delivered / 2, "{} lost", l.lost);
-        assert!(l.share_in_disk() < 0.5, "{}", l.share_in_disk());
+        assert!(l.share_in_disk() < 0.6, "{}", l.share_in_disk());
         assert!(
-            field.kills >= 8 && field.deaths == 0,
+            field.kills >= 8 && field.deaths <= 2,
             "{} {}",
             field.kills,
             field.deaths
