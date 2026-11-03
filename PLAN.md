@@ -39,9 +39,9 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
      obstacles' cost: the two minutes do not move (two strong arrive together and hold both
      lurers either way); at 180 s A 5 and B 5 trips, 24 kills, no deaths, at the centre
      93 / 113 s against 118 / 123 s.
-  4. Obstacles in the luring disk, circles first: design in Phase 8, "Next step: obstacles"
-     (settled numbers there). Then rectangles; the planner's detour cost only if the gap is
-     large; no line-of-sight occlusion (Silkroad has none).
+  4. [done, this branch] Obstacles in the luring disk, circles first: 8 rocks by default
+     (Phase 8, "Next step: obstacles"; the numbers in Findings). Then rectangles; the planner's
+     detour cost only if the gap is large; no line-of-sight occlusion (Silkroad has none).
   5. The other Phase 8 Gaps worth tuning (the lurers' MP, lurer A's share, the load cap).
   The 3D options offered 2026-10-21 stay for later:
   1. Stop bodies scraping walls: add the containment side probes (the design of steps 23 and 37) to the
@@ -50,7 +50,7 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
   2. Draw building floors (object navmesh cells) so the plaza walker does not float over pits.
   3. One-way ledges: drop off, never climb (now walls both ways; sro-polyanya keeps a blocked side).
   4. Other ground demos on the terrain (Pedestrians, Capture the Flag) with the same `World`.
-- Tests: 316 Rust tests (13 in `silkroad-navmesh`, + 3 ignored full-data ones; 42 in
+- Tests: 318 Rust tests (13 in `silkroad-navmesh`, + 3 ignored full-data ones; 44 in
   `training_field`), 21 C++ oracles.
   Tests needing the game data skip without it (CI has none); with it, the Silkroad demo's tests
   take ~14 s in debug. 2D: `oracle_one_turning`, `oracle_seek_flee`,
@@ -321,7 +321,7 @@ user called the milestone (2026-11-03).
 
 ### As built (after #46)
 
-One module, `crates/steer-demos/src/training_field.rs` (the 42 tests in the same file), demo
+One module, `crates/steer-demos/src/training_field.rs` (the 44 tests in the same file), demo
 id `training-field`, the last 2D demo. Units: 1 = 1 m; Silkroad's disks of 20 and 60 are 10
 and 50 here. Numbers are constants at the top of the module and `Settings` sliders.
 
@@ -331,6 +331,13 @@ and 50 here. Numbers are constants at the top of the module and `Settings` slide
   buffer at (0, -2.5). Radii: dps 10, buffers 5, lurers 50 (`Role::radius`). Players always
   run (5); a roaming player seeks random spots of its disk (`roam`, containment as the guard).
   No collisions between bodies (the user).
+- Rocks: `DEFAULT_OBSTACLES` 8 circle obstacles (slider 0-20) in the luring disk, radii
+  `ROCK_MIN` 1.5 to `ROCK_MAX` 5, drawn by `place_rocks` from their own rng (seed 2) after the
+  nests, so the monsters' draws stay; clear of the dps disk by 1, of a nest's idle disk by a
+  body, of each other by 3; the slider only adds or removes rocks, and a later nest keeps that
+  room. Lurers Out and Back, chasing monsters outside the dps disk and monsters walking home
+  steer round them with OpenSteer's avoidance `AVOID_TIME` 2 s ahead, which wins over the
+  seek; the dps and buffers never meet one. Drawn in `color::OBSTACLE`.
 - Monsters: `DEFAULT_MONSTERS` 15 (slider 5-60); rarity by `SPAWN_MIX` 80 / 12 / 3 / 4 / 1 / 0
   percent (normal, champion, giant, party normal, party champion, party giant); HP x1 / x2 / x20
   / x10 / x20 / x200 (the game client's, read by caravan), damage x1 / x1.5 / x3 / x2 / x3 / x6
@@ -373,14 +380,14 @@ and 50 here. Numbers are constants at the top of the module and `Settings` slide
   polyline; attack lines and blasts; buff and guard rings; rarity labels; three status lines
   (the team; lurer A; lurer B); the legend behind a button. Sliders: monsters, N, monster
   speed, bite damage, bite reach, load cap, strong cap; buttons: plan casts / plan stops.
-- Tests (42): hand-computed cases per piece, the pinned two-minute run (seed 1, 7,200 steps,
+- Tests (44): hand-computed cases per piece, the pinned two-minute run (seed 1, 7,200 steps,
   `trips_deliver_monsters_to_the_dps_disk`, its history in the comment), one mutation per step
   that failed. Helpers: `quiet_field` (five normal monsters in a far corner, outside the map),
   `field_with_a_monster_at`, `risky_field` (a giant and a normal 20 out on A's side),
   `step_with_parked_lurer` (A put back at a spot after every step), `run_tracking_a` (tags by
   monster id over a run), `measure` and `Measured` (margins, speeds, time in the buff disk).
 
-### Next step: obstacles in the luring disk (the user, 2026-11-03; settled, not started)
+### Next step: obstacles in the luring disk (the user, 2026-11-03; circles done, rectangles next)
 
 Random obstacles of varying shape and size inside the luring disk. Settled with the user
 2026-11-03 (after the browser observation): circles first, a slider 0..20 (default 8), radius
@@ -905,7 +912,12 @@ trips/delivered/lost):
   such a packmate); strong cap 2: the same two minutes (the giant and the party champion
   arrive together at 50 s and hold both lurers until 120.5 s either way), at 180 s A 5/15/0,
   B 5/17/0, 24 kills, no deaths, at the centre 93 s / 113 s of 180 (cap 1: A 3 and B 4 trips,
-  23 kills, 118 s / 123 s).
+  23 kills, 118 s / 123 s); 8 rocks: A 4/10/0, B 4/14/0, 17.0 s / 11.3 s, 27 / 11 walked per
+  delivered, 61% / 83% inside, 22 kills, no deaths; every path moved, so a giant was in the
+  disk at 40 s and two party champions by 80 s (each lurer planned its strong one while the
+  disk held one), 6,000 HP that held both lurers from 76 s past 180 s (at the centre 112 s /
+  135 s); bodies graze rocks (closest clearance 0.00 over 180 s, three grazes of the rock of
+  radius 1.6), never inside.
 - **Wander held in by containment circles along the edge**: the probe leaves, the push turns
   the body along the wall, and wander rarely turns it back, so the dps never crossed the buff
   disk. Seeking random spots of the disk (the game bots' random walk) put them inside it 42-49%
@@ -973,7 +985,10 @@ trips/delivered/lost):
   removes an entry); `trips` counts leaves and `sessions` returns; the party window's HP bars
   are assumed; the status lines are about 170 characters at 12 px, so they run off the right
   edge of a canvas narrower than about 1,250 px; labels pile up over the dps disk; two strong
-  monsters arriving together (2,000 HP each) still hold both lurers for 70 s at strong cap 2.
+  monsters arriving together (2,000 HP each) still hold both lurers for 70 s at strong cap 2;
+  bodies graze rocks (avoidance looks only ahead, as on the plaza's walls); a lurer plans a
+  strong monster while the disk holds one fewer than the cap, so two lurers can fill the disk to
+  the cap plus one (with rocks: three 2,000 HP monsters from 80 s, both lurers held for minutes).
 
 ## Learning aids
 

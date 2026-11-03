@@ -26,6 +26,7 @@ use std::collections::{HashMap, VecDeque};
 use std::f32::consts::TAU;
 
 use steer_core::containment::contain;
+use steer_core::obstacle::{avoid_obstacles, Circle, SeenFrom};
 use steer_core::wall::Wall;
 use steer_core::{steer, Vec2, Vehicle};
 
@@ -179,6 +180,20 @@ pub const DEFAULT_STRONG_CAP: usize = 2;
 pub const BACK_CHASERS: usize = 3;
 pub const DEFAULT_MONSTER_SPEED: f32 = 6.0;
 pub const DEFAULT_LOAD_CAP: usize = 3;
+/// Rocks: random circle obstacles inside the luring disk (the user, 2026-11-03), drawn from
+/// their own rng after the nests so the monsters' draws stay as without them; radii
+/// `ROCK_MIN..ROCK_MAX`, clear of the dps disk by `ROCK_DISK_GAP`, of a nest's idle disk by a
+/// body, of each other by `ROCK_GAP`. Runners outside the dps disk steer round them
+/// `AVOID_TIME` ahead (OpenSteer's obstacle avoidance, which wins over the seek).
+const OBSTACLES: Range = Range::new(0.0, 20.0, 1.0);
+pub const DEFAULT_OBSTACLES: usize = 8;
+const ROCK_SEED: u64 = 2;
+pub const ROCK_MIN: f32 = 1.5;
+pub const ROCK_MAX: f32 = 5.0;
+pub const ROCK_GAP: f32 = 3.0;
+pub const ROCK_DISK_GAP: f32 = 1.0;
+const ROCK_TRIES: usize = 1000;
+pub const AVOID_TIME: f32 = 2.0;
 
 /// Which planner lays out a trip: `Stops` visits N monsters one by one (the shortest such
 /// tour); `Casts` plans casts, a blast or pierce tagging a whole cluster at one stop, until N
@@ -209,6 +224,8 @@ pub struct Settings {
     pub load_cap: usize,
     /// The lurer stays while the dps disk holds this many strong monsters; 0 for no cap.
     pub strong_cap: usize,
+    /// How many rocks the luring disk holds.
+    pub obstacles: usize,
 }
 
 impl Default for Settings {
@@ -221,6 +238,7 @@ impl Default for Settings {
             bite_reach: MELEE_REACH,
             load_cap: DEFAULT_LOAD_CAP,
             strong_cap: DEFAULT_STRONG_CAP,
+            obstacles: DEFAULT_OBSTACLES,
         }
     }
 }
@@ -573,6 +591,8 @@ pub struct TrainingField {
     /// The lurer, three dps, the HP buffer, the MP buffer.
     team: Vec<Player>,
     monsters: Vec<Monster>,
+    /// The rocks in the luring disk.
+    obstacles: Vec<Circle>,
     /// How many monsters the map keeps alive (the slider).
     wanted: usize,
     /// Killed monsters' nests and when each respawns there (the game's nests are fixed: a
@@ -654,30 +674,83 @@ fn random_spot(centre: Vec2, radius: f32, rng: &mut fastrand::Rng) -> Vec2 {
     around(centre, radius * rng.f32().sqrt(), rng.f32() * TAU)
 }
 
+/// A nest's idle disk and a body's width clear of `rock`.
+fn nest_room(nest: Vec2, rock: &Circle) -> bool {
+    (nest - rock.center).length() >= rock.radius + IDLE_RADIUS + BODY_RADIUS
+}
+
+/// `count` rocks from their own rng: radii `ROCK_MIN..ROCK_MAX`, inside the luring disk, clear
+/// of the dps disk by `ROCK_DISK_GAP`, of every nest by `nest_room` and of each other by
+/// `ROCK_GAP`; a rock that finds no room in `ROCK_TRIES` draws ends the list. Drawn one after
+/// another, so the first k rocks of a longer list are the k of a shorter one.
+fn place_rocks(count: usize, nests: &[Vec2]) -> Vec<Circle> {
+    let mut rng = fastrand::Rng::with_seed(ROCK_SEED);
+    let mut rocks: Vec<Circle> = Vec::new();
+    for _ in 0..count {
+        let rock = (0..ROCK_TRIES).find_map(|_| {
+            let r = ROCK_MIN + (ROCK_MAX - ROCK_MIN) * rng.f32();
+            let rock = Circle::new(
+                random_spot(CENTRE, LURE_RADIUS - r, &mut rng),
+                r,
+                SeenFrom::Outside,
+            );
+            let clear = (rock.center - CENTRE).length() - r >= DPS_RADIUS + ROCK_DISK_GAP
+                && nests.iter().all(|&n| nest_room(n, &rock))
+                && (rocks.iter())
+                    .all(|o| (rock.center - o.center).length() >= r + o.radius + ROCK_GAP);
+            clear.then_some(rock)
+        });
+        match rock {
+            Some(rock) => rocks.push(rock),
+            None => break,
+        }
+    }
+    rocks
+}
+
+/// The disk a body roams and the rocks it may meet on its way back into it.
+#[derive(Clone, Copy)]
+struct Patch<'a> {
+    centre: Vec2,
+    radius: f32,
+    rocks: &'a [Circle],
+}
+
 /// One step of `body` at `gait` roaming the disk (`centre`, `radius`) with its whole body
 /// inside: standing stops it; otherwise it seeks `spot`, drawing a new random spot of the disk
 /// each time it comes within `SPOT_REACHED` (the game bots' random walk, which covers the whole
 /// disk; a wanderer held by containment only circles along the edge). Containment stays as the
-/// guard while the probe ahead is outside, a runner braking into it.
+/// guard while the probe ahead is outside, a runner braking into it. Outside the disk (a
+/// monster walking home from a chase) the spot leads home, no guard, and `rocks` are avoided.
 fn roam(
     body: &mut Vehicle,
     gait: Gait,
     run_speed: f32,
     spot: &mut Vec2,
-    (centre, radius): (Vec2, f32),
+    patch: Patch,
     dt: f32,
     rng: &mut fastrand::Rng,
 ) {
+    let Patch {
+        centre,
+        radius,
+        rocks,
+    } = patch;
     let room = radius - BODY_RADIUS;
     body.max_speed = speed_of(gait, run_speed);
     if (*spot - body.position).length() < SPOT_REACHED {
         *spot = random_spot(centre, room, rng);
     }
-    // Outside the disk (a monster back from a chase) the spot leads home; no guard.
-    let push = if (body.position - centre).length() <= room {
+    let inside = (body.position - centre).length() <= room;
+    let push = if inside {
         contain(body, &disk(centre, room), LOOK_AHEAD)
     } else {
         Vec2::ZERO
+    };
+    let avoid = if inside {
+        Vec2::ZERO
+    } else {
+        avoid_obstacles(body, AVOID_TIME, rocks)
     };
     let force = if gait == Gait::Standing {
         Vec2::ZERO
@@ -686,6 +759,8 @@ fn roam(
             body.apply_braking_force(CONTAIN_BRAKE, dt);
         }
         push
+    } else if avoid != Vec2::ZERO {
+        avoid
     } else {
         steer::seek(body, *spot)
     };
@@ -702,8 +777,15 @@ fn speed_of(gait: Gait, run_speed: f32) -> f32 {
 }
 
 /// One step of a body closing on `target`: a run toward it while it is further than `reach`,
-/// a stop (facing it) once inside.
-fn hunt(body: &mut Vehicle, target: Vec2, reach: f32, run_speed: f32, dt: f32) -> Gait {
+/// steering round `rocks` first, a stop (facing it) once inside.
+fn hunt(
+    body: &mut Vehicle,
+    target: Vec2,
+    reach: f32,
+    run_speed: f32,
+    dt: f32,
+    rocks: &[Circle],
+) -> Gait {
     let gait = if (target - body.position).length() > reach {
         Gait::Running
     } else {
@@ -711,7 +793,14 @@ fn hunt(body: &mut Vehicle, target: Vec2, reach: f32, run_speed: f32, dt: f32) -
     };
     body.max_speed = speed_of(gait, run_speed);
     let force = match gait {
-        Gait::Running => steer::seek(body, target),
+        Gait::Running => {
+            let avoid = avoid_obstacles(body, AVOID_TIME, rocks);
+            if avoid != Vec2::ZERO {
+                avoid
+            } else {
+                steer::seek(body, target)
+            }
+        }
         _ => Vec2::ZERO,
     };
     body.apply_steering_force(force, dt);
@@ -987,7 +1076,14 @@ struct Trip<'a> {
 /// again every `PLAN_PERIOD`, stops already tagged dropped; the tag itself fires from
 /// `lure_cast`) until N chase, its HP is under `BACK_HP` or no stop is left; back, it runs
 /// home, and on arrival the session's time and HP are recorded.
-fn lure_step(p: &mut Player, me: usize, lure: &mut Lure, trip: &Trip, rng: &mut fastrand::Rng) {
+fn lure_step(
+    p: &mut Player,
+    me: usize,
+    lure: &mut Lure,
+    trip: &Trip,
+    rng: &mut fastrand::Rng,
+    rocks: &[Circle],
+) {
     let Trip {
         settings,
         monsters,
@@ -1009,7 +1105,7 @@ fn lure_step(p: &mut Player, me: usize, lure: &mut Lure, trip: &Trip, rng: &mut 
     }
     match lure.stage {
         LureStage::Centre => {
-            hunt(&mut p.body, CENTRE, HOME, RUN_SPEED, dt);
+            hunt(&mut p.body, CENTRE, HOME, RUN_SPEED, dt, rocks);
             let quiet = settings.load_cap == 0 || load <= settings.load_cap;
             let safe = settings.strong_cap == 0 || strong < settings.strong_cap;
             let ready = p.hp >= LEAVE_HP * MAX_HP && quiet && safe && !halt;
@@ -1071,13 +1167,13 @@ fn lure_step(p: &mut Player, me: usize, lure: &mut Lure, trip: &Trip, rng: &mut 
             match next {
                 Some((Some(m), reach)) if !back => {
                     lure.scout = None;
-                    hunt(&mut p.body, m.body.position, reach, RUN_SPEED, dt);
+                    hunt(&mut p.body, m.body.position, reach, RUN_SPEED, dt, rocks);
                 }
                 _ if back || tagged_some => {
                     lure.stage = LureStage::Back;
                     lure.tour.clear();
                     lure.scout = None;
-                    hunt(&mut p.body, CENTRE, HOME, RUN_SPEED, dt);
+                    hunt(&mut p.body, CENTRE, HOME, RUN_SPEED, dt, rocks);
                 }
                 _ => {
                     // Nothing in sight and nothing tagged yet: scout the band, away from
@@ -1092,12 +1188,12 @@ fn lure_step(p: &mut Player, me: usize, lure: &mut Lure, trip: &Trip, rng: &mut 
                         lure.scout = Some(scout_spot(rng, other));
                     }
                     let spot = lure.scout.expect("a scouting spot");
-                    hunt(&mut p.body, spot, HOME, RUN_SPEED, dt);
+                    hunt(&mut p.body, spot, HOME, RUN_SPEED, dt, rocks);
                 }
             }
         }
         LureStage::Back => {
-            if hunt(&mut p.body, CENTRE, HOME, RUN_SPEED, dt) == Gait::Standing {
+            if hunt(&mut p.body, CENTRE, HOME, RUN_SPEED, dt, rocks) == Gait::Standing {
                 lure.stage = LureStage::Centre;
                 lure.sessions += 1;
                 lure.session_time += now - lure.left_at;
@@ -1262,6 +1358,7 @@ impl Default for TrainingField {
         let mut field = Self {
             team,
             monsters: Vec::new(),
+            obstacles: Vec::new(),
             wanted: DEFAULT_MONSTERS,
             respawns: Vec::new(),
             kills: 0,
@@ -1277,6 +1374,7 @@ impl Default for TrainingField {
             time: 0.0,
         };
         field.spawn_missing();
+        field.obstacles = place_rocks(DEFAULT_OBSTACLES, &field.nests());
         field
     }
 }
@@ -1288,6 +1386,17 @@ impl TrainingField {
 
     pub fn monsters(&self) -> &[Monster] {
         &self.monsters
+    }
+
+    pub fn obstacles(&self) -> &[Circle] {
+        &self.obstacles
+    }
+
+    /// Every nest: the living monsters' and those waiting to respawn.
+    fn nests(&self) -> Vec<Vec2> {
+        (self.monsters.iter().map(|m| m.spawn))
+            .chain(self.respawns.iter().map(|r| r.1))
+            .collect()
     }
 
     /// The party's mean HP in percent as the party window shows it, the dead at 0.
@@ -1410,24 +1519,28 @@ impl TrainingField {
                     now,
                     dt,
                 };
-                lure_step(p, i, lure, &trip, rng);
+                lure_step(p, i, lure, &trip, rng, &self.obstacles);
                 continue;
             }
             let Some(t) = p.target else {
-                let r = p.role.radius();
+                let patch = Patch {
+                    centre: CENTRE,
+                    radius: p.role.radius(),
+                    rocks: &[],
+                };
                 roam(
                     &mut p.body,
                     Gait::Running,
                     RUN_SPEED,
                     &mut p.spot,
-                    (CENTRE, r),
+                    patch,
                     dt,
                     rng,
                 );
                 continue;
             };
             let at = self.monsters[t].body.position;
-            if hunt(&mut p.body, at, RANGED_REACH, RUN_SPEED, dt) == Gait::Standing
+            if hunt(&mut p.body, at, RANGED_REACH, RUN_SPEED, dt, &[]) == Gait::Standing
                 && self.time >= p.skill_ready
                 && p.mp >= AOE_MP
             {
@@ -1468,7 +1581,13 @@ impl TrainingField {
                 .or_else(|| player_in_reach(at, &living).map(|(i, _)| i));
             if let Some(i) = m.target {
                 let (reach, speed) = (self.settings.bite_reach, self.settings.monster_speed);
-                m.gait = hunt(&mut m.body, players[i], reach, speed, dt);
+                // Rocks lie outside the dps disk; inside it a monster fights unhindered.
+                let rocks: &[Circle] = if (at - CENTRE).length() > DPS_RADIUS {
+                    &self.obstacles
+                } else {
+                    &[]
+                };
+                m.gait = hunt(&mut m.body, players[i], reach, speed, dt, rocks);
                 // A fresh gait draw as soon as the chase ends.
                 m.until = self.time;
                 let in_reach = (players[i] - m.body.position).length() <= reach;
@@ -1493,8 +1612,12 @@ impl TrainingField {
                 m.until = self.time + GAIT_MIN_S + (GAIT_MAX_S - GAIT_MIN_S) * rng.f32();
             }
             let speed = self.settings.monster_speed;
-            let disk = (m.spawn, IDLE_RADIUS);
-            roam(&mut m.body, m.gait, speed, &mut m.spot, disk, dt, rng);
+            let patch = Patch {
+                centre: m.spawn,
+                radius: IDLE_RADIUS,
+                rocks: &self.obstacles,
+            };
+            roam(&mut m.body, m.gait, speed, &mut m.spot, patch, dt, rng);
         }
         self.count_deliveries();
     }
@@ -1562,6 +1685,10 @@ impl TrainingField {
             "bite_reach" => s.bite_reach = BITE_REACH.clamp(value),
             "load_cap" => s.load_cap = LOAD_CAP.clamp(value) as usize,
             "strong_cap" => s.strong_cap = STRONG_CAP.clamp(value) as usize,
+            "obstacles" => {
+                s.obstacles = OBSTACLES.clamp(value) as usize;
+                self.obstacles = place_rocks(self.settings.obstacles, &self.nests());
+            }
             _ => {}
         }
     }
@@ -1753,7 +1880,9 @@ impl TrainingField {
     fn spawn_point(&mut self) -> Vec2 {
         loop {
             let at = random_spot(CENTRE, MAP_RADIUS - IDLE_RADIUS, &mut self.rng);
-            if (at - CENTRE).length() > DPS_RADIUS {
+            if (at - CENTRE).length() > DPS_RADIUS
+                && self.obstacles.iter().all(|o| nest_room(at, o))
+            {
                 return at;
             }
         }
@@ -1773,6 +1902,9 @@ impl TrainingField {
             lines.extend(bar(at, HP_BAR_LIFT, m.hp / m.max_hp, HP_BUFFER_BODY));
         }
         let mut circles = vec![circle_view(CENTRE, MAP_RADIUS, color::EDGE)];
+        circles.extend(
+            (self.obstacles.iter()).map(|o| circle_view(o.center, o.radius, color::OBSTACLE)),
+        );
         for p in &self.team[..LURERS] {
             circles.push(circle_view(p.body.position, LURER_SIGHT, color::SIGHT));
         }
@@ -1938,6 +2070,10 @@ impl TrainingField {
                     "training disks: each role's radius round the centre",
                 ),
                 (color::EDGE, "map edge: a disk of 60, the nests inside"),
+                (
+                    color::OBSTACLE,
+                    "rocks: random obstacles in the luring disk; a runner outside the dps disk steers round them 2 s ahead",
+                ),
                 (color::TRACK, "the empty part of a bar"),
                 (
                     color::RANGED,
@@ -1970,6 +2106,12 @@ impl TrainingField {
             ],
             params: vec![
                 slider("monsters", "Monsters", MONSTERS, self.wanted as f32),
+                slider(
+                    "obstacles",
+                    "Obstacles",
+                    OBSTACLES,
+                    self.settings.obstacles as f32,
+                ),
                 slider(
                     "chasers",
                     "N: back with chasers",
@@ -2061,7 +2203,14 @@ mod tests {
         let target = Vec2::new(0.0, -7.0);
         let mut gaits = Vec::new();
         for _ in 0..180 {
-            gaits.push(hunt(&mut body, target, MELEE_REACH, RUN_SPEED, 1.0 / 60.0));
+            gaits.push(hunt(
+                &mut body,
+                target,
+                MELEE_REACH,
+                RUN_SPEED,
+                1.0 / 60.0,
+                &[],
+            ));
         }
         let gap = (target - body.position).length();
         assert!(gap <= MELEE_REACH && gap > MELEE_REACH - 0.1, "{gap}");
@@ -2332,6 +2481,7 @@ mod tests {
     fn field_with_a_monster_at(near: Vec2) -> TrainingField {
         let mut field = TrainingField::default();
         field.param("monsters", 5.0);
+        field.param("obstacles", 0.0);
         for m in &mut field.monsters {
             m.body = standing(Vec2::new(-70.0, -50.0));
             m.spawn = m.body.position;
@@ -3167,6 +3317,80 @@ mod tests {
         }
     }
 
+    /// The default field's rocks: 8, radii within 1.5..5, inside the luring disk, clear of
+    /// the dps disk by 1, of every nest's idle disk by a body, of each other by 3; the slider
+    /// only adds or removes rocks (the first 8 of 12 are the default 8); a new nest never
+    /// lands within a rock's room.
+    #[test]
+    fn rocks_fill_the_luring_disk_clear_of_the_dps_disk_the_nests_and_each_other() {
+        let mut field = TrainingField::default();
+        let rocks = field.obstacles().to_vec();
+        assert_eq!(rocks.len(), 8);
+        let nests: Vec<Vec2> = field.monsters().iter().map(|m| m.spawn).collect();
+        for (i, o) in rocks.iter().enumerate() {
+            assert!((1.5..=5.0).contains(&o.radius), "{o:?}");
+            let out = o.center.length();
+            assert!(out + o.radius <= 50.0 && out - o.radius >= 11.0, "{o:?}");
+            for n in &nests {
+                assert!((*n - o.center).length() >= o.radius + 7.0, "{o:?} {n:?}");
+            }
+            for p in &rocks[..i] {
+                let gap = (p.center - o.center).length() - o.radius - p.radius;
+                assert!(gap >= 3.0, "{o:?} {p:?}");
+            }
+        }
+        field.param("obstacles", 12.0);
+        assert_eq!(field.obstacles().len(), 12);
+        assert_eq!(&field.obstacles()[..8], &rocks[..]);
+        field.param("monsters", 30.0);
+        for m in field.monsters() {
+            for o in field.obstacles() {
+                assert!((m.spawn - o.center).length() >= o.radius + 7.0, "{o:?}");
+            }
+        }
+        field.param("obstacles", 0.0);
+        assert!(field.obstacles().is_empty());
+    }
+
+    /// Runners steer round a rock in their path and still arrive: a monster chasing lurer A
+    /// (parked at the centre) from 30 out passes a rock of radius 3 at 15 out and reaches the
+    /// dps disk; lurer A, out for a monster 28 out, passes a rock of radius 3 at 14 out and
+    /// tags it. Neither body enters a rock.
+    #[test]
+    fn runners_round_a_rock_in_their_path_and_arrive() {
+        let rock = |x: f32| Circle::new(Vec2::new(x, 0.0), 3.0, SeenFrom::Outside);
+        let clearance =
+            |b: &Vehicle, o: &Circle| (b.position - o.center).length() - o.radius - b.radius;
+        // The monster.
+        let mut field = field_with_a_monster_at(Vec2::new(-30.0, 0.0));
+        field.obstacles = vec![rock(-15.0)];
+        field.monsters[0].threat.insert(0, 1.0);
+        let id = field.monsters[0].id;
+        let (mut closest, mut nearest_in) = (f32::MAX, f32::MAX);
+        for _ in 0..600 {
+            field.update(1.0 / 60.0);
+            field.team[0].body = standing(CENTRE);
+            if let Some(m) = field.monsters.iter().find(|m| m.id == id) {
+                closest = closest.min(clearance(&m.body, &field.obstacles[0]));
+                nearest_in = nearest_in.min(m.body.position.length());
+            }
+        }
+        assert!(closest >= -0.05, "{closest}");
+        assert!(nearest_in <= DPS_RADIUS, "{nearest_in}");
+        // The lurer.
+        let mut field = field_with_a_monster_at(Vec2::new(-28.0, 0.0));
+        field.obstacles = vec![rock(-14.0)];
+        field.monsters[0].gait = Gait::Standing;
+        field.monsters[0].until = f32::MAX;
+        let mut closest = f32::MAX;
+        for _ in 0..600 {
+            field.update(1.0 / 60.0);
+            closest = closest.min(clearance(&field.team[0].body, &field.obstacles[0]));
+        }
+        assert!(closest >= -0.05, "{closest}");
+        assert!(field.monsters[0].threat.contains_key(&0));
+    }
+
     /// Two minutes of the default field: the lurer makes trips, brings monsters in, and is
     /// out of the dps disk most of the time.
     #[test]
@@ -3196,7 +3420,12 @@ mod tests {
         // arrive together at 50 s and two strong hold both lurers until 120.5 s either way);
         // at 180 s A 5/15/0, B 5/17/0, 24 kills, no deaths, at the centre 93 s / 113 s of
         // 180 (cap 1: A 3 and B 4 trips, 23 kills, 118 s / 123 s; a lone party normal held
-        // both from 138 s on).
+        // both from 138 s on). With 8 rocks (the default): A 4/10/0, B 4/14/0, 4 sessions of
+        // 17.0 s / 11.3 s, 27 / 11 walked per delivered, 61% / 83% inside, 22 kills, no
+        // deaths, 1 heal, 18 guards; the rocks move every path, so the giant arrives at 40 s
+        // and two party champions by 80 s (each lurer planned its strong one while the disk
+        // held one), 6,000 HP that hold both lurers from 76 s past 180 s (at the centre 112 s
+        // / 135 s; the third-minute bound holds without margin: 4 trips each).
         assert_eq!(stages.len(), 3);
         let delivered = a.delivered + b.delivered;
         assert!(a.trips >= 2 && b.trips >= 2, "{} {}", a.trips, b.trips);
