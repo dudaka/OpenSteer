@@ -412,6 +412,16 @@ Steps:
   and back at the centre after 5 s, not 4.5; the threat pick (most damage, dead skipped, lowest
   index on a tie) and a monster hurt from 86 away running at the lurer; a killed monster's
   replacement after 3 s, not 2.5. Mutation (no bite cooldown) fails the bite test.
+  The dps attack (built, this branch): a dps targets the monster inside the dps disk nearest
+  to it (`nearest_monster_in_disk`, `Player::target`), runs into its ranged reach (`hunt` now
+  takes the reach) and standing fires every `AOE_COOLDOWN` 1.5 s for `AOE_MP` 6 (waits
+  without the MP): `AOE_DAMAGE` 10 off every monster within `AOE_BLAST` 2 of the target, each
+  hit added to that monster's threat for the shooter; drawn as a `color::ATTACK` line to the
+  target and the blast circle. Tests: a monster 4 below the centre is in reach of all three
+  dps, loses 30 a volley, holds threat 10 for each, chases dps 1, dies at the fourth volley
+  and is replaced; two monsters 1.5 apart both take the blast, one 3.5 away does not; a dps
+  short of MP holds fire until regeneration; a monster inside the disk but 10.3 from a dps is
+  run at and hit within 2 s. Mutation (the blast hitting only the target) fails.
   Combat numbers: bite reach 2, 3 damage, 1.5 s (one monster kills an unbuffed player in
   50 s, four in 12.5 s); dps AoE reach 8, blast radius 2 round the target, 10 damage to
   every monster in it, 6 MP, 1.5 s (one dps kills a monster in 15 s, three clear a cluster of

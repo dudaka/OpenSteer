@@ -10,8 +10,9 @@
 //! inside its small disk. Everyone has HP (players MP too), a player's bars regenerating a point
 //! a second. A monster bites the player it closes on once inside melee reach, and chases
 //! whoever has hurt it most (its threat table) before anyone merely near. A dead player is back
-//! at the centre after 5 s; a dead monster is replaced elsewhere after 3 s. The players' attacks,
-//! the buffs and the lurer's trips come in later steps.
+//! at the centre after 5 s; a dead monster is replaced elsewhere after 3 s. A dps fires at the
+//! nearest monster inside the dps disk, an area blast that hurts every monster round the
+//! target and raises their threat. The buffs and the lurer's trips come in later steps.
 
 use std::collections::HashMap;
 use std::f32::consts::TAU;
@@ -51,6 +52,12 @@ const MAX_FORCE: f32 = 8.0;
 pub const MAX_HP: f32 = 100.0;
 pub const MAX_MP: f32 = 100.0;
 pub const REGEN: f32 = 1.0;
+/// A dps's area attack: at a monster inside the dps disk and its ranged reach, every
+/// `AOE_COOLDOWN` for `AOE_MP`, `AOE_DAMAGE` off every monster within `AOE_BLAST` of the target.
+pub const AOE_DAMAGE: f32 = 10.0;
+pub const AOE_BLAST: f32 = 2.0;
+pub const AOE_MP: f32 = 6.0;
+pub const AOE_COOLDOWN: f32 = 1.5;
 /// A monster's bite: `BITE` HP off its target every `BITE_COOLDOWN` while inside melee reach.
 pub const BITE: f32 = 3.0;
 pub const BITE_COOLDOWN: f32 = 1.5;
@@ -153,6 +160,10 @@ pub struct Player {
     spot: Vec2,
     /// Dead until this time (simulation time), then back at the centre.
     dead_until: Option<f32>,
+    /// A dps's target: the monster (an index into the monsters) it closes on or fires at.
+    pub target: Option<usize>,
+    /// When it may fire next.
+    attack_ready: f32,
 }
 
 impl Player {
@@ -273,10 +284,10 @@ fn roam(
     body.apply_steering_force(force, dt);
 }
 
-/// One step of a monster closing on `target`: a run toward it while it is outside melee reach,
+/// One step of a body closing on `target`: a run toward it while it is further than `reach`,
 /// a stop (facing it) once inside.
-fn hunt(body: &mut Vehicle, target: Vec2, dt: f32) -> Gait {
-    let gait = if (target - body.position).length() > MELEE_REACH {
+fn hunt(body: &mut Vehicle, target: Vec2, reach: f32, dt: f32) -> Gait {
+    let gait = if (target - body.position).length() > reach {
         Gait::Running
     } else {
         Gait::Standing
@@ -299,6 +310,17 @@ fn threat_target(threat: &HashMap<usize, f32>, alive: &[bool]) -> Option<usize> 
         .map(|(&i, _)| i)
 }
 
+/// The monster inside the dps disk nearest to `at`: a dps's target.
+fn nearest_monster_in_disk(at: Vec2, monsters: &[Monster]) -> Option<usize> {
+    (monsters.iter().enumerate())
+        .filter(|(_, m)| (m.body.position - CENTRE).length() <= DPS_RADIUS)
+        .min_by(|a, b| {
+            let d = |m: &Monster| (m.body.position - at).length();
+            d(a.1).total_cmp(&d(b.1))
+        })
+        .map(|(i, _)| i)
+}
+
 /// The nearest of `players` within `ALARM_REACH` of `at`, and its distance.
 fn player_in_reach(at: Vec2, players: &[Vec2]) -> Option<(usize, f32)> {
     (players.iter().enumerate())
@@ -319,6 +341,8 @@ impl Default for TrainingField {
             mp: MAX_MP,
             spot: at,
             dead_until: None,
+            target: None,
+            attack_ready: 0.0,
         };
         let team = vec![
             player(Role::Lurer, CENTRE),
@@ -361,7 +385,8 @@ impl TrainingField {
         self.bury();
         self.spawn_missing();
         let rng = &mut self.rng;
-        for p in &mut self.team {
+        let mut hits = Vec::new();
+        for (i, p) in self.team.iter_mut().enumerate() {
             if let Some(until) = p.dead_until {
                 if self.time >= until {
                     *p = Player {
@@ -370,15 +395,40 @@ impl TrainingField {
                         mp: MAX_MP,
                         spot: CENTRE,
                         dead_until: None,
+                        target: None,
+                        attack_ready: self.time,
                         role: p.role,
                     };
                 }
                 continue;
             }
-            let r = p.role.radius();
-            roam(&mut p.body, Gait::Running, &mut p.spot, CENTRE, r, dt, rng);
             p.hp = (p.hp + REGEN * dt).min(MAX_HP);
             p.mp = (p.mp + REGEN * dt).min(MAX_MP);
+            p.target = (p.role == Role::Dps)
+                .then(|| nearest_monster_in_disk(p.body.position, &self.monsters))
+                .flatten();
+            let Some(t) = p.target else {
+                let r = p.role.radius();
+                roam(&mut p.body, Gait::Running, &mut p.spot, CENTRE, r, dt, rng);
+                continue;
+            };
+            let at = self.monsters[t].body.position;
+            if hunt(&mut p.body, at, RANGED_REACH, dt) == Gait::Standing
+                && self.time >= p.attack_ready
+                && p.mp >= AOE_MP
+            {
+                p.mp -= AOE_MP;
+                p.attack_ready = self.time + AOE_COOLDOWN;
+                hits.push((i, at));
+            }
+        }
+        for (shooter, at) in hits {
+            for m in &mut self.monsters {
+                if (m.body.position - at).length() <= AOE_BLAST {
+                    m.hp -= AOE_DAMAGE;
+                    *m.threat.entry(shooter).or_insert(0.0) += AOE_DAMAGE;
+                }
+            }
         }
         let alive: Vec<bool> = self.team.iter().map(|p| !p.is_dead()).collect();
         let players: Vec<Vec2> = self.team.iter().map(|p| p.body.position).collect();
@@ -389,7 +439,7 @@ impl TrainingField {
             m.target = threat_target(&m.threat, &alive)
                 .or_else(|| player_in_reach(m.body.position, &living).map(|(i, _)| i));
             if let Some(i) = m.target {
-                m.gait = hunt(&mut m.body, players[i], dt);
+                m.gait = hunt(&mut m.body, players[i], MELEE_REACH, dt);
                 // A fresh gait draw as soon as the chase ends.
                 m.until = self.time;
                 let in_reach = (players[i] - m.body.position).length() <= MELEE_REACH;
@@ -516,6 +566,13 @@ impl TrainingField {
             circles.push(circle_view(b.position, big, color::RANGED));
             circles.push(circle_view(b.position, MELEE_REACH, color::MELEE));
         }
+        for p in &self.team {
+            if let Some(t) = p.target {
+                let at = self.monsters[t].body.position;
+                lines.push(line(p.body.position, at, color::ATTACK));
+                circles.push(circle_view(at, AOE_BLAST, color::ATTACK));
+            }
+        }
         for m in &self.monsters {
             if let Some(i) = m.target {
                 lines.push(line(
@@ -592,6 +649,10 @@ impl TrainingField {
                 (color::MELEE, "melee reach 2: a monster's attack"),
                 (color::TARGET, "chase: the player a monster closes on"),
                 (color::BODY, "a dead player, back at the centre in 5 s"),
+                (
+                    color::ATTACK,
+                    "attack: a dps's target and the blast (2) every monster in it takes",
+                ),
             ]),
             actions: Vec::new(),
             params: vec![slider("monsters", "Monsters", MONSTERS, self.wanted as f32)],
@@ -654,7 +715,7 @@ mod tests {
         let target = Vec2::new(0.0, -7.0);
         let mut gaits = Vec::new();
         for _ in 0..180 {
-            gaits.push(hunt(&mut body, target, 1.0 / 60.0));
+            gaits.push(hunt(&mut body, target, MELEE_REACH, 1.0 / 60.0));
         }
         let gap = (target - body.position).length();
         assert!(gap <= MELEE_REACH && gap > MELEE_REACH - 0.1, "{gap}");
@@ -854,6 +915,79 @@ mod tests {
             field.update(1.0 / 60.0);
         }
         assert_eq!(field.monsters().len(), DEFAULT_MONSTERS);
+    }
+
+    /// Five monsters, the first `near` the centre (inside the dps disk), the rest far away in
+    /// a corner, every player at its starting place.
+    fn field_with_a_monster_at(near: Vec2) -> TrainingField {
+        let mut field = TrainingField::default();
+        field.param("monsters", 5.0);
+        for m in &mut field.monsters {
+            m.body = standing(Vec2::new(-70.0, -50.0));
+            m.spawn = m.body.position;
+        }
+        field.monsters[0].body = standing(near);
+        field.monsters[0].spawn = near;
+        field
+    }
+
+    #[test]
+    fn the_three_dps_fire_at_a_monster_in_the_disk_and_feed_its_threat() {
+        // 4 below the centre: within 8 of all three dps (5.7, 7.7 and 2.1 away).
+        let mut field = field_with_a_monster_at(Vec2::new(0.0, -4.0));
+        field.update(1.0 / 60.0);
+        let m = &field.monsters()[0];
+        assert_eq!(m.hp, MAX_HP - 3.0 * AOE_DAMAGE);
+        assert_eq!(m.threat, HashMap::from([(1, 10.0), (2, 10.0), (3, 10.0)]));
+        assert_eq!(m.target, Some(1));
+        for (i, p) in field.team().iter().enumerate() {
+            let dps = p.role == Role::Dps;
+            assert_eq!(p.target, dps.then_some(0), "player {i}");
+            assert!((p.mp - if dps { MAX_MP - AOE_MP } else { MAX_MP }).abs() < 0.1);
+        }
+        // Volleys at 0, 1.5, 3 and 4.5 s: dead at the fourth, replaced 3 s later.
+        for _ in 0..(5.0 * 60.0) as usize {
+            field.update(1.0 / 60.0);
+        }
+        assert_eq!(field.kills, 1);
+        assert_eq!(field.monsters().len(), 4);
+    }
+
+    #[test]
+    fn the_blast_hurts_every_monster_within_two_of_the_target_only() {
+        let mut field = field_with_a_monster_at(Vec2::new(0.0, -4.0));
+        field.monsters[1].body = standing(Vec2::new(0.0, -5.5));
+        field.monsters[2].body = standing(Vec2::new(0.0, -7.5));
+        field.update(1.0 / 60.0);
+        let hp: Vec<f32> = field.monsters().iter().map(|m| m.hp).collect();
+        assert_eq!(hp[..3], [70.0, 70.0, 100.0]);
+    }
+
+    #[test]
+    fn a_dps_waits_for_mp_and_runs_into_reach_first() {
+        let mut field = field_with_a_monster_at(Vec2::new(0.0, -4.0));
+        for p in &mut field.team {
+            p.mp = AOE_MP - 1.0;
+        }
+        field.update(1.0 / 60.0);
+        assert_eq!(field.monsters()[0].hp, MAX_HP);
+        for _ in 0..70 {
+            field.update(1.0 / 60.0);
+        }
+        assert!(field.monsters()[0].hp < MAX_HP);
+        // A monster inside the disk but out of reach of the dps at (4, 0): 10.3 away.
+        let mut field = field_with_a_monster_at(Vec2::new(0.0, -9.5));
+        field.update(1.0 / 60.0);
+        let dps = &field.team()[1];
+        assert_eq!(dps.target, Some(0));
+        assert!(dps.body.speed > 0.0);
+        for _ in 0..120 {
+            field.update(1.0 / 60.0);
+        }
+        let dps = &field.team()[1];
+        let gap = (field.monsters()[0].body.position - dps.body.position).length();
+        assert!(gap <= RANGED_REACH + 0.5, "{gap}");
+        assert!(field.monsters()[0].hp < MAX_HP);
     }
 
     #[test]

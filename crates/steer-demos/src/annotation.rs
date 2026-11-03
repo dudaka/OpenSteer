@@ -39,6 +39,8 @@ pub mod color {
     pub const RANGED: u32 = 0xe0b04f;
     /// An entity's melee reach (Training Field).
     pub const MELEE: u32 = 0xc77dff;
+    /// An attack: the shooter's line to its target and the blast round it (Training Field).
+    pub const ATTACK: u32 = 0xf4e3b2;
 }
 
 pub fn legend(entries: &[(u32, &str)]) -> Vec<LegendView> {
