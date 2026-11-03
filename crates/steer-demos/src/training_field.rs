@@ -25,7 +25,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::f32::consts::TAU;
 
-use steer_core::containment::contain;
+use steer_core::containment::{avoid, contain};
 use steer_core::obstacle::{avoid_obstacles, Circle, SeenFrom};
 use steer_core::wall::Wall;
 use steer_core::{steer, Vec2, Vehicle};
@@ -592,7 +592,7 @@ pub struct TrainingField {
     team: Vec<Player>,
     monsters: Vec<Monster>,
     /// The rocks in the luring disk.
-    obstacles: Vec<Circle>,
+    obstacles: Rocks,
     /// How many monsters the map keeps alive (the slider).
     wanted: usize,
     /// Killed monsters' nests and when each respawns there (the game's nests are fixed: a
@@ -674,35 +674,83 @@ fn random_spot(centre: Vec2, radius: f32, rng: &mut fastrand::Rng) -> Vec2 {
     around(centre, radius * rng.f32().sqrt(), rng.f32() * TAU)
 }
 
-/// A nest's idle disk and a body's width clear of `rock`.
-fn nest_room(nest: Vec2, rock: &Circle) -> bool {
-    (nest - rock.center).length() >= rock.radius + IDLE_RADIUS + BODY_RADIUS
+/// The rocks in the luring disk: circles and rectangles at any angle.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Rocks {
+    pub circles: Vec<Circle>,
+    pub rectangles: Vec<Wall>,
 }
 
-/// `count` rocks from their own rng: radii `ROCK_MIN..ROCK_MAX`, inside the luring disk, clear
-/// of the dps disk by `ROCK_DISK_GAP`, of every nest by `nest_room` and of each other by
-/// `ROCK_GAP`; a rock that finds no room in `ROCK_TRIES` draws ends the list. Drawn one after
-/// another, so the first k rocks of a longer list are the k of a shorter one.
-fn place_rocks(count: usize, nests: &[Vec2]) -> Vec<Circle> {
+impl Rocks {
+    pub fn len(&self) -> usize {
+        self.circles.len() + self.rectangles.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// The push that keeps `body` off the rocks `AVOID_TIME` ahead: OpenSteer's avoidance
+    /// for the circles, else the probe `avoid` for the rectangles widened by the body's
+    /// radius; zero when the way is clear.
+    fn push(&self, body: &Vehicle) -> Vec2 {
+        let push = avoid_obstacles(body, AVOID_TIME, &self.circles);
+        if push != Vec2::ZERO {
+            return push;
+        }
+        (self.rectangles.iter())
+            .map(|w| avoid(body, &Wall::new(&w.offset(body.radius)), AVOID_TIME))
+            .find(|p| *p != Vec2::ZERO)
+            .unwrap_or(Vec2::ZERO)
+    }
+
+    /// A nest's idle disk and a body's width clear of every rock.
+    fn nest_room(&self, nest: Vec2) -> bool {
+        let room = IDLE_RADIUS + BODY_RADIUS;
+        (self.circles.iter()).all(|o| (nest - o.center).length() >= o.radius + room)
+            && (self.rectangles.iter()).all(|w| !w.contains(nest) && w.distance(nest) >= room)
+    }
+}
+
+/// A rectangle with half sides `a` and `b`, turned by `angle`, as a counter-clockwise wall.
+fn rectangle(centre: Vec2, a: f32, b: f32, angle: f32) -> Wall {
+    let (sin, cos) = angle.sin_cos();
+    let corner = |x: f32, y: f32| centre + Vec2::new(x * cos - y * sin, x * sin + y * cos);
+    Wall::new(&[corner(a, b), corner(-a, b), corner(-a, -b), corner(a, -b)])
+}
+
+/// `count` rocks from their own rng, each a circle or a rectangle (a coin): a circle's radius
+/// and a rectangle's half sides within `ROCK_MIN..ROCK_MAX`, the rectangle turned by a random
+/// angle; inside the luring disk, clear of the dps disk by `ROCK_DISK_GAP`, of every nest's
+/// idle disk by a body and of each other by `ROCK_GAP`, all by the rock's bounding radius; a
+/// rock that finds no room in `ROCK_TRIES` draws ends the list. Drawn one after another, so
+/// the first k rocks of a longer list are the k of a shorter one.
+fn place_rocks(count: usize, nests: &[Vec2]) -> Rocks {
     let mut rng = fastrand::Rng::with_seed(ROCK_SEED);
-    let mut rocks: Vec<Circle> = Vec::new();
+    let mut rocks = Rocks::default();
+    // Each placed rock's centre and bounding radius.
+    let mut taken: Vec<(Vec2, f32)> = Vec::new();
     for _ in 0..count {
-        let rock = (0..ROCK_TRIES).find_map(|_| {
-            let r = ROCK_MIN + (ROCK_MAX - ROCK_MIN) * rng.f32();
-            let rock = Circle::new(
-                random_spot(CENTRE, LURE_RADIUS - r, &mut rng),
-                r,
-                SeenFrom::Outside,
-            );
-            let clear = (rock.center - CENTRE).length() - r >= DPS_RADIUS + ROCK_DISK_GAP
-                && nests.iter().all(|&n| nest_room(n, &rock))
-                && (rocks.iter())
-                    .all(|o| (rock.center - o.center).length() >= r + o.radius + ROCK_GAP);
-            clear.then_some(rock)
+        let found = (0..ROCK_TRIES).find_map(|_| {
+            let round = rng.bool();
+            let mut side = || ROCK_MIN + (ROCK_MAX - ROCK_MIN) * rng.f32();
+            let (a, b) = (side(), side());
+            let bound = if round { a } else { a.hypot(b) };
+            let at = random_spot(CENTRE, LURE_RADIUS - bound, &mut rng);
+            let angle = rng.f32() * TAU / 2.0;
+            let clear = (at - CENTRE).length() - bound >= DPS_RADIUS + ROCK_DISK_GAP
+                && (nests.iter()).all(|&n| (n - at).length() >= bound + IDLE_RADIUS + BODY_RADIUS)
+                && (taken.iter()).all(|&(c, r)| (at - c).length() >= bound + r + ROCK_GAP);
+            clear.then_some((round, at, a, b, angle, bound))
         });
-        match rock {
-            Some(rock) => rocks.push(rock),
-            None => break,
+        let Some((round, at, a, b, angle, bound)) = found else {
+            break;
+        };
+        taken.push((at, bound));
+        if round {
+            rocks.circles.push(Circle::new(at, a, SeenFrom::Outside));
+        } else {
+            rocks.rectangles.push(rectangle(at, a, b, angle));
         }
     }
     rocks
@@ -713,7 +761,7 @@ fn place_rocks(count: usize, nests: &[Vec2]) -> Vec<Circle> {
 struct Patch<'a> {
     centre: Vec2,
     radius: f32,
-    rocks: &'a [Circle],
+    rocks: &'a Rocks,
 }
 
 /// One step of `body` at `gait` roaming the disk (`centre`, `radius`) with its whole body
@@ -747,11 +795,7 @@ fn roam(
     } else {
         Vec2::ZERO
     };
-    let avoid = if inside {
-        Vec2::ZERO
-    } else {
-        avoid_obstacles(body, AVOID_TIME, rocks)
-    };
+    let avoid = if inside { Vec2::ZERO } else { rocks.push(body) };
     let force = if gait == Gait::Standing {
         Vec2::ZERO
     } else if push != Vec2::ZERO {
@@ -784,7 +828,7 @@ fn hunt(
     reach: f32,
     run_speed: f32,
     dt: f32,
-    rocks: &[Circle],
+    rocks: &Rocks,
 ) -> Gait {
     let gait = if (target - body.position).length() > reach {
         Gait::Running
@@ -794,7 +838,7 @@ fn hunt(
     body.max_speed = speed_of(gait, run_speed);
     let force = match gait {
         Gait::Running => {
-            let avoid = avoid_obstacles(body, AVOID_TIME, rocks);
+            let avoid = rocks.push(body);
             if avoid != Vec2::ZERO {
                 avoid
             } else {
@@ -1082,7 +1126,7 @@ fn lure_step(
     lure: &mut Lure,
     trip: &Trip,
     rng: &mut fastrand::Rng,
-    rocks: &[Circle],
+    rocks: &Rocks,
 ) {
     let Trip {
         settings,
@@ -1358,7 +1402,7 @@ impl Default for TrainingField {
         let mut field = Self {
             team,
             monsters: Vec::new(),
-            obstacles: Vec::new(),
+            obstacles: Rocks::default(),
             wanted: DEFAULT_MONSTERS,
             respawns: Vec::new(),
             kills: 0,
@@ -1388,7 +1432,7 @@ impl TrainingField {
         &self.monsters
     }
 
-    pub fn obstacles(&self) -> &[Circle] {
+    pub fn obstacles(&self) -> &Rocks {
         &self.obstacles
     }
 
@@ -1418,6 +1462,8 @@ impl TrainingField {
     /// otherwise keeps inside `IDLE_RADIUS` of its spawn at the gait it drew for the next
     /// `GAIT_MIN_S`-`GAIT_MAX_S` seconds, each with its whole body inside.
     pub fn update(&mut self, dt: f32) {
+        // The dps and buffers, and a monster fighting inside the dps disk, mind no rocks.
+        let no_rocks = Rocks::default();
         self.time += dt;
         self.bury();
         self.spawn_missing();
@@ -1526,7 +1572,7 @@ impl TrainingField {
                 let patch = Patch {
                     centre: CENTRE,
                     radius: p.role.radius(),
-                    rocks: &[],
+                    rocks: &no_rocks,
                 };
                 roam(
                     &mut p.body,
@@ -1540,7 +1586,7 @@ impl TrainingField {
                 continue;
             };
             let at = self.monsters[t].body.position;
-            if hunt(&mut p.body, at, RANGED_REACH, RUN_SPEED, dt, &[]) == Gait::Standing
+            if hunt(&mut p.body, at, RANGED_REACH, RUN_SPEED, dt, &no_rocks) == Gait::Standing
                 && self.time >= p.skill_ready
                 && p.mp >= AOE_MP
             {
@@ -1582,10 +1628,10 @@ impl TrainingField {
             if let Some(i) = m.target {
                 let (reach, speed) = (self.settings.bite_reach, self.settings.monster_speed);
                 // Rocks lie outside the dps disk; inside it a monster fights unhindered.
-                let rocks: &[Circle] = if (at - CENTRE).length() > DPS_RADIUS {
+                let rocks = if (at - CENTRE).length() > DPS_RADIUS {
                     &self.obstacles
                 } else {
-                    &[]
+                    &no_rocks
                 };
                 m.gait = hunt(&mut m.body, players[i], reach, speed, dt, rocks);
                 // A fresh gait draw as soon as the chase ends.
@@ -1880,9 +1926,7 @@ impl TrainingField {
     fn spawn_point(&mut self) -> Vec2 {
         loop {
             let at = random_spot(CENTRE, MAP_RADIUS - IDLE_RADIUS, &mut self.rng);
-            if (at - CENTRE).length() > DPS_RADIUS
-                && self.obstacles.iter().all(|o| nest_room(at, o))
-            {
+            if (at - CENTRE).length() > DPS_RADIUS && self.obstacles.nest_room(at) {
                 return at;
             }
         }
@@ -1903,7 +1947,12 @@ impl TrainingField {
         }
         let mut circles = vec![circle_view(CENTRE, MAP_RADIUS, color::EDGE)];
         circles.extend(
-            (self.obstacles.iter()).map(|o| circle_view(o.center, o.radius, color::OBSTACLE)),
+            (self.obstacles.circles.iter())
+                .map(|o| circle_view(o.center, o.radius, color::OBSTACLE)),
+        );
+        lines.extend(
+            (self.obstacles.rectangles.iter())
+                .flat_map(|w| w.edges().map(|(a, b)| line(a, b, color::OBSTACLE))),
         );
         for p in &self.team[..LURERS] {
             circles.push(circle_view(p.body.position, LURER_SIGHT, color::SIGHT));
@@ -2072,7 +2121,7 @@ impl TrainingField {
                 (color::EDGE, "map edge: a disk of 60, the nests inside"),
                 (
                     color::OBSTACLE,
-                    "rocks: random obstacles in the luring disk; a runner outside the dps disk steers round them 2 s ahead",
+                    "rocks: random circles and rectangles in the luring disk; a runner outside the dps disk steers round them 2 s ahead",
                 ),
                 (color::TRACK, "the empty part of a bar"),
                 (
@@ -2151,6 +2200,7 @@ impl TrainingField {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use steer_core::containment::room;
 
     /// Over `seconds` after a 10 s warm-up: the furthest any player's centre gets past the ring
     /// its body must stay inside (`role.radius() - BODY_RADIUS`), the furthest any monster gets
@@ -2209,7 +2259,7 @@ mod tests {
                 MELEE_REACH,
                 RUN_SPEED,
                 1.0 / 60.0,
-                &[],
+                &Rocks::default(),
             ));
         }
         let gap = (target - body.position).length();
@@ -3317,78 +3367,116 @@ mod tests {
         }
     }
 
-    /// The default field's rocks: 8, radii within 1.5..5, inside the luring disk, clear of
-    /// the dps disk by 1, of every nest's idle disk by a body, of each other by 3; the slider
-    /// only adds or removes rocks (the first 8 of 12 are the default 8); a new nest never
-    /// lands within a rock's room.
+    /// The default field's rocks: 8, circles and rectangles, a circle's radius and a
+    /// rectangle's half sides within 1.5..5, inside the luring disk, clear of the dps disk
+    /// by 1, of every nest's idle disk by a body and of each other by 3 (by bounding radius);
+    /// the slider only adds or removes rocks (the first 8 of 12 are the default 8); a new
+    /// nest never lands within a rock's room.
     #[test]
     fn rocks_fill_the_luring_disk_clear_of_the_dps_disk_the_nests_and_each_other() {
         let mut field = TrainingField::default();
-        let rocks = field.obstacles().to_vec();
+        let rocks = field.obstacles().clone();
         assert_eq!(rocks.len(), 8);
+        assert!(!rocks.circles.is_empty() && !rocks.rectangles.is_empty());
         let nests: Vec<Vec2> = field.monsters().iter().map(|m| m.spawn).collect();
-        for (i, o) in rocks.iter().enumerate() {
+        for o in &rocks.circles {
             assert!((1.5..=5.0).contains(&o.radius), "{o:?}");
-            let out = o.center.length();
-            assert!(out + o.radius <= 50.0 && out - o.radius >= 11.0, "{o:?}");
+        }
+        for w in &rocks.rectangles {
+            let p = w.points();
+            let (a, b) = ((p[0] - p[1]).length() / 2.0, (p[1] - p[2]).length() / 2.0);
+            assert!(
+                (1.5..=5.0).contains(&a) && (1.5..=5.0).contains(&b),
+                "{w:?}"
+            );
+        }
+        // Each rock as its centre and bounding radius.
+        let bounds: Vec<(Vec2, f32)> = (rocks.circles.iter().map(|o| (o.center, o.radius)))
+            .chain(rocks.rectangles.iter().map(|w| {
+                let c = w.points().iter().fold(Vec2::ZERO, |s, &p| s + p) / 4.0;
+                (c, (w.points()[0] - c).length())
+            }))
+            .collect();
+        for (i, &(c, r)) in bounds.iter().enumerate() {
+            let out = c.length();
+            assert!(out + r <= 50.0 && out - r >= 11.0, "{c:?} {r}");
             for n in &nests {
-                assert!((*n - o.center).length() >= o.radius + 7.0, "{o:?} {n:?}");
+                assert!((*n - c).length() >= r + 7.0, "{c:?} {n:?}");
             }
-            for p in &rocks[..i] {
-                let gap = (p.center - o.center).length() - o.radius - p.radius;
-                assert!(gap >= 3.0, "{o:?} {p:?}");
+            for &(c2, r2) in &bounds[..i] {
+                assert!((c2 - c).length() - r - r2 >= 3.0, "{c:?} {c2:?}");
             }
         }
         field.param("obstacles", 12.0);
-        assert_eq!(field.obstacles().len(), 12);
-        assert_eq!(&field.obstacles()[..8], &rocks[..]);
+        let more = field.obstacles().clone();
+        assert_eq!(more.len(), 12);
+        assert_eq!(&more.circles[..rocks.circles.len()], &rocks.circles[..]);
+        assert_eq!(
+            &more.rectangles[..rocks.rectangles.len()],
+            &rocks.rectangles[..]
+        );
         field.param("monsters", 30.0);
         for m in field.monsters() {
-            for o in field.obstacles() {
-                assert!((m.spawn - o.center).length() >= o.radius + 7.0, "{o:?}");
-            }
+            assert!(field.obstacles().nest_room(m.spawn), "{:?}", m.spawn);
         }
         field.param("obstacles", 0.0);
         assert!(field.obstacles().is_empty());
     }
 
-    /// Runners steer round a rock in their path and still arrive: a monster chasing lurer A
-    /// (parked at the centre) from 30 out passes a rock of radius 3 at 15 out and reaches the
-    /// dps disk; lurer A, out for a monster 28 out, passes a rock of radius 3 at 14 out and
-    /// tags it. Neither body enters a rock.
+    /// How far `b` is from touching a rock; negative inside one.
+    fn clearance(rocks: &Rocks, b: &Vehicle) -> f32 {
+        let circles =
+            (rocks.circles.iter()).map(|o| (b.position - o.center).length() - o.radius - b.radius);
+        let slabs =
+            (rocks.rectangles.iter()).map(|w| -room(&Wall::new(&w.offset(b.radius)), b.position));
+        circles.chain(slabs).fold(f32::MAX, f32::min)
+    }
+
+    /// Runners steer round a rock in their path and still arrive, whether a circle of
+    /// radius 3 or a 3 x 8 rectangle (square across the path, or turned): a monster chasing
+    /// lurer A (parked at the centre) from 30 out passes the rock at 15 out and reaches the
+    /// dps disk; lurer A, out for a monster 28 out, passes it and tags the monster. Neither
+    /// body enters a rock.
     #[test]
     fn runners_round_a_rock_in_their_path_and_arrive() {
-        let rock = |x: f32| Circle::new(Vec2::new(x, 0.0), 3.0, SeenFrom::Outside);
-        let clearance =
-            |b: &Vehicle, o: &Circle| (b.position - o.center).length() - o.radius - b.radius;
-        // The monster.
-        let mut field = field_with_a_monster_at(Vec2::new(-30.0, 0.0));
-        field.obstacles = vec![rock(-15.0)];
-        field.monsters[0].threat.insert(0, 1.0);
-        let id = field.monsters[0].id;
-        let (mut closest, mut nearest_in) = (f32::MAX, f32::MAX);
-        for _ in 0..600 {
-            field.update(1.0 / 60.0);
-            field.team[0].body = standing(CENTRE);
-            if let Some(m) = field.monsters.iter().find(|m| m.id == id) {
-                closest = closest.min(clearance(&m.body, &field.obstacles[0]));
-                nearest_in = nearest_in.min(m.body.position.length());
+        let circle = Rocks {
+            circles: vec![Circle::new(Vec2::new(-15.0, 0.0), 3.0, SeenFrom::Outside)],
+            ..Default::default()
+        };
+        let slab = |angle: f32| Rocks {
+            rectangles: vec![rectangle(Vec2::new(-15.0, 0.0), 1.5, 4.0, angle)],
+            ..Default::default()
+        };
+        for rocks in [circle, slab(0.0), slab(0.4)] {
+            // The monster.
+            let mut field = field_with_a_monster_at(Vec2::new(-30.0, 0.0));
+            field.obstacles = rocks.clone();
+            field.monsters[0].threat.insert(0, 1.0);
+            let id = field.monsters[0].id;
+            let (mut closest, mut nearest_in) = (f32::MAX, f32::MAX);
+            for _ in 0..600 {
+                field.update(1.0 / 60.0);
+                field.team[0].body = standing(CENTRE);
+                if let Some(m) = field.monsters.iter().find(|m| m.id == id) {
+                    closest = closest.min(clearance(&rocks, &m.body));
+                    nearest_in = nearest_in.min(m.body.position.length());
+                }
             }
+            assert!(closest >= -0.05, "{closest} {rocks:?}");
+            assert!(nearest_in <= DPS_RADIUS, "{nearest_in} {rocks:?}");
+            // The lurer.
+            let mut field = field_with_a_monster_at(Vec2::new(-28.0, 0.0));
+            field.obstacles = rocks.clone();
+            field.monsters[0].gait = Gait::Standing;
+            field.monsters[0].until = f32::MAX;
+            let mut closest = f32::MAX;
+            for _ in 0..600 {
+                field.update(1.0 / 60.0);
+                closest = closest.min(clearance(&rocks, &field.team[0].body));
+            }
+            assert!(closest >= -0.05, "{closest} {rocks:?}");
+            assert!(field.monsters[0].threat.contains_key(&0), "{rocks:?}");
         }
-        assert!(closest >= -0.05, "{closest}");
-        assert!(nearest_in <= DPS_RADIUS, "{nearest_in}");
-        // The lurer.
-        let mut field = field_with_a_monster_at(Vec2::new(-28.0, 0.0));
-        field.obstacles = vec![rock(-14.0)];
-        field.monsters[0].gait = Gait::Standing;
-        field.monsters[0].until = f32::MAX;
-        let mut closest = f32::MAX;
-        for _ in 0..600 {
-            field.update(1.0 / 60.0);
-            closest = closest.min(clearance(&field.team[0].body, &field.obstacles[0]));
-        }
-        assert!(closest >= -0.05, "{closest}");
-        assert!(field.monsters[0].threat.contains_key(&0));
     }
 
     /// Two minutes of the default field: the lurer makes trips, brings monsters in, and is
@@ -3426,6 +3514,10 @@ mod tests {
         // and two party champions by 80 s (each lurer planned its strong one while the disk
         // held one), 6,000 HP that hold both lurers from 76 s past 180 s (at the centre 112 s
         // / 135 s; the third-minute bound holds without margin: 4 trips each).
+        // Rocks as circles and rectangles (a coin per rock; the layout redrawn): none of
+        // this layout's 8 lies on the first two minutes' paths, so the two minutes are the
+        // no-rock numbers again; at 180 s A 5/15/0, B 5/18/0, 28 kills, no deaths, at the
+        // centre 93 s / 94 s; closest clearance to a rock 0.00.
         assert_eq!(stages.len(), 3);
         let delivered = a.delivered + b.delivered;
         assert!(a.trips >= 2 && b.trips >= 2, "{} {}", a.trips, b.trips);

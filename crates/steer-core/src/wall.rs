@@ -56,6 +56,17 @@ impl Wall {
             .fold(f32::INFINITY, f32::min)
     }
 
+    /// Whether the segment `a`-`b` crosses one of the wall's edges (touching an endpoint
+    /// counts; a segment wholly inside or outside does not).
+    pub fn crosses(&self, a: Vec2, b: Vec2) -> bool {
+        // The side of line p-q that r lies on, by the sign of the cross product.
+        let side =
+            |p: Vec2, q: Vec2, r: Vec2| (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
+        self.edges().any(|(c, d)| {
+            side(a, b, c) * side(a, b, d) <= 0.0 && side(c, d, a) * side(c, d, b) <= 0.0
+        })
+    }
+
     /// Whether `point` is inside the polygon (even-odd ray crossing along +x).
     pub fn contains(&self, point: Vec2) -> bool {
         self.edges()
@@ -133,6 +144,23 @@ mod tests {
         assert!(!wall.contains(Vec2::new(8.0, 8.0)));
         assert!(!wall.contains(Vec2::new(-1.0, 5.0)));
         assert!(!wall.contains(Vec2::new(13.0, 1.0)));
+    }
+
+    /// A 10 x 10 square: a segment through its left edge crosses, one inside or one
+    /// outside does not, one ending on the edge touches.
+    #[test]
+    fn a_segment_crosses_an_edge_or_not() {
+        let square = Wall::new(&[
+            Vec2::new(0.0, 0.0),
+            Vec2::new(10.0, 0.0),
+            Vec2::new(10.0, 10.0),
+            Vec2::new(0.0, 10.0),
+        ]);
+        assert!(square.crosses(Vec2::new(-1.0, 5.0), Vec2::new(1.0, 5.0)));
+        assert!(square.crosses(Vec2::new(-5.0, 5.0), Vec2::new(0.0, 5.0)));
+        assert!(!square.crosses(Vec2::new(1.0, 5.0), Vec2::new(9.0, 5.0)));
+        assert!(!square.crosses(Vec2::new(-5.0, 5.0), Vec2::new(-1.0, 5.0)));
+        assert!(!square.crosses(Vec2::new(-5.0, 11.0), Vec2::new(15.0, 11.0)));
     }
 
     #[test]

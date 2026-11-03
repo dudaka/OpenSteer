@@ -39,9 +39,9 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
      obstacles' cost: the two minutes do not move (two strong arrive together and hold both
      lurers either way); at 180 s A 5 and B 5 trips, 24 kills, no deaths, at the centre
      93 / 113 s against 118 / 123 s.
-  4. [done, this branch] Obstacles in the luring disk, circles first: 8 rocks by default
-     (Phase 8, "Next step: obstacles"; the numbers in Findings). Then rectangles; the planner's
-     detour cost only if the gap is large; no line-of-sight occlusion (Silkroad has none).
+  4. [done, #51 and this branch] Obstacles in the luring disk: 8 rocks by default, circles
+     (#51) and rectangles at any angle (the numbers in Findings). The planner's detour cost
+     only if the gap is large; no line-of-sight occlusion (Silkroad has none).
   5. The other Phase 8 Gaps worth tuning (the lurers' MP, lurer A's share, the load cap).
   The 3D options offered 2026-10-21 stay for later:
   1. Stop bodies scraping walls: add the containment side probes (the design of steps 23 and 37) to the
@@ -50,7 +50,7 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
   2. Draw building floors (object navmesh cells) so the plaza walker does not float over pits.
   3. One-way ledges: drop off, never climb (now walls both ways; sro-polyanya keeps a blocked side).
   4. Other ground demos on the terrain (Pedestrians, Capture the Flag) with the same `World`.
-- Tests: 318 Rust tests (13 in `silkroad-navmesh`, + 3 ignored full-data ones; 44 in
+- Tests: 323 Rust tests (13 in `silkroad-navmesh`, + 3 ignored full-data ones; 44 in
   `training_field`), 21 C++ oracles.
   Tests needing the game data skip without it (CI has none); with it, the Silkroad demo's tests
   take ~14 s in debug. 2D: `oracle_one_turning`, `oracle_seek_flee`,
@@ -331,13 +331,17 @@ and 50 here. Numbers are constants at the top of the module and `Settings` slide
   buffer at (0, -2.5). Radii: dps 10, buffers 5, lurers 50 (`Role::radius`). Players always
   run (5); a roaming player seeks random spots of its disk (`roam`, containment as the guard).
   No collisions between bodies (the user).
-- Rocks: `DEFAULT_OBSTACLES` 8 circle obstacles (slider 0-20) in the luring disk, radii
+- Rocks (`Rocks`): `DEFAULT_OBSTACLES` 8 obstacles (slider 0-20) in the luring disk, each a
+  circle or a rectangle at any angle by a coin, a circle's radius and a rectangle's half sides
   `ROCK_MIN` 1.5 to `ROCK_MAX` 5, drawn by `place_rocks` from their own rng (seed 2) after the
-  nests, so the monsters' draws stay; clear of the dps disk by 1, of a nest's idle disk by a
-  body, of each other by 3; the slider only adds or removes rocks, and a later nest keeps that
-  room. Lurers Out and Back, chasing monsters outside the dps disk and monsters walking home
-  steer round them with OpenSteer's avoidance `AVOID_TIME` 2 s ahead, which wins over the
-  seek; the dps and buffers never meet one. Drawn in `color::OBSTACLE`.
+  nests, so the monsters' draws stay; clear (by bounding radius) of the dps disk by 1, of a
+  nest's idle disk by a body, of each other by 3; the slider only adds or removes rocks, and a
+  later nest keeps that room. Lurers Out and Back, chasing monsters outside the dps disk and
+  monsters walking home steer round them `AVOID_TIME` 2 s ahead, which wins over the seek:
+  OpenSteer's `avoid_obstacles` for the circles, else `steer_core::containment::avoid` for the
+  rectangles widened by the body's radius (the mirror of `contain`: a push while the line to
+  the ahead probe meets the block, toward the side probe with more room outside); the dps and
+  buffers never meet one. Drawn in `color::OBSTACLE`.
 - Monsters: `DEFAULT_MONSTERS` 15 (slider 5-60); rarity by `SPAWN_MIX` 80 / 12 / 3 / 4 / 1 / 0
   percent (normal, champion, giant, party normal, party champion, party giant); HP x1 / x2 / x20
   / x10 / x20 / x200 (the game client's, read by caravan), damage x1 / x1.5 / x3 / x2 / x3 / x6
@@ -387,7 +391,7 @@ and 50 here. Numbers are constants at the top of the module and `Settings` slide
   `step_with_parked_lurer` (A put back at a spot after every step), `run_tracking_a` (tags by
   monster id over a run), `measure` and `Measured` (margins, speeds, time in the buff disk).
 
-### Next step: obstacles in the luring disk (the user, 2026-11-03; circles done, rectangles next)
+### Next step: obstacles in the luring disk (the user, 2026-11-03; circles #51 and rectangles done)
 
 Random obstacles of varying shape and size inside the luring disk. Settled with the user
 2026-11-03 (after the browser observation): circles first, a slider 0..20 (default 8), radius
@@ -917,7 +921,10 @@ trips/delivered/lost):
   disk at 40 s and two party champions by 80 s (each lurer planned its strong one while the
   disk held one), 6,000 HP that held both lurers from 76 s past 180 s (at the centre 112 s /
   135 s); bodies graze rocks (closest clearance 0.00 over 180 s, three grazes of the rock of
-  radius 1.6), never inside.
+  radius 1.6), never inside; circles and rectangles (a coin per rock, the layout redrawn): none
+  of the 8 lies on the first two minutes' paths, so the two minutes are the no-rock numbers; at
+  180 s A 5/15/0, B 5/18/0, 28 kills, no deaths, at the centre 93 s / 94 s, closest clearance
+  0.00.
 - **Wander held in by containment circles along the edge**: the probe leaves, the push turns
   the body along the wall, and wander rarely turns it back, so the dps never crossed the buff
   disk. Seeking random spots of the disk (the game bots' random walk) put them inside it 42-49%
@@ -952,6 +959,11 @@ trips/delivered/lost):
   monsters just outside the disk, their threat switches, and they count as lost; no monster was
   lost on the way. The status lines hung at y 63/67/71 while a landscape canvas shows 66: lurer
   B's line was never visible (fixed: 51/55/59).
+- **A point probe overshoots a thin block.** The first rectangle avoidance (the mirror of
+  `contain`, pushing while the ahead probe is inside the block) let a monster walk 2.3 into a
+  slab 3 wide: at speed 6 the probe reaches 13 ahead, so near the slab it lands beyond the far
+  face and reads clear. The trigger is now the line from the body to the probe crossing an
+  edge (`Wall::crosses`); the side still comes from the side probes' room.
 
 ## Gaps and known issues
 
