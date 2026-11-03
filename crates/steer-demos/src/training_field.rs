@@ -22,6 +22,9 @@ pub const LURE_RADIUS: f32 = 50.0;
 const MONSTERS: Range = Range::new(5.0, 60.0, 1.0);
 const DEFAULT_MONSTERS: usize = 30;
 const SEED: u64 = 1;
+/// A body seen from above, 2 units across: a person at the map's scale (OpenSteer's default
+/// 0.5 reads as a dot on a 160-unit map).
+pub const BODY_RADIUS: f32 = 1.0;
 /// Body colors: our lurer green, teammates blue, monsters red (muted, so the annotation
 /// red and green stay the push and the want).
 const LURER_BODY: u32 = 0x66aa66;
@@ -85,6 +88,7 @@ fn standing(position: Vec2) -> Vehicle {
     Vehicle {
         position,
         forward: Vec2::new(0.0, -1.0),
+        radius: BODY_RADIUS,
         ..Vehicle::default()
     }
 }
@@ -95,8 +99,8 @@ fn around(r: f32, angle: f32) -> Vec2 {
 }
 
 impl Default for TrainingField {
-    /// The team round the centre: the lurer on it, the dps 3 out at thirds of the circle,
-    /// the buffers 2 out between them; `DEFAULT_MONSTERS` spawned.
+    /// The team round the centre: the lurer on it, the dps 4 out at thirds of the circle,
+    /// the buffers 2.5 out between them; `DEFAULT_MONSTERS` spawned.
     fn default() -> Self {
         let third = TAU / 3.0;
         let player = |role, at| Player {
@@ -105,11 +109,11 @@ impl Default for TrainingField {
         };
         let team = vec![
             player(Role::Lurer, CENTRE),
-            player(Role::Dps, around(3.0, 0.0)),
-            player(Role::Dps, around(3.0, third)),
-            player(Role::Dps, around(3.0, 2.0 * third)),
-            player(Role::HpBuffer, around(2.0, third / 2.0)),
-            player(Role::MpBuffer, around(2.0, -third / 2.0)),
+            player(Role::Dps, around(4.0, 0.0)),
+            player(Role::Dps, around(4.0, third)),
+            player(Role::Dps, around(4.0, 2.0 * third)),
+            player(Role::HpBuffer, around(2.5, third / 2.0)),
+            player(Role::MpBuffer, around(2.5, -third / 2.0)),
         ];
         let mut field = Self {
             team,
@@ -254,11 +258,12 @@ mod tests {
         for p in field.team() {
             assert!((p.body.position - CENTRE).length() <= p.role.radius());
             assert_eq!(p.body.speed, 0.0);
+            assert_eq!(p.body.radius, BODY_RADIUS);
         }
         // No two bodies overlap.
         for (i, a) in field.team().iter().enumerate() {
             for b in &field.team()[i + 1..] {
-                assert!((a.body.position - b.body.position).length() > 1.0);
+                assert!((a.body.position - b.body.position).length() > 2.0 * BODY_RADIUS);
             }
         }
     }
