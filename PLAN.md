@@ -65,8 +65,10 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
       shows MP too) is at least `HEALER_MP` 50: the sustain that ran out at every death seen.
       On the five seeds with the hand-off it changes nothing (the healer's low never met a
       strong pull on offer); it is the guard for the case the hand-off used to create.
-  13. Next (agreed 2026-11-03): the group heal triggered by the lowest bar, not the mean (it
-      never fires). Then whatever the user observes.
+  13. [done, this branch] The group heal on two or more members in reach under 70%, bar by
+      bar (on the party's mean it never fired): group heals 0 / 0 / 1 / 4 / 0 over the five
+      seeds, no deaths. The agreed list of 2026-11-03 is complete; next is whatever the user
+      observes in the browser (restart `scripts/dev.sh`, the main page, then Training Field).
   The 3D options offered 2026-10-21 stay for later:
   1. Stop bodies scraping walls: add the containment side probes (the design of steps 23 and 37) to the
      Silkroad walker, so walls it runs along or corners it rounds push it off (Findings: 299 of
@@ -381,7 +383,7 @@ and 50 here. Numbers are constants at the top of the module and `Settings` slide
   hit +10 threat. Buffers (within reach 8, one cast a second, the member with the lowest bar
   under 90% and no such buff running, themselves included): HP buff +4/s for 10 s (4 MP), MP
   buff +3/s for 10 s (2 MP); the HP buffer first tries a heal (+40 on a member under 50%, 15 MP,
-  3 s), a group heal (+20 to everyone in reach when the party's mean HP is under 70%, 25 MP,
+  3 s), a group heal (+20 to everyone in reach when two or more of them are under 70%, 25 MP,
   10 s), a guard (bites x0.8 for 20 s, 10 MP, 5 s, on the attacked member with the lowest HP).
 - The lurer's kit: tag (reach 8, 1 damage, 2 MP, 1 s), blast (radius 3 round a monster within 8,
   6 MP, 4 s), pierce (12 long, 1.5 either side, toward a monster, 8 MP, 6 s); every hit a tag
@@ -1061,7 +1063,8 @@ trips/delivered/lost):
 
 - Training Field: time inside the dps disk is set by the backlog cap, not the lurers' walk
   (B: 12 pulls of 4.9 s in two minutes at 30 s);
-  the group heal never fired in the pinned run; scouting is random spots, so a lurer can zigzag
+  the group heal fires only on seeds where two members are hurt at once (4 of 5 seeds: none or
+  one); scouting is random spots, so a lurer can zigzag
   on an empty side; the planners assume skill cooldowns stay as at planning time, and the stops
   planner keeps the fence only by candidate distance; the fine-grained numbers are one seed (1)
   and two minutes, the five-seed test holds only margins; dps roam to 10 while the HP buffer reaches 8 from within 5; party giants are off
@@ -1078,7 +1081,7 @@ trips/delivered/lost):
   bodies graze rocks (avoidance looks only ahead, as on the plaza's walls); a lurer plans a
   strong monster while the disk holds one fewer than the cap, so two lurers can fill the disk to
   the cap plus one (with rocks: three 2,000 HP monsters from 80 s, both lurers held for minutes);
-  the group heal's trigger is the party mean under 70%, which never happens; the HP buffer's MP
+  the HP buffer's MP
   is the party's real sustain limit (5-13 MP at every death seen); strong pulls now stop under
   50 MP, but nothing slows ordinary pulls or the dps's roaming when the healer is dry.
 
