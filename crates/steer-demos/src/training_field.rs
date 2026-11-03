@@ -1246,7 +1246,7 @@ impl TrainingField {
             .collect();
         let chasing = self.monsters.iter().filter(|m| m.target.is_some()).count();
         labels.push(label(
-            corner(0.0, h + 3.0),
+            corner(-w, h + 3.0),
             format!(
                 "{} monsters: {}; {chasing} chasing; {} kills, {} deaths",
                 self.monsters.len(),
@@ -1258,7 +1258,7 @@ impl TrainingField {
         ));
         let lure = &self.lure;
         labels.push(label(
-            corner(0.0, h + 7.0),
+            corner(-w, h + 7.0),
             format!(
                 "lurer {:?}: {} trips, {} delivered, {} lost, {:.0}% of the time in the dps disk; {} tags, {} blasts, {} pierces",
                 lure.stage,
@@ -1273,7 +1273,7 @@ impl TrainingField {
             color::LABEL,
         ));
         labels.push(label(
-            corner(0.0, h + 11.0),
+            corner(-w, h + 11.0),
             format!(
                 "sessions: {} done, {:.1} s each, back with {:.0} HP (lowest {:.0}), {:.0} walked per delivered",
                 lure.sessions,
