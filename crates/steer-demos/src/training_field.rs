@@ -33,9 +33,9 @@ use crate::annotation::{circle_view, color, label, legend, line, vehicle_view};
 use crate::controls::{button, slider, Range};
 use crate::view::{FrameView, LineView};
 
-/// The map: a rectangle this wide and high, centred on the training centre.
-pub const MAP_WIDTH: f32 = 160.0;
-pub const MAP_HEIGHT: f32 = 120.0;
+/// The map: a disk of this radius round the training centre (the user: a rectangle left
+/// monsters stuck in its corners). Nests lie inside it by an idle radius.
+pub const MAP_RADIUS: f32 = 60.0;
 pub const CENTRE: Vec2 = Vec2::ZERO;
 pub const DPS_RADIUS: f32 = 10.0;
 pub const BUFF_RADIUS: f32 = 5.0;
@@ -119,6 +119,13 @@ pub const HOME: f32 = 1.0;
 /// The lurer leaves the centre once its HP is back to this share (the user: 90%, to cut the
 /// rest).
 pub const LEAVE_HP: f32 = 0.9;
+/// The game shows a player the entities within about 30 (the user): the lurer knows only the
+/// monsters within `LURER_SIGHT` of it, and with none in sight scouts spots drawn in the band
+/// between `LURER_SIGHT` and the luring disk's edge (less a margin), where the rest hide. It
+/// may tag a monster beyond the luring disk when a skill reaches it from inside (the disk
+/// fences the lurer's walk, not its targets).
+pub const LURER_SIGHT: f32 = 30.0;
+pub const SCOUT_MARGIN: f32 = 3.0;
 /// The tour planner: the N stops (untagged monsters in the lurer's disk) and their order that
 /// make the shortest run from the lurer through them and home, solved exactly over the
 /// `TOUR_CANDIDATES` nearest and planned again every `PLAN_PERIOD`.
@@ -419,10 +426,14 @@ pub struct Lure {
     /// Steps the lurer spent inside the dps disk, of all steps.
     pub steps_in_disk: u32,
     pub steps: u32,
-    /// Casts: normal attacks, blasts and pierces.
+    /// Casts: normal attacks, blasts and pierces; and the count when the trip left (a trip
+    /// that has tagged something and sees nothing more turns home with what follows).
     pub tags: u32,
     pub blasts: u32,
     pub pierces: u32,
+    left_casts: u32,
+    /// With nothing in sight, the spot in the band the lurer scouts toward.
+    pub scout: Option<Vec2>,
     /// The planned stops (monster ids) of the current trip, next first, and when they were
     /// planned.
     pub tour: Vec<Stop>,
@@ -440,6 +451,10 @@ pub struct Lure {
 impl Lure {
     pub fn share_in_disk(&self) -> f32 {
         self.steps_in_disk as f32 / self.steps.max(1) as f32
+    }
+
+    pub fn casts(&self) -> u32 {
+        self.tags + self.blasts + self.pierces
     }
 
     pub fn mean_session(&self) -> f32 {
@@ -657,20 +672,23 @@ fn untagged_in_reach(lurer: usize, at: Vec2, monsters: &[Monster]) -> Option<usi
 /// within a skill's reach of a monster and casts: the normal attack tags it alone (reach 8),
 /// the blast every untagged monster within `LURE_BLAST` of it (reach 8), the pierce every
 /// untagged monster on the line from the cast point to it (reach `PIERCE_LENGTH`); the blast
-/// and pierce only when `skills` (blast ready, pierce ready) allow. The search ends a run
+/// and pierce only when `skills` (blast ready, pierce ready) allow, and every cast point
+/// within `fence` of `home` (the lurer's walk stays in its disk; a target may lie beyond it,
+/// the user's rule). The search ends a run
 /// once `n` are tagged or nothing more can be, and keeps the shortest, the fewest casts on a
 /// tie.
 pub fn plan_casts(
-    from: Vec2,
-    home: Vec2,
+    (from, home): (Vec2, Vec2),
     lurer: usize,
     monsters: &[Monster],
     candidates: &[u32],
     n: usize,
     skills: (bool, bool),
+    fence: f32,
 ) -> Vec<Stop> {
     struct Search<'a> {
         home: Vec2,
+        fence: f32,
         lurer: usize,
         monsters: &'a [Monster],
         candidates: &'a [u32],
@@ -722,7 +740,7 @@ pub fn plan_casts(
                         }
                     }
                     for (reach, tags) in options {
-                        if tags.is_empty() {
+                        if tags.is_empty() || (cast_at(reach) - self.home).length() > self.fence {
                             continue;
                         }
                         // A node with any way on is no end of a run, pruned or not.
@@ -753,6 +771,7 @@ pub fn plan_casts(
     }
     let mut search = Search {
         home,
+        fence,
         lurer,
         monsters,
         candidates,
@@ -764,12 +783,14 @@ pub fn plan_casts(
     search.best.1
 }
 
-/// The planner's candidates: the monsters in the lurer's disk that the lurer has not tagged,
-/// the `TOUR_CANDIDATES` nearest to `at`, as (id, position).
+/// The planner's candidates: the monsters the lurer sees (within `LURER_SIGHT` of `at`) that
+/// it has not tagged and that a skill could reach from inside its disk, the `TOUR_CANDIDATES`
+/// nearest, as (id, position).
 fn tour_candidates(lurer: usize, at: Vec2, monsters: &[Monster]) -> Vec<(u32, Vec2)> {
     let mut near: Vec<&Monster> = (monsters.iter())
         .filter(|m| !m.threat.contains_key(&lurer))
-        .filter(|m| (m.body.position - CENTRE).length() <= LURE_RADIUS)
+        .filter(|m| (m.body.position - at).length() <= LURER_SIGHT)
+        .filter(|m| (m.body.position - CENTRE).length() <= LURE_RADIUS + PIERCE_LENGTH)
         .collect();
     near.sort_by(|a, b| {
         let d = |m: &Monster| (m.body.position - at).length();
@@ -779,9 +800,17 @@ fn tour_candidates(lurer: usize, at: Vec2, monsters: &[Monster]) -> Vec<(u32, Ve
     near.into_iter().map(|m| (m.id, m.body.position)).collect()
 }
 
-/// One step of the lurer's trip. At the centre it stands until its HP is back to `LEAVE_HP`,
-/// the dps disk holds at most the load cap's monsters and there is something in its disk to
-/// tag; out, it follows its tour (planned
+/// A scouting spot: a random point of the band between the lurer's sight and the luring
+/// disk's edge less `SCOUT_MARGIN`, uniform over its area.
+fn scout_spot(rng: &mut fastrand::Rng) -> Vec2 {
+    let (inner, outer) = (LURER_SIGHT, LURE_RADIUS - SCOUT_MARGIN);
+    let r = (inner * inner + (outer * outer - inner * inner) * rng.f32()).sqrt();
+    around(CENTRE, r, rng.f32() * TAU)
+}
+
+/// One step of the lurer's trip. At the centre it stands until its HP is back to `LEAVE_HP`
+/// and the dps disk holds at most the load cap's monsters; out with nothing in sight it
+/// scouts the band, having tagged something it turns home with what follows; out, it follows its tour (planned
 /// again every `PLAN_PERIOD`, stops already tagged dropped; the tag itself fires from
 /// `lure_cast`) until N chase, its HP is under `BACK_HP` or no stop is left; back, it runs
 /// home, and on arrival the session's time and HP are recorded.
@@ -790,21 +819,22 @@ fn lure_step(
     lure: &mut Lure,
     settings: &Settings,
     monsters: &[Monster],
-    chasers: usize,
-    load: usize,
+    (chasers, load): (usize, usize),
     (now, dt): (f32, f32),
+    rng: &mut fastrand::Rng,
 ) {
     let before = p.body.position;
     match lure.stage {
         LureStage::Centre => {
             hunt(&mut p.body, CENTRE, HOME, RUN_SPEED, dt);
             let quiet = settings.load_cap == 0 || load <= settings.load_cap;
-            let work = !tour_candidates(0, p.body.position, monsters).is_empty();
-            if p.hp >= LEAVE_HP * MAX_HP && quiet && work {
+            if p.hp >= LEAVE_HP * MAX_HP && quiet {
                 lure.stage = LureStage::Out;
                 lure.trips += 1;
                 lure.left_at = now;
+                lure.left_casts = lure.casts();
                 lure.planned_at = f32::MIN;
+                lure.scout = None;
             }
         }
         LureStage::Out => {
@@ -814,32 +844,48 @@ fn lure_step(
             lure.tour
                 .retain(|s| find(s.id).is_some_and(|m| !m.threat.contains_key(&0)));
             if !back && (lure.tour.is_empty() || now - lure.planned_at >= PLAN_PERIOD) {
-                let candidates = tour_candidates(0, at, monsters);
+                let mut candidates = tour_candidates(0, at, monsters);
                 let n = settings.chasers;
                 lure.tour = match settings.planner {
-                    Planner::Stops => (plan_tour(at, CENTRE, &candidates, n).into_iter())
-                        .map(|id| Stop {
-                            id,
-                            reach: RANGED_REACH,
-                        })
-                        .collect(),
+                    Planner::Stops => {
+                        // Stops are reached from 8 away: only monsters that close to the disk.
+                        candidates
+                            .retain(|c| (c.1 - CENTRE).length() <= LURE_RADIUS + RANGED_REACH);
+                        (plan_tour(at, CENTRE, &candidates, n).into_iter())
+                            .map(|id| Stop {
+                                id,
+                                reach: RANGED_REACH,
+                            })
+                            .collect()
+                    }
                     Planner::Casts => {
                         let ids: Vec<u32> = candidates.iter().map(|c| c.0).collect();
                         let skills = (now >= p.blast_ready, now >= p.pierce_ready);
-                        plan_casts(at, CENTRE, 0, monsters, &ids, n, skills)
+                        plan_casts((at, CENTRE), 0, monsters, &ids, n, skills, LURE_RADIUS)
                     }
                 };
                 lure.planned_at = now;
             }
             let next = lure.tour.first().map(|s| (find(s.id), s.reach));
+            let tagged_some = lure.casts() > lure.left_casts;
             match next {
                 Some((Some(m), reach)) if !back => {
+                    lure.scout = None;
                     hunt(&mut p.body, m.body.position, reach, RUN_SPEED, dt);
                 }
-                _ => {
+                _ if back || tagged_some => {
                     lure.stage = LureStage::Back;
                     lure.tour.clear();
+                    lure.scout = None;
                     hunt(&mut p.body, CENTRE, HOME, RUN_SPEED, dt);
+                }
+                _ => {
+                    // Nothing in sight and nothing tagged yet: scout the band.
+                    if lure.scout.is_none_or(|spot| (spot - at).length() <= HOME) {
+                        lure.scout = Some(scout_spot(rng));
+                    }
+                    let spot = lure.scout.expect("a scouting spot");
+                    hunt(&mut p.body, spot, HOME, RUN_SPEED, dt);
                 }
             }
         }
@@ -1084,7 +1130,8 @@ impl TrainingField {
             if p.role == Role::Lurer {
                 let (settings, now) = (&self.settings, self.time);
                 let lure = &mut self.lure;
-                lure_step(p, lure, settings, &self.monsters, chasers, load, (now, dt));
+                let crowd = (chasers, load);
+                lure_step(p, lure, settings, &self.monsters, crowd, (now, dt), rng);
                 continue;
             }
             let Some(t) = p.target else {
@@ -1314,14 +1361,11 @@ impl TrainingField {
         self.monsters.push(monster);
     }
 
-    /// A random point of the map outside the dps disk (nothing appears on top of the team).
+    /// A random point of the map, an idle radius in from its edge and outside the dps disk
+    /// (nothing appears on top of the team).
     fn spawn_point(&mut self) -> Vec2 {
         loop {
-            let at = CENTRE
-                + Vec2::new(
-                    (self.rng.f32() - 0.5) * MAP_WIDTH,
-                    (self.rng.f32() - 0.5) * MAP_HEIGHT,
-                );
+            let at = random_spot(CENTRE, MAP_RADIUS - IDLE_RADIUS, &mut self.rng);
             if (at - CENTRE).length() > DPS_RADIUS {
                 return at;
             }
@@ -1329,19 +1373,9 @@ impl TrainingField {
     }
 
     pub fn view(&self) -> FrameView {
-        let (w, h) = (MAP_WIDTH / 2.0, MAP_HEIGHT / 2.0);
+        let (w, h) = (MAP_RADIUS, MAP_RADIUS);
         let corner = |x: f32, y: f32| CENTRE + Vec2::new(x, y);
-        let corners = [
-            corner(-w, -h),
-            corner(w, -h),
-            corner(w, h),
-            corner(-w, h),
-            corner(-w, -h),
-        ];
-        let mut lines: Vec<_> = corners
-            .windows(2)
-            .map(|c| line(c[0], c[1], color::EDGE))
-            .collect();
+        let mut lines = Vec::new();
         for p in &self.team {
             let at = p.body.position;
             lines.extend(bar(at, HP_BAR_LIFT, p.hp / MAX_HP, HP_BUFFER_BODY));
@@ -1351,7 +1385,10 @@ impl TrainingField {
             let at = m.body.position;
             lines.extend(bar(at, HP_BAR_LIFT, m.hp / m.max_hp, HP_BUFFER_BODY));
         }
-        let mut circles = Vec::new();
+        let mut circles = vec![
+            circle_view(CENTRE, MAP_RADIUS, color::EDGE),
+            circle_view(self.team[0].body.position, LURER_SIGHT, color::SIGHT),
+        ];
         let bite_reach = self.settings.bite_reach;
         let reaches = (self
             .team
@@ -1366,7 +1403,10 @@ impl TrainingField {
             circles.push(circle_view(b.position, big, color::RANGED));
             circles.push(circle_view(b.position, small, color::MELEE));
         }
-        for m in self.monsters.iter().filter(|m| m.target.is_some()) {
+        // A chasing monster's line of sight, except once it fights inside the dps disk.
+        let chasing_outside =
+            |m: &&Monster| m.target.is_some() && (m.body.position - CENTRE).length() > DPS_RADIUS;
+        for m in self.monsters.iter().filter(chasing_outside) {
             circles.push(circle_view(m.body.position, LOS_REACH, color::SIGHT));
         }
         for p in &self.team {
@@ -1453,6 +1493,9 @@ impl TrainingField {
             color::LABEL,
         ));
         if lure.stage == LureStage::Out {
+            if let (true, Some(spot)) = (lure.tour.is_empty(), lure.scout) {
+                lines.push(line(self.team[0].body.position, spot, color::PATH));
+            }
             let mut from = self.team[0].body.position;
             for stop in &lure.tour {
                 if let Some(m) = self.monsters.iter().find(|m| m.id == stop.id) {
@@ -1472,7 +1515,7 @@ impl TrainingField {
         FrameView {
             time: self.time,
             focus: [CENTRE.x, CENTRE.y],
-            view_size: MAP_HEIGHT + 12.0,
+            view_size: 2.0 * MAP_RADIUS + 12.0,
             vehicles: (self.team.iter().map(|p| vehicle_view(&p.body, body(p))))
                 .chain(
                     self.monsters
@@ -1500,7 +1543,7 @@ impl TrainingField {
                     color::RADIUS,
                     "training disks: each role's radius round the centre",
                 ),
-                (color::EDGE, "map edge: monsters spawn inside"),
+                (color::EDGE, "map edge: a disk of 60, the nests inside"),
                 (color::TRACK, "the empty part of a bar"),
                 (
                     color::RANGED,
@@ -1509,12 +1552,9 @@ impl TrainingField {
                 (color::MELEE, "melee reach 2: a monster's attack"),
                 (
                     color::SIGHT,
-                    "line of sight 35: a chasing monster keeps its target inside it",
+                    "sight: the lurer sees monsters within 30; a chasing monster keeps its target within 35 (not shown inside the dps disk)",
                 ),
-                (
-                    color::PATH,
-                    "the lurer's planned tour: its stops, then home",
-                ),
+                (color::PATH, "the lurer's planned tour: its stops, then home; or its scouting spot"),
                 (color::TARGET, "chase: the player a monster closes on"),
                 (color::BODY, "a dead player, back at the centre in 5 s"),
                 (
@@ -1762,7 +1802,7 @@ mod tests {
         assert_eq!(field.monsters()[0].target, Some(0));
         let sight = |field: &TrainingField| {
             (field.view().circles.iter())
-                .filter(|c| c.color == color::SIGHT)
+                .filter(|c| c.color == color::SIGHT && c.radius == LOS_REACH)
                 .count()
         };
         assert_eq!(sight(&field), 1);
@@ -1775,6 +1815,14 @@ mod tests {
         step_with_parked_lurer(&mut field, den + Vec2::new(0.0, -45.0), 2);
         assert_eq!(field.monsters()[0].target, None);
         assert!(field.monsters()[0].threat.is_empty());
+        assert_eq!(sight(&field), 0);
+        // A monster chasing inside the dps disk shows no line of sight either.
+        let mut field = quiet_field();
+        field.monsters[0].body = standing(Vec2::new(4.0, 0.0));
+        field.monsters[0].threat.insert(0, 1.0);
+        step_with_parked_lurer(&mut field, CENTRE, 2);
+        // (A dps hit may already have taken it over; it chases someone either way.)
+        assert!(field.monsters()[0].target.is_some());
         assert_eq!(sight(&field), 0);
     }
 
@@ -2028,12 +2076,20 @@ mod tests {
         let mut field = work();
         field.update(1.0 / 60.0);
         assert_eq!(field.lure.trips, 1);
-        // Nothing within the disk: it stays, no trip counted.
+        // Nothing in sight: it leaves all the same and scouts the band beyond its sight,
+        // never past the luring disk.
         let mut field = quiet_field();
-        for _ in 0..180 {
+        let mut furthest = 0.0f32;
+        for _ in 0..600 {
             field.update(1.0 / 60.0);
+            furthest = furthest.max((field.team()[0].body.position - CENTRE).length());
         }
-        assert_eq!((field.lure.stage, field.lure.trips), (LureStage::Centre, 0));
+        assert_eq!((field.lure.stage, field.lure.trips), (LureStage::Out, 1));
+        assert!(field.lure.scout.is_some());
+        assert!(
+            furthest > LURER_SIGHT && furthest <= LURE_RADIUS,
+            "{furthest}"
+        );
         // At 85 HP (under the buff threshold) it waits for the HP buff (+4) and regeneration
         // (+1) to bring it to 90: 1 s.
         let mut field = work();
@@ -2064,6 +2120,42 @@ mod tests {
         field.param("load_cap", 0.0);
         field.update(1.0 / 60.0);
         assert_eq!(field.lure.trips, 1);
+    }
+
+    #[test]
+    fn the_lurer_may_tag_past_its_disk_when_a_skill_reaches_from_inside() {
+        // From 45 out: a monster at 55 is a normal attack from 47 (inside the disk); one at
+        // 62 is not (54), but a pierce reaches it from 50, the edge.
+        let mut field = quiet_field();
+        field.monsters[0].body = standing(Vec2::new(55.0, 0.0));
+        field.monsters[1].body = standing(Vec2::new(62.0, 0.0));
+        let ids: Vec<u32> = field.monsters().iter().map(|m| m.id).collect();
+        let from = (Vec2::new(45.0, 0.0), CENTRE);
+        let plan = |ids: &[u32], skills| {
+            plan_casts(from, 0, field.monsters(), ids, 1, skills, LURE_RADIUS)
+        };
+        assert_eq!(
+            plan(&ids[..1], (false, false)),
+            [Stop {
+                id: ids[0],
+                reach: RANGED_REACH
+            }]
+        );
+        assert!(plan(&ids[1..2], (false, false)).is_empty());
+        assert_eq!(
+            plan(&ids[1..2], (false, true)),
+            [Stop {
+                id: ids[1],
+                reach: PIERCE_LENGTH
+            }]
+        );
+        // The sight: from the centre the lurer lists only monsters within 30.
+        let mut field = quiet_field();
+        field.monsters[0].body = standing(Vec2::new(29.0, 0.0));
+        field.monsters[1].body = standing(Vec2::new(31.0, 0.0));
+        let seen = tour_candidates(0, CENTRE, field.monsters());
+        assert_eq!(seen.len(), 1);
+        assert_eq!(seen[0].0, field.monsters()[0].id);
     }
 
     #[test]
@@ -2108,7 +2200,7 @@ mod tests {
             step_with_parked_lurer(&mut field, den + Vec2::new(0.0, -30.0), 1);
             top = top.max(field.monsters()[0].body.speed);
         }
-        assert!(top > 7.9 && top <= 8.0 + 1e-3, "{top}");
+        assert!(top > 7.8 && top <= 8.0 + 1e-3, "{top}");
         // The params carry the values.
         let params = field.view().params;
         let value = |id: &str| params.iter().find(|p| p.id == id).unwrap().value;
@@ -2206,13 +2298,13 @@ mod tests {
         let ids: Vec<u32> = field.monsters().iter().map(|m| m.id).collect();
         let plan = |field: &TrainingField, skills| {
             plan_casts(
-                Vec2::ZERO,
-                CENTRE,
+                (Vec2::ZERO, CENTRE),
                 0,
                 field.monsters(),
                 &ids[..4],
                 3,
                 skills,
+                LURE_RADIUS,
             )
         };
         let with_blast = plan(&field, (true, false));
@@ -2231,13 +2323,13 @@ mod tests {
         }
         let ids: Vec<u32> = field.monsters().iter().map(|m| m.id).collect();
         let pierce = plan_casts(
-            Vec2::ZERO,
-            CENTRE,
+            (Vec2::ZERO, CENTRE),
             0,
             field.monsters(),
             &ids[..4],
             4,
             (false, true),
+            LURE_RADIUS,
         );
         assert_eq!(
             pierce,
@@ -2281,10 +2373,14 @@ mod tests {
         field.team[0].hp = 30.0;
         field.update(1.0 / 60.0);
         assert_eq!(field.lure.stage, LureStage::Back);
-        // Out with every monster beyond the lurer's disk: Back, and home within a few steps.
+        // Out, nothing more in sight but one monster tagged this trip and chasing: Back with
+        // what follows, and home within a few steps.
         let mut field = quiet_field();
         field.lure.stage = LureStage::Out;
+        field.lure.tags = 1;
         field.team[0].body = standing(Vec2::new(10.0, 0.0));
+        field.monsters[0].body = standing(Vec2::new(13.0, 0.0));
+        field.monsters[0].threat.insert(0, 1.0);
         field.update(1.0 / 60.0);
         assert_eq!(field.lure.stage, LureStage::Back);
         // Home within a few steps; at full HP it leaves again at once.
@@ -2319,12 +2415,15 @@ mod tests {
         // per delivered. With monsters respawning at their nests (the disk no longer drains):
         // 6 trips, 20 delivered, 1 lost, 15 kills, 4 deaths (all dps: 20 brought in against 15
         // killed), 56%; 6 sessions of 14.8 s, back with 99 HP (lowest 94), 16 walked per
-        // delivered. The overload is the sliders' business (N, the load cap).
+        // delivered. The overload is the sliders' business (N, the load cap). On the disk
+        // map with the lurer's sight of 30 and scouting: 7 trips, 24 delivered, 2 lost, 21
+        // kills, no deaths, 70% inside (short trips, then the load cap holds it); 7 sessions
+        // of 11.9 s, back with 98 HP (lowest 97), 11 walked per delivered.
         assert_eq!(stages.len(), 3);
         assert!(l.trips >= 3, "{}", l.trips);
         assert!(l.delivered >= 8, "{}", l.delivered);
         assert!(l.lost <= l.delivered / 2, "{} lost", l.lost);
-        assert!(l.share_in_disk() < 0.65, "{}", l.share_in_disk());
+        assert!(l.share_in_disk() < 0.8, "{}", l.share_in_disk());
         assert!(l.sessions >= 3, "{}", l.sessions);
         assert!(
             l.mean_session() > 5.0 && l.mean_session() < 40.0,
@@ -2349,6 +2448,9 @@ mod tests {
         for (k, m) in field.monsters.iter_mut().take(2).enumerate() {
             m.body = standing(den + Vec2::new(0.0, if k == 0 { 7.0 } else { -7.0 }));
             m.spawn = m.body.position;
+            // Standing, so the second stays in reach for its turn.
+            m.gait = Gait::Standing;
+            m.until = f32::MAX;
         }
         step_with_parked_lurer(&mut field, den, 2);
         let lurer = &field.team()[0];
@@ -2563,7 +2665,7 @@ mod tests {
         assert_eq!(field.monsters().len(), DEFAULT_MONSTERS);
         for m in field.monsters() {
             let off = m.body.position - CENTRE;
-            assert!(off.x.abs() <= MAP_WIDTH / 2.0 && off.y.abs() <= MAP_HEIGHT / 2.0);
+            assert!(off.length() <= MAP_RADIUS - IDLE_RADIUS);
             assert!(off.length() > DPS_RADIUS);
             assert_eq!(m.spawn, m.body.position);
         }

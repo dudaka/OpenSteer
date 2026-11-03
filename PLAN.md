@@ -549,6 +549,21 @@ Steps:
     deaths, all dps (20 brought in against 15 killed: the overload is for the sliders, N and
     the load cap), 56% inside; 6 sessions of 14.8 s, back with 99 HP, 16 walked per
     delivered. Mutation (respawns anywhere) fails.
+  - F6g (built, this branch; the user's four changes): the map is a disk (`MAP_RADIUS` 60,
+    nests an idle radius inside; a rectangle left monsters stuck in its corners); the lurer
+    sees only monsters within `LURER_SIGHT` 30 (the game shows entities within about 30), and
+    with none in sight scouts random spots of the band between 30 and the luring disk's edge
+    less 3 (`scout_spot`, `Lure::scout`, drawn as the tour line); having tagged something and
+    seeing nothing more it turns home with what follows (`left_casts`); the luring disk fences
+    the lurer's walk, not its targets: the cast planner takes a cast point only inside it
+    (`fence`), so a monster at 55 is a normal attack from 47 and one at 62 a pierce from the
+    edge; a chasing monster inside the dps disk shows no line of sight. The leave rule no
+    longer asks for work in the disk (scouting finds it). Tests: spawns inside 54; a quiet
+    field sends the lurer scouting past 30 and never past 50; back with what follows; the
+    fence cases; the sight list at 29 and 31; the hidden LOS. Measured, two minutes: 7 trips,
+    24 delivered, 2 lost, 21 kills, no deaths, 70% inside (short trips, the load cap holding
+    it); 7 sessions of 11.9 s, back with 98 HP (lowest 97), 11 walked per delivered.
+    Mutation (no fence) fails.
   Combat numbers: bite reach 2, 3 damage, 1.5 s (one monster kills an unbuffed player in
   50 s, four in 12.5 s); dps AoE reach 8, blast radius 2 round the target, 10 damage to
   every monster in it, 6 MP, 1.5 s (one dps kills a monster in 15 s, three clear a cluster of
