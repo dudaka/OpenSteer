@@ -250,6 +250,9 @@ pub struct Settings {
     /// cap.
     pub backlog_cap: f32,
     pub lure_radius: f32,
+    /// The per-entity reach circles (ranged and alarm, melee, line of sight, the lurers'
+    /// sight) drawn or hidden (the user, 2026-11-05); the role disks and effects stay.
+    pub show_reaches: bool,
     /// How many rocks the luring disk holds.
     pub obstacles: usize,
 }
@@ -264,6 +267,7 @@ impl Default for Settings {
             bite_reach: MELEE_REACH,
             backlog_cap: DEFAULT_BACKLOG_CAP,
             lure_radius: LURE_RADIUS,
+            show_reaches: true,
             obstacles: DEFAULT_OBSTACLES,
         }
     }
@@ -1852,6 +1856,7 @@ impl TrainingField {
         match id {
             "plan_casts" => self.settings.planner = Planner::Casts,
             "plan_stops" => self.settings.planner = Planner::Stops,
+            "toggle_reaches" => self.settings.show_reaches = !self.settings.show_reaches,
             _ => {}
         }
     }
@@ -2102,28 +2107,31 @@ impl TrainingField {
             (self.obstacles.rectangles.iter())
                 .flat_map(|w| w.edges().map(|(a, b)| line(a, b, color::OBSTACLE))),
         );
-        for p in &self.team[..LURERS] {
-            circles.push(circle_view(p.body.position, LURER_SIGHT, color::SIGHT));
-        }
-        let bite_reach = self.settings.bite_reach;
-        let reaches = (self
-            .team
-            .iter()
-            .map(|p| (&p.body, RANGED_REACH, MELEE_REACH)))
-        .chain(
-            self.monsters
+        if self.settings.show_reaches {
+            for p in &self.team[..LURERS] {
+                circles.push(circle_view(p.body.position, LURER_SIGHT, color::SIGHT));
+            }
+            let bite_reach = self.settings.bite_reach;
+            let reaches = (self
+                .team
                 .iter()
-                .map(|m| (&m.body, ALARM_REACH, bite_reach)),
-        );
-        for (b, big, small) in reaches {
-            circles.push(circle_view(b.position, big, color::RANGED));
-            circles.push(circle_view(b.position, small, color::MELEE));
-        }
-        // A chasing monster's line of sight, except once it fights inside the dps disk.
-        let chasing_outside =
-            |m: &&Monster| m.target.is_some() && (m.body.position - CENTRE).length() > DPS_RADIUS;
-        for m in self.monsters.iter().filter(chasing_outside) {
-            circles.push(circle_view(m.body.position, LOS_REACH, color::SIGHT));
+                .map(|p| (&p.body, RANGED_REACH, MELEE_REACH)))
+            .chain(
+                self.monsters
+                    .iter()
+                    .map(|m| (&m.body, ALARM_REACH, bite_reach)),
+            );
+            for (b, big, small) in reaches {
+                circles.push(circle_view(b.position, big, color::RANGED));
+                circles.push(circle_view(b.position, small, color::MELEE));
+            }
+            // A chasing monster's line of sight, except once it fights inside the dps disk.
+            let chasing_outside = |m: &&Monster| {
+                m.target.is_some() && (m.body.position - CENTRE).length() > DPS_RADIUS
+            };
+            for m in self.monsters.iter().filter(chasing_outside) {
+                circles.push(circle_view(m.body.position, LOS_REACH, color::SIGHT));
+            }
         }
         for p in &self.team {
             if let Some(t) = p.target {
@@ -2296,7 +2304,7 @@ impl TrainingField {
                 (color::BODY, "a dead player, back at the centre in 5 s"),
                 (
                     color::ATTACK,
-                    "attack: a dps's target and its blast (2); the lurer's next tag",
+                    "attack: a dps's target and its blast (5); the lurer's next tag",
                 ),
             ]),
             actions: vec![
@@ -2309,6 +2317,11 @@ impl TrainingField {
                     "plan_stops",
                     "Plan stops",
                     self.settings.planner == Planner::Stops,
+                ),
+                button(
+                    "toggle_reaches",
+                    "Reach circles",
+                    self.settings.show_reaches,
                 ),
             ],
             params: vec![
@@ -3722,7 +3735,7 @@ mod tests {
             .filter(|a| a.active)
             .map(|a| a.id.clone())
             .collect();
-        assert_eq!(active, ["plan_stops"]);
+        assert_eq!(active, ["plan_stops", "toggle_reaches"]);
     }
 
     #[test]
@@ -4572,5 +4585,36 @@ mod tests {
         assert!(view.circles.iter().any(|c| c.radius == 30.0));
         let ids: Vec<_> = view.params.iter().map(|p| p.id.as_str()).collect();
         assert!(ids.contains(&"lure_radius"), "{ids:?}");
+    }
+
+    #[test]
+    fn the_reach_circles_button_hides_and_shows_them() {
+        // The quiet field: eight players and five monsters, each with a ranged (or alarm)
+        // and a melee circle, the two lurers' sight on top; the map edge and the role disks
+        // are drawn either way.
+        let mut field = quiet_field();
+        let count = |view: &FrameView, c: u32| view.circles.iter().filter(|x| x.color == c).count();
+        let shown = field.view();
+        assert_eq!(count(&shown, color::RANGED), 13);
+        assert_eq!(count(&shown, color::MELEE), 13);
+        assert_eq!(count(&shown, color::SIGHT), 2);
+        assert_eq!(count(&shown, color::RADIUS), 3);
+        assert!(shown
+            .actions
+            .iter()
+            .any(|a| a.id == "toggle_reaches" && a.active));
+        field.action("toggle_reaches");
+        let hidden = field.view();
+        assert_eq!(count(&hidden, color::RANGED), 0);
+        assert_eq!(count(&hidden, color::MELEE), 0);
+        assert_eq!(count(&hidden, color::SIGHT), 0);
+        assert_eq!(count(&hidden, color::RADIUS), 3);
+        assert_eq!(count(&hidden, color::EDGE), 1);
+        assert!(hidden
+            .actions
+            .iter()
+            .any(|a| a.id == "toggle_reaches" && !a.active));
+        field.action("toggle_reaches");
+        assert_eq!(count(&field.view(), color::RANGED), 13);
     }
 }
