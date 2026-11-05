@@ -25,6 +25,7 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
 | Phase 8 follow-ups after the browser observation: status lines, the lost metric, rocks (circles and rectangles), the lowest-bar risk check, the backlog cap, the pull rule, the hand-off, five-seed measurements, the healer's MP gate, the group heal; the web main page | G1-G13 | #48-#60 | done (one small branch and PR each, 2026-11-03) |
 | Phase 8 from the Caravan watch log (`CARAVAN_LOGGER_REQUIREMENTS.md`): the lurer's knowledge (a monster's HP as max HP less the damage seen, the party window in tenths) | H1 | #62 | done (2026-11-05) |
 | The redraw in Silkroad's world units (the dps disk 20, the luring radius 40, run 11, monsters 10 / 4, the reaches 15 / 8 / 4, the dps blast 5) | H2 | #63 | done (2026-11-05) |
+| The lurers' trips measured as the watch log's, beside the real lurers (`measure_trips`, the table in the test and in Findings) | H3 | #64 | done (2026-11-05) |
 
 - The user looked at the 3D view (#26) and at the whole 3D batch and reported both "looking good"
   (2026-10-21); C2 (the walker on the ground) and C3 (the drawn terrain, "looks right") too; D3
@@ -50,11 +51,13 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
   lurer's knowledge (done, #62); H2 the redraw at 1 demo unit = 1 world unit (done, #63:
   dps disk 20, luring radius 40, players run 11, monsters 10 / 4, the reaches 15 / 8 / 4; the
   dps blast went from 2 to 5 with it, the only value beyond the agreed table, from the
-  five-seed sweep in Findings); H3 next: the step 5 measures as a test helper (trips a minute,
-  trip length, farthest point, tags and delivered per trip, dwell, time within 15 of the
-  centre) with the recording's values as a first comparison column; H4, only after three
+  five-seed sweep in Findings); H3 the step 5 measures as a test helper (done, #64:
+  `measure_trips`, trips a minute, trip length, farthest point, tags and delivered per trip,
+  dwell, time within 15 of the centre, the recording's values beside seed 1's in the test
+  `the_lurers_trips_measure_like_the_watch_logs` and in Findings); H4 next, only after three
   recordings of 30 minutes on two spots or parties: the balance numbers (bite, buffs, dps rate,
-  spawn mix). Candidates from Gaps stay: nothing slows ordinary pulls when the healer is dry;
+  spawn mix) and the lure strategy's differences the table shows (trip length, empty trips,
+  the dwell). Candidates from Gaps stay: nothing slows ordinary pulls when the healer is dry;
   scouting sweeps; side probes at rocks; the lurers' MP economy.
   The 3D options offered 2026-10-21 stay for later:
   1. Stop bodies scraping walls: add the containment side probes (the design of steps 23 and 37) to the
@@ -63,7 +66,7 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
   2. Draw building floors (object navmesh cells) so the plaza walker does not float over pits.
   3. One-way ledges: drop off, never climb (now walls both ways; sro-polyanya keeps a blocked side).
   4. Other ground demos on the terrain (Pedestrians, Capture the Flag) with the same `World`.
-- Tests: 327 Rust tests (13 in `silkroad-navmesh`, + 3 ignored full-data ones; 48 in
+- Tests: 328 Rust tests (13 in `silkroad-navmesh`, + 3 ignored full-data ones; 49 in
   `training_field`), 21 C++ oracles.
   Tests needing the game data skip without it (CI has none); with it, the Silkroad demo's tests
   take ~14 s in debug. 2D: `oracle_one_turning`, `oracle_seek_flee`,
@@ -334,7 +337,7 @@ user called the milestone (2026-11-03).
 
 ### As built (after #46)
 
-One module, `crates/steer-demos/src/training_field.rs` (the 48 tests in the same file), demo
+One module, `crates/steer-demos/src/training_field.rs` (the 49 tests in the same file), demo
 id `training-field`, the last 2D demo. Units: 1 = 1 world unit of Silkroad (10 wire; a "space"
 in PhBot's settings) since H2 (#63, from the Caravan watch log, 2026-11-05; before it 1 = 1 m
 with Silkroad's 20 / 60 disks drawn as 10 / 50). Numbers are constants at the top of the module
@@ -415,7 +418,7 @@ and `Settings` sliders.
   polyline; attack lines and blasts; buff and guard rings; rarity labels; three status lines
   (the team; lurer A; lurer B); the legend behind a button. Sliders: monsters, N, monster
   speed, bite damage, bite reach, backlog cap, obstacles; buttons: plan casts / plan stops.
-- Tests (48): hand-computed cases per piece, the pinned two-minute run (seed 1, 7,200 steps,
+- Tests (49): hand-computed cases per piece, the pinned two-minute run (seed 1, 7,200 steps,
   `trips_deliver_monsters_to_the_dps_disk`, its history in the comment), the five-seed run
   (`five_seeds_train_for_three_minutes_without_a_death`, 180 s each, margins from the
   measured table: kills >= 15, the lowest member >= 30%, both lurers >= 6 delivered, at most
@@ -1104,6 +1107,18 @@ trips/delivered/lost):
   inside the 20 disk (the real lurers 47-49% within 15), the pierce shorter than the normal
   attack, and the dps standing 4-7 from the centre while they fight (the roam only moves them
   between fights).
+- **The demo's lurers against the real ones (H3, #64; `measure_trips`: a trip passes 25 and
+  ends within 15, as the log analysis)**, the real pair from one recording (22.8 min), the
+  demo from seed 1 and seeds 1-5 (180 s): trips a minute 2.3 / 2.1 real against 1.0 / 1.7 on
+  seed 1 (1.0-4.3 over the seeds); trip length p50 14.2 / 14.5 s (p90 23-25) against 4.6 /
+  4.6 (4.6-8.7); farthest point p50 36.5 / 38 (p90 45) against 31 / 35 (31-42, p90 to 45);
+  tagged a trip p50 0 / 0 with p90 5, none on half the trips, against 2 / 2, none on 3 of 95;
+  delivered a minute 2.6 / 3.1 against 1.7 / 2.7 (1.7-6.7); dwell p50 9.5 / 10.5 s against
+  47.7 / 16.3 (5.9-47.7); within 15 of the centre 49% / 47% against 86% / 80% (33-86%). The
+  demo's lurer pulls from the near ring (most leaves never pass 25) and turns home as soon as
+  it has tagged, so its trips are a third as long as PhBot's "walk 40 and back"; it never
+  comes back empty where the real one does half the time; seed 1's A dwells 48 s with its
+  chasers under the hand-off.
 
 ## Gaps and known issues
 
@@ -1141,7 +1156,9 @@ trips/delivered/lost):
   scouting never returns home, so a lurer on the side away from the other can miss a monster
   at the centre's edge for minutes (the dry-healer test parks A); the pierce (12) is shorter
   than the normal attack (15); the lurer's blast radius 3 and the roar's real spread are
-  unmeasured; the MP buffer at 20 is out of its 15 reach of a dps on the far side at times.
+  unmeasured; the MP buffer at 20 is out of its 15 reach of a dps on the far side at times;
+  against the real lurers (Findings, H3) the demo's trips are a third as long, never empty,
+  and its dwell at the centre swings from 6 to 48 s where the real one is 10 s.
 - Training Field, measuring: the fine-grained numbers are one seed (1) and two minutes, the
   five-seed test holds only margins; any new random draw shifts every pinned number (tests
   carry margins and the history; re-pin and say so); `trips` counts leaves (since the cap came
