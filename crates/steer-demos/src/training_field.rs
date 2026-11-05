@@ -4475,6 +4475,11 @@ mod tests {
         let stats = measure_trips(&mut field, 180.0);
         for (name, st) in ["A", "B"].iter().zip(&stats) {
             assert!(st.lengths.len() >= 2, "{name}: {} trips", st.lengths.len());
+            let a_minute = st.trips_a_minute();
+            assert!(
+                (0.5..=6.0).contains(&a_minute),
+                "{name}: {a_minute} trips a minute"
+            );
             let farthest = percentile(&st.farthest, 50.0);
             assert!(
                 (25.0..=45.0).contains(&farthest),
