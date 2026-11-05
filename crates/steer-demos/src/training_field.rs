@@ -199,6 +199,10 @@ const BITE_RANGE: Range = Range::new(1.0, 10.0, 0.5);
 const BITE_REACH: Range = Range::new(2.0, 8.0, 0.5);
 const BACKLOG_CAP: Range = Range::new(0.0, 120.0, 5.0);
 pub const DEFAULT_BACKLOG_CAP: f32 = 0.0;
+/// The luring range slider (the user, 2026-11-05): the radius the lurers' walks, candidates
+/// and scouting keep to, `LURE_RADIUS` by default; the rocks stay where the default placed
+/// them, and at 30 the scouting band shrinks onto the edge of sight.
+const LURE_RANGE: Range = Range::new(30.0, 60.0, 5.0);
 pub const DPS_RATE: f32 = 4.0 * AOE_DAMAGE / AOE_COOLDOWN;
 pub const BACK_CHASERS: usize = 3;
 pub const DEFAULT_MONSTER_SPEED: f32 = 10.0;
@@ -245,6 +249,7 @@ pub struct Settings {
     /// The lurer stays while the backlog it knows of is above this many seconds; 0 for no
     /// cap.
     pub backlog_cap: f32,
+    pub lure_radius: f32,
     /// How many rocks the luring disk holds.
     pub obstacles: usize,
 }
@@ -258,6 +263,7 @@ impl Default for Settings {
             bite: BITE,
             bite_reach: MELEE_REACH,
             backlog_cap: DEFAULT_BACKLOG_CAP,
+            lure_radius: LURE_RADIUS,
             obstacles: DEFAULT_OBSTACLES,
         }
     }
@@ -1098,12 +1104,13 @@ fn tour_candidates(
     monsters: &[Monster],
     lurers: &[Option<Vec2>],
     strong_ok: bool,
+    lure_radius: f32,
 ) -> Vec<(u32, Vec2)> {
     let mut near: Vec<&Monster> = (monsters.iter())
         .filter(|m| !engaged(m) && owner(m.body.position, lurers) == Some(lurer))
         .filter(|m| strong_ok || !m.rarity.is_strong())
         .filter(|m| (m.body.position - at).length() <= LURER_SIGHT)
-        .filter(|m| (m.body.position - CENTRE).length() <= LURE_RADIUS + PIERCE_LENGTH)
+        .filter(|m| (m.body.position - CENTRE).length() <= lure_radius + PIERCE_LENGTH)
         .collect();
     near.sort_by(|a, b| {
         let d = |m: &Monster| (m.body.position - at).length();
@@ -1116,8 +1123,9 @@ fn tour_candidates(
 /// A scouting spot: a random point of the band between the lurer's sight and the luring
 /// disk's edge less `SCOUT_MARGIN`, uniform over its area; with another lurer out, on the
 /// half of the band away from it.
-fn scout_spot(rng: &mut fastrand::Rng, away_from: Option<Vec2>) -> Vec2 {
-    let (inner, outer) = (LURER_SIGHT, LURE_RADIUS - SCOUT_MARGIN);
+fn scout_spot(rng: &mut fastrand::Rng, away_from: Option<Vec2>, lure_radius: f32) -> Vec2 {
+    let inner = LURER_SIGHT;
+    let outer = (lure_radius - SCOUT_MARGIN).max(inner);
     let r = (inner * inner + (outer * outer - inner * inner) * rng.f32()).sqrt();
     let angle = match away_from {
         // The half of the band facing away from the other lurer.
@@ -1253,13 +1261,15 @@ fn lure_step(
             lure.tour
                 .retain(|s| find(s.id).is_some_and(|m| !tagged_by_a_lurer(m)));
             if !back && (lure.tour.is_empty() || now - lure.planned_at >= PLAN_PERIOD) {
-                let mut candidates = tour_candidates(me, at, monsters, &positions, strong_ok);
+                let lure_radius = settings.lure_radius;
+                let mut candidates =
+                    tour_candidates(me, at, monsters, &positions, strong_ok, lure_radius);
                 let n = settings.chasers;
                 lure.tour = match settings.planner {
                     Planner::Stops => {
                         // Stops are reached from 8 away: only monsters that close to the disk.
                         candidates
-                            .retain(|c| (c.1 - CENTRE).length() <= LURE_RADIUS + RANGED_REACH);
+                            .retain(|c| (c.1 - CENTRE).length() <= lure_radius + RANGED_REACH);
                         (plan_tour(at, CENTRE, &candidates, n).into_iter())
                             .map(|id| Stop {
                                 id,
@@ -1270,7 +1280,7 @@ fn lure_step(
                     Planner::Casts => {
                         let ids: Vec<u32> = candidates.iter().map(|c| c.0).collect();
                         let skills = (now >= p.blast_ready, now >= p.pierce_ready);
-                        let fence = (LURE_RADIUS, !strong_ok);
+                        let fence = (lure_radius, !strong_ok);
                         plan_casts((at, CENTRE), monsters, &ids, n, skills, fence)
                     }
                 };
@@ -1299,7 +1309,7 @@ fn lure_step(
                                 seen.filter(|(_, t)| now - t <= SEEN_MEMORY)
                                     .map(|(at, _)| at)
                             });
-                        lure.scout = Some(scout_spot(rng, other));
+                        lure.scout = Some(scout_spot(rng, other, settings.lure_radius));
                     }
                     let spot = lure.scout.expect("a scouting spot");
                     hunt(&mut p.body, spot, HOME, RUN_SPEED, dt, rocks);
@@ -1859,6 +1869,7 @@ impl TrainingField {
             "bite" => s.bite = BITE_RANGE.clamp(value),
             "bite_reach" => s.bite_reach = BITE_REACH.clamp(value),
             "backlog_cap" => s.backlog_cap = BACKLOG_CAP.clamp(value),
+            "lure_radius" => s.lure_radius = LURE_RANGE.clamp(value),
             "obstacles" => {
                 s.obstacles = OBSTACLES.clamp(value) as usize;
                 self.obstacles = place_rocks(self.settings.obstacles, &self.nests());
@@ -2143,7 +2154,10 @@ impl TrainingField {
         for (r, text) in [
             (BUFF_RADIUS, format!("HP buffer {BUFF_RADIUS}")),
             (DPS_RADIUS, format!("dps and MP buffer {DPS_RADIUS}")),
-            (LURE_RADIUS, format!("lurer {LURE_RADIUS}")),
+            (
+                self.settings.lure_radius,
+                format!("lurer {}", self.settings.lure_radius),
+            ),
         ] {
             circles.push(circle_view(CENTRE, r, color::RADIUS));
             labels.push(label(
@@ -2329,6 +2343,12 @@ impl TrainingField {
                     "Backlog cap, s (0: none)",
                     BACKLOG_CAP,
                     self.settings.backlog_cap,
+                ),
+                slider(
+                    "lure_radius",
+                    "Luring range",
+                    LURE_RANGE,
+                    self.settings.lure_radius,
                 ),
             ],
         }
@@ -2951,7 +2971,14 @@ mod tests {
         let mut field = quiet_field();
         field.monsters[0].body = standing(Vec2::new(29.0, 0.0));
         field.monsters[1].body = standing(Vec2::new(31.0, 0.0));
-        let seen = tour_candidates(0, CENTRE, field.monsters(), &[Some(CENTRE), None], true);
+        let seen = tour_candidates(
+            0,
+            CENTRE,
+            field.monsters(),
+            &[Some(CENTRE), None],
+            true,
+            LURE_RADIUS,
+        );
         assert_eq!(seen.len(), 1);
         assert_eq!(seen[0].0, field.monsters()[0].id);
     }
@@ -3903,7 +3930,14 @@ mod tests {
         let outside = field.monsters()[0].id;
         let ids = |c: Vec<(u32, Vec2)>| c.into_iter().map(|(id, _)| id).collect::<Vec<_>>();
         assert_eq!(
-            ids(tour_candidates(0, CENTRE, field.monsters(), &both, true)),
+            ids(tour_candidates(
+                0,
+                CENTRE,
+                field.monsters(),
+                &both,
+                true,
+                LURE_RADIUS
+            )),
             vec![outside]
         );
         assert_eq!(
@@ -3912,7 +3946,7 @@ mod tests {
         );
         // The outside one chasing a dps: no candidate at all, nothing in reach.
         field.monsters[0].target = Some(2);
-        assert!(tour_candidates(0, CENTRE, field.monsters(), &both, true).is_empty());
+        assert!(tour_candidates(0, CENTRE, field.monsters(), &both, true, LURE_RADIUS).is_empty());
         assert_eq!(
             untagged_in_reach(0, Vec2::new(-12.0, 0.0), field.monsters(), &both, true),
             None
@@ -4500,5 +4534,43 @@ mod tests {
             let within = st.share_within();
             assert!((0.2..=0.95).contains(&within), "{name}: within {within}");
         }
+    }
+
+    #[test]
+    fn the_luring_range_slider_moves_the_candidates_the_band_and_the_legend() {
+        // From 20 out, a monster at 45 (25 away, in sight) is a candidate at the default
+        // range of 40 (reachable from inside: 40 + the pierce's 12 = 52) and not at 30 (42).
+        let mut field = quiet_field();
+        field.monsters[0].body = standing(Vec2::new(45.0, 0.0));
+        let both = [Some(CENTRE), Some(CENTRE)];
+        let from = Vec2::new(20.0, 0.0);
+        let n = |r: f32| tour_candidates(0, from, field.monsters(), &both, true, r).len();
+        assert_eq!((n(40.0), n(30.0)), (1, 0));
+        // The scouting band: between the sight (30) and the range less 3; at 30 it collapses
+        // onto the edge of sight.
+        let mut rng = fastrand::Rng::with_seed(7);
+        let radii = |r: f32, rng: &mut fastrand::Rng| -> Vec<f32> {
+            (0..200)
+                .map(|_| (scout_spot(rng, None, r) - CENTRE).length())
+                .collect()
+        };
+        let wide = radii(60.0, &mut rng);
+        assert!(wide.iter().all(|&d| (29.9..=57.1).contains(&d)), "{wide:?}");
+        assert!(wide.iter().cloned().fold(0.0, f32::max) > 50.0);
+        let tight = radii(30.0, &mut rng);
+        assert!(
+            tight.iter().all(|&d| (29.9..=30.1).contains(&d)),
+            "{tight:?}"
+        );
+        // The slider: clamped to 30..60, the legend's circle and label follow it.
+        field.param("lure_radius", 60.0);
+        assert_eq!(field.settings.lure_radius, 60.0);
+        field.param("lure_radius", 10.0);
+        assert_eq!(field.settings.lure_radius, 30.0);
+        let view = field.view();
+        assert!(view.labels.iter().any(|l| l.text == "lurer 30"));
+        assert!(view.circles.iter().any(|c| c.radius == 30.0));
+        let ids: Vec<_> = view.params.iter().map(|p| p.id.as_str()).collect();
+        assert!(ids.contains(&"lure_radius"), "{ids:?}");
     }
 }

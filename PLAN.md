@@ -27,6 +27,7 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
 | The redraw in Silkroad's world units (the dps disk 20, the luring radius 40, run 11, monsters 10 / 4, the reaches 15 / 8 / 4, the dps blast 5) | H2 | #63 | done (2026-11-05) |
 | The lurers' trips measured as the watch log's, beside the real lurers (`measure_trips`, the table in the test and in Findings) | H3 | #64, #65 | done (2026-11-05; #65 fixed #64's red clippy) |
 | The watch log analysis as repo scripts (`scripts/watchlog/`: checks, measure, export; slices and tables outside git) | H3b | #66 | done (2026-11-05) |
+| The luring range slider (30-60, default 40: the candidates, the scouting band, the planner's fence, the legend) | H3c | #68 | done (2026-11-05, the user's request) |
 
 - The user looked at the 3D view (#26) and at the whole 3D batch and reported both "looking good"
   (2026-10-21); C2 (the walker on the ground) and C3 (the drawn terrain, "looks right") too; D3
@@ -69,7 +70,7 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
   2. Draw building floors (object navmesh cells) so the plaza walker does not float over pits.
   3. One-way ledges: drop off, never climb (now walls both ways; sro-polyanya keeps a blocked side).
   4. Other ground demos on the terrain (Pedestrians, Capture the Flag) with the same `World`.
-- Tests: 328 Rust tests (13 in `silkroad-navmesh`, + 3 ignored full-data ones; 49 in
+- Tests: 329 Rust tests (13 in `silkroad-navmesh`, + 3 ignored full-data ones; 50 in
   `training_field`), 21 C++ oracles.
   Tests needing the game data skip without it (CI has none); with it, the Silkroad demo's tests
   take ~14 s in debug. 2D: `oracle_one_turning`, `oracle_seek_flee`,
@@ -340,7 +341,7 @@ user called the milestone (2026-11-03).
 
 ### As built (after #46)
 
-One module, `crates/steer-demos/src/training_field.rs` (the 49 tests in the same file), demo
+One module, `crates/steer-demos/src/training_field.rs` (the 50 tests in the same file), demo
 id `training-field`, the last 2D demo. Units: 1 = 1 world unit of Silkroad (10 wire; a "space"
 in PhBot's settings) since H2 (#63, from the Caravan watch log, 2026-11-05; before it 1 = 1 m
 with Silkroad's 20 / 60 disks drawn as 10 / 50). Numbers are constants at the top of the module
@@ -420,8 +421,11 @@ and `Settings` sliders.
   outside the dps disk, each lurer's sight 30); the planned tour or scouting spot as a gray
   polyline; attack lines and blasts; buff and guard rings; rarity labels; three status lines
   (the team; lurer A; lurer B); the legend behind a button. Sliders: monsters, N, monster
-  speed, bite damage, bite reach, backlog cap, obstacles; buttons: plan casts / plan stops.
-- Tests (49): hand-computed cases per piece, the pinned two-minute run (seed 1, 7,200 steps,
+  speed, bite damage, bite reach, backlog cap, obstacles, luring range (30-60, default 40:
+  `Settings::lure_radius` fences the candidates, the scouting band and the planner; the rocks
+  stay where the default placed them; at 30 the band collapses onto the edge of sight);
+  buttons: plan casts / plan stops.
+- Tests (50): hand-computed cases per piece, the pinned two-minute run (seed 1, 7,200 steps,
   `trips_deliver_monsters_to_the_dps_disk`, its history in the comment), the five-seed run
   (`five_seeds_train_for_three_minutes_without_a_death`, 180 s each, margins from the
   measured table: kills >= 15, the lowest member >= 30%, both lurers >= 6 delivered, at most
