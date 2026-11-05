@@ -91,10 +91,15 @@ pub const PIERCE_COOLDOWN: f32 = 6.0;
 pub const AOE_TARGETS: usize = 5;
 /// A dps's area attack: at a monster inside the dps disk and its ranged reach, every
 /// `AOE_COOLDOWN` for `AOE_MP`, `AOE_DAMAGE` off every monster within `AOE_BLAST` of the target.
-pub const AOE_DAMAGE: f32 = 10.0;
+/// The watch log (2026-11-05, one party): one dps hit (43-78k) kills a normal monster of
+/// 40,532 HP and a party monster (x10) takes about 8, so a hit is a normal monster's whole
+/// HP here; a dps casts every 3.4 s at p50 (four skills of 10.5 s cooldown in rotation).
+/// Before: 10 every 1.5 s, which queued ten-hit normals behind party monsters while the
+/// lurer waited at the centre for the hand-off (the user saw A "not luring").
+pub const AOE_DAMAGE: f32 = 100.0;
 pub const AOE_BLAST: f32 = 5.0;
 pub const AOE_MP: f32 = 6.0;
-pub const AOE_COOLDOWN: f32 = 1.5;
+pub const AOE_COOLDOWN: f32 = 3.4;
 /// The buffs: a buffer casts once a second, within its ranged reach, on the living member
 /// (itself included) with the lowest bar under `BUFF_THRESHOLD` and no such buff running; the
 /// buff recovers `HP_BUFF_RATE` HP or `MP_BUFF_RATE` MP a second for `BUFF_DURATION`.
@@ -290,9 +295,12 @@ const BAR_STRAND_GAP: f32 = 0.12;
 pub const RANGED_REACH: f32 = 15.0;
 pub const ALARM_REACH: f32 = 8.0;
 pub const MELEE_REACH: f32 = 4.0;
-/// A chasing monster's line of sight (the user: 30-40): it keeps its target inside, forgets
-/// it beyond.
-pub const LOS_REACH: f32 = 35.0;
+/// A chasing monster's line of sight (the user: 30-40; 35 until 2026-11-05): it keeps its
+/// target inside, forgets it beyond. 45 since the real speeds (a lurer at 11 outruns a
+/// chaser at 10, and a monster tagged at the far end of a trip was 35 behind when the lurer
+/// reached home, forgotten right at the old line: 4 lost on seed 1, 0 on every seed at 45);
+/// the log showed chases to 41.6 with no give-up radius in sight.
+pub const LOS_REACH: f32 = 45.0;
 /// Containment's look-ahead: the probe is `BODY_RADIUS + LOOK_AHEAD * speed` ahead.
 const LOOK_AHEAD: f32 = 1.0;
 /// A roaming body counts its spot as reached this close to it and draws the next.
@@ -2586,15 +2594,17 @@ mod tests {
         step_with_parked_lurer(&mut field, den + Vec2::new(0.0, -25.0), 2);
         assert_eq!(field.monsters()[0].target, Some(0));
         assert_eq!(field.monsters()[0].gait, Gait::Running);
-        // 45 away: forgotten, threat included; the monster idles, no sight circle.
+        // 55 away: forgotten, threat included; the monster idles, no sight circle.
         field.monsters[0].threat.insert(0, 5.0);
-        step_with_parked_lurer(&mut field, den + Vec2::new(0.0, -45.0), 2);
+        step_with_parked_lurer(&mut field, den + Vec2::new(0.0, -55.0), 2);
         assert_eq!(field.monsters()[0].target, None);
         assert!(field.monsters()[0].threat.is_empty());
         assert_eq!(sight(&field), 0);
-        // A monster chasing inside the dps disk shows no line of sight either.
+        // A monster chasing inside the dps disk shows no line of sight either (a party
+        // monster, so the first volley does not kill it).
         let mut field = quiet_field();
         field.monsters[0].body = standing(Vec2::new(4.0, 0.0));
+        field.monsters[0].set_rarity(Rarity::PartyNormal);
         field.monsters[0].threat.insert(0, 1.0);
         step_with_parked_lurer(&mut field, CENTRE, 2);
         // (A dps hit may already have taken it over; it chases someone either way.)
@@ -2686,19 +2696,20 @@ mod tests {
 
     #[test]
     fn a_killed_monster_is_replaced_three_seconds_later() {
-        let mut field = TrainingField::default();
+        // The quiet field (five monsters far off): nothing else dies meanwhile.
+        let mut field = quiet_field();
         field.monsters[0].hp = 0.0;
         field.update(1.0 / 60.0);
         assert_eq!(field.kills, 1);
-        assert_eq!(field.monsters().len(), DEFAULT_MONSTERS - 1);
+        assert_eq!(field.monsters().len(), 4);
         for _ in 0..(2.5 * 60.0) as usize {
             field.update(1.0 / 60.0);
         }
-        assert_eq!(field.monsters().len(), DEFAULT_MONSTERS - 1);
+        assert_eq!(field.monsters().len(), 4);
         for _ in 0..60 {
             field.update(1.0 / 60.0);
         }
-        assert_eq!(field.monsters().len(), DEFAULT_MONSTERS);
+        assert_eq!(field.monsters().len(), 5);
     }
 
     /// Five monsters, the first `near` the centre (inside the dps disk), the rest far away in
@@ -2730,7 +2741,7 @@ mod tests {
         field.monsters[5].body = standing(Vec2::new(0.0, -6.0));
         field.update(1.0 / 60.0);
         let hp: Vec<f32> = field.monsters().iter().map(|m| m.hp).collect();
-        assert_eq!(hp, [60.0, 60.0, 60.0, 60.0, 60.0, 100.0]);
+        assert_eq!(hp, [-300.0, -300.0, -300.0, -300.0, -300.0, 100.0]);
         assert_eq!((field.lures[0].blasts, field.lures[0].tags), (0, 0));
     }
 
@@ -2936,11 +2947,12 @@ mod tests {
         field.monsters[0].target = None;
         field.update(1.0 / 60.0);
         assert_eq!(field.lures[0].trips, 1);
-        // With four party monsters (4,000 HP, 150 s of dps work) parked in the dps disk the
-        // lurer stays at a cap of 30 s; with the cap off, not.
+        // With four party monsters (4,000 HP, 34 s of dps work, 31 s after their first
+        // volley) parked in the dps disk the lurer stays at a cap of 20 s; with the cap off,
+        // not.
         let parked = || {
             let mut field = work();
-            field.param("backlog_cap", 30.0);
+            field.param("backlog_cap", 20.0);
             for (k, m) in field.monsters.iter_mut().skip(1).take(4).enumerate() {
                 m.body = standing(Vec2::new(7.0, k as f32 * 2.0 - 3.0));
                 m.spawn = m.body.position;
@@ -3044,27 +3056,29 @@ mod tests {
     #[test]
     fn a_lurer_out_of_sight_does_not_count_for_the_other() {
         // Lurer A parked 45 out: B, at the centre, cannot see it, so a monster at 25 (nearer A)
-        // is B's, and B tags it within a few seconds; A, 20 from it, never does.
+        // is B's, and B tags it within a few seconds; A, 20 from it, never does. (Tagged, the
+        // monster follows its lurer into the disk and dies to the first volley, so the
+        // taggers are collected along the way.)
+        let taggers = |field: &mut TrainingField, park: Vec2| {
+            let id = field.monsters()[0].id;
+            let mut who = std::collections::HashSet::new();
+            for _ in 0..300 {
+                step_with_parked_lurer(field, park, 1);
+                if let Some(m) = field.monsters().iter().find(|m| m.id == id) {
+                    who.extend(m.threat.keys().copied());
+                }
+            }
+            who
+        };
         let mut field = quiet_field();
         field.monsters[0].body = standing(Vec2::new(25.0, 0.0));
-        let a = Vec2::new(45.0, 0.0);
-        step_with_parked_lurer(&mut field, a, 300);
-        let m = &field.monsters()[0];
-        assert!(
-            m.threat.contains_key(&1) && !m.threat.contains_key(&0),
-            "{:?}",
-            m.threat
-        );
+        let who = taggers(&mut field, Vec2::new(45.0, 0.0));
+        assert!(who.contains(&1) && !who.contains(&0), "{who:?}");
         // A parked 28 out: in B's sight, nearer the monster, so it is A's: A tags it, B not.
         let mut field = quiet_field();
         field.monsters[0].body = standing(Vec2::new(25.0, 0.0));
-        step_with_parked_lurer(&mut field, Vec2::new(28.0, 0.0), 300);
-        let m = &field.monsters()[0];
-        assert!(
-            m.threat.contains_key(&0) && !m.threat.contains_key(&1),
-            "{:?}",
-            m.threat
-        );
+        let who = taggers(&mut field, Vec2::new(28.0, 0.0));
+        assert!(who.contains(&0) && !who.contains(&1), "{who:?}");
         // What B sees: with A 40 out, only itself; with A 25 out, both.
         let snap = |ax: f32| {
             vec![
@@ -3131,12 +3145,12 @@ mod tests {
     #[test]
     fn the_backlog_holds_the_lurers_from_the_cap_up() {
         // Work parked 6 from the centre, a normal monster 25 out for the trip, the cap at
-        // 30 s. Two normals (200 HP, 7.5 s of dps work): A leaves at once. A party normal
-        // (1,000 HP, 37.5 s): both lurers wait; at a cap of 60 s, or with the cap off, A
-        // leaves at once.
+        // 5 s. Two normals (200 HP, 1.7 s of dps work at the four dps's 117.6 a second): A
+        // leaves at once. A party normal (1,000 HP, 8.5 s): both lurers wait; at a cap of
+        // 60 s, or with the cap off, A leaves at once.
         let parked = |rarity: Rarity, count: usize| {
             let mut field = quiet_field();
-            field.param("backlog_cap", 30.0);
+            field.param("backlog_cap", 5.0);
             for (k, m) in field.monsters.iter_mut().take(count).enumerate() {
                 m.body = standing(Vec2::new(6.0, 2.0 * k as f32));
                 m.set_rarity(rarity);
@@ -3160,16 +3174,16 @@ mod tests {
             assert_eq!(field.lures[0].trips, 1, "cap {cap}");
         }
         // The lurer's own reading: what it saw less the time since, plus what chases it (a
-        // giant's 2,000 HP is 75 s at the four dps's 26.7 a second).
-        let near = |a: f32, b: f32| (a - b).abs() < 1e-3;
+        // giant's 2,000 HP is 17 s at the four dps's 117.6 a second).
+        let near = |a: f32, b: f32| (a - b).abs() < 1e-2;
         let lure = Lure {
             backlog_seen: Some((40.0, 0.0)),
             ..Lure::new()
         };
         assert!(near(lure.backlog(5.0, 0.0), 35.0));
         assert!(near(lure.backlog(50.0, 0.0), 0.0));
-        assert!(near(lure.backlog(5.0, 2000.0), 110.0));
-        assert!(near(Lure::new().backlog(5.0, 100.0), 3.75));
+        assert!(near(lure.backlog(5.0, 2000.0), 52.0));
+        assert!(near(Lure::new().backlog(5.0, 100.0), 0.85));
     }
 
     /// Parks both lurers before and after every step (A at `a`, B at `b`).
@@ -3185,26 +3199,27 @@ mod tests {
 
     #[test]
     fn a_lurer_knows_a_monsters_hp_only_from_the_hits_it_saw() {
-        // A monster 4 below the centre: the four dps blast it in the first step (40 off its
-        // 100). Lurer A at the centre sees the hits; B, parked 40 east (the monster 40.2
-        // away, beyond its sight of 30), does not.
+        // A party monster (1,000 HP) 4 below the centre: the four dps blast it in the first
+        // step (400 off). Lurer A at the centre sees the hits; B, parked 40 east (the monster
+        // 40.2 away, beyond its sight of 30), does not.
         let mut field = field_with_a_monster_at(Vec2::new(0.0, -4.0));
+        field.monsters[0].set_rarity(Rarity::PartyNormal);
         step_with_parked_lurers(&mut field, CENTRE, Vec2::new(40.0, 0.0), 1);
         let m = &field.monsters()[0];
-        assert_eq!(m.hp, 60.0);
-        assert_eq!(field.lures[0].known_hp(m), 60.0);
-        assert_eq!(field.lures[1].known_hp(m), 100.0);
+        assert_eq!(m.hp, 600.0);
+        assert_eq!(field.lures[0].known_hp(m), 600.0);
+        assert_eq!(field.lures[1].known_hp(m), 1000.0);
         // B comes to 10 east: the disk is in its sight and it reads the backlog from what
-        // it knows, the whole 100 HP (3.75 s at the four dps's 26.7 a second); A reads the
-        // 60 it saw (2.25 s). No blast lands within the 1.5 s cooldown.
+        // it knows, the whole 1,000 HP (8.5 s at the four dps's 117.6 a second); A reads the
+        // 600 it saw (5.1 s). No blast lands within the 3.4 s cooldown.
         step_with_parked_lurers(&mut field, CENTRE, Vec2::new(10.0, 0.0), 2);
         let near = |a: f32, b: f32| (a - b).abs() < 0.05;
         let known = [field.lures[0].known_backlog, field.lures[1].known_backlog];
-        assert!(near(known[0], 2.25) && near(known[1], 3.75), "{known:?}");
+        assert!(near(known[0], 5.1) && near(known[1], 8.5), "{known:?}");
         // Killed, the monster's id leaves every tally (a respawn is a new monster).
         let id = field.monsters()[0].id;
         field.monsters[0].hp = 1.0;
-        for _ in 0..120 {
+        for _ in 0..240 {
             field.update(1.0 / 60.0);
         }
         assert!(field.monsters().iter().all(|m| m.id != id));
@@ -3381,11 +3396,11 @@ mod tests {
             tagged.contains(&giant) && tagged.contains(&normal),
             "{tagged:?}"
         );
-        // Two giants (14 apart, so no cast catches both) and the normal, the cap at 30 s: A
+        // Two giants (14 apart, so no cast catches both) and the normal, the cap at 15 s: A
         // tags one giant and the normal and leaves the other giant alone, since the giant
-        // chasing it is 75 s of dps work, above the cap.
+        // chasing it is 17 s of dps work, above the cap.
         let mut field = risky_field();
-        field.param("backlog_cap", 30.0);
+        field.param("backlog_cap", 15.0);
         field.monsters[2].body = standing(Vec2::new(-26.0, -14.0));
         field.monsters[2].set_rarity(Rarity::Giant);
         let other = field.monsters()[2].id;
@@ -3522,9 +3537,11 @@ mod tests {
             assert_eq!(field.group_heals, group_heals, "{hurt} hurt");
             assert_eq!(field.heals, 0, "{hurt} hurt");
         }
-        // A monster after dps 2: the guard goes on dps 2 once the monster has turned on it.
+        // A party monster (it survives the first volley) after dps 2: the guard goes on dps 2
+        // once the monster has turned on it.
         let mut field = quiet_field();
         field.monsters[0].body = standing(Vec2::new(6.0, 0.0));
+        field.monsters[0].set_rarity(Rarity::PartyNormal);
         field.monsters[0].threat.insert(2, 1.0);
         field.update(1.0 / 60.0);
         field.update(1.0 / 60.0);
@@ -3545,7 +3562,7 @@ mod tests {
 
     #[test]
     fn a_killed_monster_respawns_at_its_own_nest() {
-        let mut field = TrainingField::default();
+        let mut field = quiet_field();
         let (nest, old) = (field.monsters()[0].spawn, field.monsters()[0].id);
         field.monsters[0].hp = 0.0;
         for _ in 0..(3.5 * 60.0) as usize {
@@ -3555,7 +3572,7 @@ mod tests {
             .find(|m| (m.spawn - nest).length() < 1e-3)
             .expect("a monster at the nest");
         assert_ne!(back.id, old);
-        assert_eq!(field.monsters().len(), DEFAULT_MONSTERS);
+        assert_eq!(field.monsters().len(), 5);
     }
 
     #[test]
@@ -4017,7 +4034,12 @@ mod tests {
         // chased, the lowest bar 40 / 80 / 50 / 40 / 50. The dps targeting a monster attacking
         // a member first: seed 2 36 kills and B 14/20/2, the rest unchanged (156 kills); the
         // lurers' stalls at the centre with chasers unchanged too (A 104 s on seed 1), since
-        // the party monster the dps huddle on attacks a member as well.
+        // the party monster the dps huddle on attacks a member as well. The damage ratio
+        // (2026-11-05: a dps hit 100 every 3.4 s, the log's one hit per normal monster; line
+        // of sight 45): kills 90 / 56 / 48 / 36 / 45 (275), delivered A 35 / 11 / 22 / 21 / 22
+        // and B 32 / 40 / 26 / 15 / 23, nothing lost, no deaths, no leave while chased, the
+        // lowest bar 70 / 70 / 70 / 80 / 80; the stalls at the centre with chasers A 13 / 1 /
+        // 27 / 19 / 4 s and B 26 / 4 / 14 / 3 / 1 s (from 104 s on seed 1).
         let mut deaths = 0;
         for seed in 1..=5 {
             let mut field = seeded(seed);
@@ -4130,7 +4152,13 @@ mod tests {
         // kills, no deaths, 1 heal, 23 guards; at 180 s A 10/16/0, B 14/20/0, 32 kills. With
         // the blast left at 2 the kills stopped at 13 from 80 s on: biters stand 4 from the
         // lurer, up to 8 apart, and a blast of 2 caught one at a time while the dps drained
-        // their MP (the sweep in PLAN.md Findings).
+        // their MP (the sweep in PLAN.md Findings). The dps targeting a monster attacking a
+        // member first (#70): unchanged on seed 1. The damage ratio
+        // (a dps hit 100 every 3.4 s; line of sight 45): A 10/22/0 in 10.9 s sessions, 30
+        // walked per delivered, 55% inside; B 12/22/0, 7.7 s, 22 walked, 84%; 60 kills, no
+        // deaths, no heals, 15 guards; at 180 s A 17/35/0, B 18/32/0, 90 kills. With line of
+        // sight 35 the same run lost 4 (a chaser 35 behind when the lurer, 11 against its
+        // 10, reached home).
         assert_eq!(stages.len(), 3);
         let delivered = a.delivered + b.delivered;
         assert!(a.trips >= 2 && b.trips >= 2, "{} {}", a.trips, b.trips);
@@ -4294,9 +4322,10 @@ mod tests {
         let mut field = field_with_a_monster_at(Vec2::new(0.0, -4.0));
         field.update(1.0 / 60.0);
         let m = &field.monsters()[0];
-        // Four shots; no tag from lurer A, which leaves a monster inside the disk alone.
-        assert_eq!(m.hp, MAX_HP - 4.0 * AOE_DAMAGE);
-        let threat = HashMap::from([(2, 10.0), (3, 10.0), (4, 10.0), (5, 10.0)]);
+        // Four shots of 100; no tag from lurer A, which leaves a monster inside the disk
+        // alone.
+        assert_eq!(m.hp, -300.0);
+        let threat = HashMap::from([(2, 100.0), (3, 100.0), (4, 100.0), (5, 100.0)]);
         assert_eq!(m.threat, threat);
         assert_eq!(m.target, Some(2));
         for (i, p) in field.team().iter().enumerate() {
@@ -4307,12 +4336,16 @@ mod tests {
             assert_eq!(p.target, (spent > 0.0).then_some(0), "player {i}");
             assert!((p.mp - (MAX_MP - spent)).abs() < 0.1, "player {i}");
         }
-        // Volleys at 0, 1.5 and 3 s: dead at the third, replaced 3 s later.
-        for _ in 0..(5.0 * 60.0) as usize {
+        // Dead at the first volley, buried the next step, replaced 3 s later.
+        for _ in 0..(2.0 * 60.0) as usize {
             field.update(1.0 / 60.0);
         }
-        assert_eq!(field.kills, 1);
-        assert_eq!(field.monsters().len(), 4);
+        assert_eq!((field.kills, field.monsters().len()), (1, 4));
+        // Its replacement spawns at the same nest, inside the disk, and dies in turn.
+        for _ in 0..(2.0 * 60.0) as usize {
+            field.update(1.0 / 60.0);
+        }
+        assert_eq!((field.kills, field.monsters().len()), (2, 4));
     }
 
     #[test]
@@ -4322,9 +4355,9 @@ mod tests {
         field.monsters[2].body = standing(Vec2::new(0.0, -10.0));
         field.update(1.0 / 60.0);
         let hp: Vec<f32> = field.monsters().iter().map(|m| m.hp).collect();
-        // Four blasts on the first (the second within 5 of it, the third 6 away); lurer A
-        // leaves monsters inside the disk alone.
-        assert_eq!(hp[..3], [60.0, 60.0, 100.0]);
+        // Four blasts of 100 on the first (the second within 5 of it, the third 6 away);
+        // lurer A leaves monsters inside the disk alone.
+        assert_eq!(hp[..3], [-300.0, -300.0, 100.0]);
     }
 
     #[test]
@@ -4333,15 +4366,19 @@ mod tests {
         for p in &mut field.team {
             p.mp = AOE_MP - 1.0;
         }
+        let id = field.monsters()[0].id;
         field.update(1.0 / 60.0);
         // No shot, and no tag either: the lurer leaves a monster inside the disk alone.
         assert_eq!(field.monsters()[0].hp, MAX_HP);
         for _ in 0..70 {
             field.update(1.0 / 60.0);
         }
-        assert!(field.monsters()[0].hp <= MAX_HP - AOE_DAMAGE);
-        // A monster inside the disk but out of reach of the dps at (2.8, 2.8): 22 away.
+        // With the MP back (regeneration and the MP buff) the first shot kills it.
+        assert!(field.monsters().iter().all(|m| m.id != id));
+        // A monster inside the disk but out of reach of the dps at (2.8, 2.8): 22 away; the
+        // dps runs in and its first shot kills it within two seconds.
         let mut field = field_with_a_monster_at(Vec2::new(0.0, -19.0));
+        let id = field.monsters()[0].id;
         field.update(1.0 / 60.0);
         let dps = &field.team()[2];
         assert_eq!(dps.target, Some(0));
@@ -4349,10 +4386,8 @@ mod tests {
         for _ in 0..120 {
             field.update(1.0 / 60.0);
         }
-        let dps = &field.team()[2];
-        let gap = (field.monsters()[0].body.position - dps.body.position).length();
-        assert!(gap <= RANGED_REACH + 0.5, "{gap}");
-        assert!(field.monsters()[0].hp <= MAX_HP - AOE_DAMAGE);
+        assert!(field.monsters().iter().all(|m| m.id != id));
+        assert_eq!(field.kills, 1);
     }
 
     #[test]
@@ -4510,19 +4545,23 @@ mod tests {
     /// party, one spot; `PLAN.md` Findings). Measured 2026-11-05 (world units, #63):
     ///
     /// | measure | real A / B | demo seed 1 A / B | demo seeds 1-5 |
-    /// | trips a minute | 2.3 / 2.1 | 1.0 / 1.7 | 1.0-4.3 |
-    /// | length p50 (p90) | 14.2 (22.9) / 14.5 (24.9) s | 4.6 (7.5) / 4.6 (7.6) | 4.6-8.7 (7.5-21.3) |
-    /// | farthest p50 (p90) | 36.5 (45.4) / 38.0 (45.5) | 31.1 (38.1) / 35.0 (37.5) | 31-42 (37.5-45) |
-    /// | tagged a trip p50 (p90) | 0 (5) / 0 (5), none on 26 of 52 and 25 of 47 | 2 (2) / 2 (2), none on 0 | 1-2 (1-3), none on 3 of 95 |
-    /// | delivered a minute | 2.6 / 3.1 | 1.7 / 2.7 | 1.7-6.7 |
-    /// | dwell p50 (p90) | 9.5 (19.5) / 10.5 (21.2) s | 47.7 (72.4) / 16.3 (28.2) | 5.9-47.7 (8.0-72.4) |
-    /// | within 15 of the centre | 49% / 47% | 86% / 80% | 33-86% |
+    /// | trips a minute | 2.3 / 2.1 | 2.7 / 1.7 | 1.3-4.3 |
+    /// | length p50 (p90) | 14.2 (22.9) / 14.5 (24.9) s | 6.9 (9.4) / 3.9 (7.1) | 3.9-7.7 (7.1-16.7) |
+    /// | farthest p50 (p90) | 36.5 (45.4) / 38.0 (45.5) | 37.7 (40.8) / 28.9 (34.8) | 29-39 (35-43) |
+    /// | tagged a trip p50 (p90) | 0 (5) / 0 (5), none on 26 of 52 and 25 of 47 | 2 (3) / 1 (2), none on 0 | 1-2.5 (1.6-4.1), none on 2 of 95 |
+    /// | delivered a minute | 2.6 / 3.1 | 6.7 / 2.0 | 2.0-8.0 |
+    /// | dwell p50 (p90) | 9.5 (19.5) / 10.5 (21.2) s | 9.0 (19.5) / 25.7 (41.6) | 5.2-25.7 (6.3-41.6) |
+    /// | within 15 of the centre | 49% / 47% | 53% / 74% | 39-74% (seed 1) |
     ///
-    /// The demo's lurer pulls from the near ring (most of its leaves never pass 25) and
-    /// turns home as soon as it has tagged, so its trips are a third as long as PhBot's walk
-    /// out 40 and back; it never leaves empty-handed where the real one does half the time;
-    /// and seed 1's A dwells 48 s at the centre with its chasers under the hand-off. The
-    /// margins hold what is structural: trips happen, reach the band, tag, deliver.
+    /// (The demo columns since the damage ratio of 2026-11-05: a dps hit 100 every 3.4 s,
+    /// line of sight 45. Before it, with 10 every 1.5 s, trips were 4.6 s, delivered 1.7 /
+    /// 2.7 a minute, the dwell 48 / 16 s and 86 / 80% within 15: ten-hit normal monsters
+    /// queued behind party monsters while the lurer waited at the centre for the hand-off.)
+    /// The demo's lurer pulls from the near ring (many leaves never pass 25) and turns home
+    /// as soon as it has tagged, so its trips are half as long as PhBot's walk out 40 and
+    /// back; it never leaves empty-handed where the real one does half the time; A's dwell
+    /// and time at the centre now match the real pair's, B still dwells longer. The margins
+    /// hold what is structural: trips happen, reach the band, tag, deliver.
     #[test]
     fn the_lurers_trips_measure_like_the_watch_logs() {
         let mut field = TrainingField::default();
@@ -4644,10 +4683,10 @@ mod tests {
         field.monsters[1].threat.insert(0, 1.0);
         field.monsters[1].target = Some(0);
         assert_eq!(nearest_monster_in_disk(dps_at, field.monsters()), Some(1));
-        // The first step: the two southern dps (12 and 13 away) blast it, the two northern
-        // ones (18 away) run into reach first; the idle monster is untouched.
+        // The first step: the two southern dps (12 and 13 away) blast it for 100 each, the
+        // two northern ones (18 away) run into reach first; the idle monster is untouched.
         field.update(1.0 / 60.0);
         let hp: Vec<f32> = field.monsters().iter().take(2).map(|m| m.hp).collect();
-        assert_eq!(hp, [100.0, 80.0]);
+        assert_eq!(hp, [100.0, -100.0]);
     }
 }
