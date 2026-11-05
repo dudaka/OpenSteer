@@ -25,7 +25,8 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
 | Phase 8 follow-ups after the browser observation: status lines, the lost metric, rocks (circles and rectangles), the lowest-bar risk check, the backlog cap, the pull rule, the hand-off, five-seed measurements, the healer's MP gate, the group heal; the web main page | G1-G13 | #48-#60 | done (one small branch and PR each, 2026-11-03) |
 | Phase 8 from the Caravan watch log (`CARAVAN_LOGGER_REQUIREMENTS.md`): the lurer's knowledge (a monster's HP as max HP less the damage seen, the party window in tenths) | H1 | #62 | done (2026-11-05) |
 | The redraw in Silkroad's world units (the dps disk 20, the luring radius 40, run 11, monsters 10 / 4, the reaches 15 / 8 / 4, the dps blast 5) | H2 | #63 | done (2026-11-05) |
-| The lurers' trips measured as the watch log's, beside the real lurers (`measure_trips`, the table in the test and in Findings) | H3 | #64 | done (2026-11-05) |
+| The lurers' trips measured as the watch log's, beside the real lurers (`measure_trips`, the table in the test and in Findings) | H3 | #64, #65 | done (2026-11-05; #65 fixed #64's red clippy) |
+| The watch log analysis as repo scripts (`scripts/watchlog/`: checks, measure, export; slices and tables outside git) | H3b | #66 | done (2026-11-05) |
 
 - The user looked at the 3D view (#26) and at the whole 3D batch and reported both "looking good"
   (2026-10-21); C2 (the walker on the ground) and C3 (the drawn terrain, "looks right") too; D3
@@ -46,8 +47,10 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
   under 70%. Dropped as a non-issue: "lurer A's share" (seed 1's nest layout).
 - The watch log (2026-11-05): Caravan records a training party as `bot.watch` lines
   (`~/.caravan/caravand.log`, Caravan's `docs/watch-log.md`); the second recording (22.8 min,
-  one spot, one party) was analysed in the session's scratchpad (parser, tracks, section 7
-  checks, the section 5 table; the numbers in Findings). Agreed order (the user): H1 the
+  one spot, one party) was analysed with what is now `scripts/watchlog/` (`README.md` there:
+  the parser and track rebuild, `checks.py` for section 7, `measure.py` for section 5,
+  `export.py` for CSV tables; slices and tables stay outside git). When the next recordings
+  come, H4 starts with `measure.py` over each window. Agreed order (the user): H1 the
   lurer's knowledge (done, #62); H2 the redraw at 1 demo unit = 1 world unit (done, #63:
   dps disk 20, luring radius 40, players run 11, monsters 10 / 4, the reaches 15 / 8 / 4; the
   dps blast went from 2 to 5 with it, the only value beyond the agreed table, from the
@@ -892,7 +895,8 @@ Decided with the user (2026-11-02 to 03, Phase 8, in order):
   and buff reach 15, tag reach 15, alarm 8, sight and LOS unchanged, idle radius 12, blast
   radii, pierce, body and rocks unchanged. Built with one change beyond it: the dps blast 2 to
   5, since the melee reach of 4 spreads the biters and a blast of 2 stalled the kills (the
-  sweep in Findings); to confirm or revise with the user.
+  sweep in Findings); the user's "proceed" of 2026-11-05 after the report took it as
+  confirmed.
 
 Open (ask before acting):
 - The party window showing members' HP bars is my assumption about the game; if it does not,

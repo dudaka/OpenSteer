@@ -4,3 +4,7 @@ apps/web/dist/
 build/
 .DS_Store
 .playwright-mcp/
+
+# Watch log slices and tables (other players' names)
+scripts/watchlog/out/
+scripts/watchlog/*.log
