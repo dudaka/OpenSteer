@@ -29,6 +29,7 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
 | The watch log analysis as repo scripts (`scripts/watchlog/`: checks, measure, export; slices and tables outside git) | H3b | #66 | done (2026-11-05) |
 | The luring range slider (30-60, default 40: the candidates, the scouting band, the planner's fence, the legend) | H3c | #68 | done (2026-11-05, the user's request) |
 | A button hiding or showing the per-entity reach circles | H3d | #69 | done (2026-11-05, the user's request) |
+| A dps targets a monster attacking a party member first, nearest among them (the log's rule; the user saw lurer A not luring) | H3e | #70 | done (2026-11-05); the stall itself remains: the damage ratio, see Findings |
 
 - The user looked at the 3D view (#26) and at the whole 3D batch and reported both "looking good"
   (2026-10-21); C2 (the walker on the ground) and C3 (the drawn terrain, "looks right") too; D3
@@ -71,7 +72,7 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
   2. Draw building floors (object navmesh cells) so the plaza walker does not float over pits.
   3. One-way ledges: drop off, never climb (now walls both ways; sro-polyanya keeps a blocked side).
   4. Other ground demos on the terrain (Pedestrians, Capture the Flag) with the same `World`.
-- Tests: 330 Rust tests (13 in `silkroad-navmesh`, + 3 ignored full-data ones; 51 in
+- Tests: 331 Rust tests (13 in `silkroad-navmesh`, + 3 ignored full-data ones; 52 in
   `training_field`), 21 C++ oracles.
   Tests needing the game data skip without it (CI has none); with it, the Silkroad demo's tests
   take ~14 s in debug. 2D: `oracle_one_turning`, `oracle_seek_flee`,
@@ -342,7 +343,7 @@ user called the milestone (2026-11-03).
 
 ### As built (after #46)
 
-One module, `crates/steer-demos/src/training_field.rs` (the 51 tests in the same file), demo
+One module, `crates/steer-demos/src/training_field.rs` (the 52 tests in the same file), demo
 id `training-field`, the last 2D demo. Units: 1 = 1 world unit of Silkroad (10 wire; a "space"
 in PhBot's settings) since H2 (#63, from the Caravan watch log, 2026-11-05; before it 1 = 1 m
 with Silkroad's 20 / 60 disks drawn as 10 / 50). Numbers are constants at the top of the module
@@ -378,8 +379,10 @@ and `Settings` sliders.
   damage multiplier every 1.5 s inside the bite reach slider (4, 2-8: bites landed 4.4 away
   at p50); dead at 0 HP, reborn at its nest after 3 s.
 - Players: HP and MP 100, +1 of each a second; dead at 0, back at the centre after 5 s with full
-  bars, forgotten by every monster. Dps: the nearest monster inside the dps disk, a run into
-  reach 15 (the party's skill range 150), a blast every 1.5 s for 6 MP: 10 off the five
+  bars, forgotten by every monster. Dps: of the monsters inside the dps disk, one attacking a
+  party member first (`nearest_monster_in_disk`; the log: 79% of the real casts with such a
+  monster in range took one, and 89% took the nearest or second nearest), the nearest to the
+  dps among them, else the nearest; a run into reach 15 (the party's skill range 150), a blast every 1.5 s for 6 MP: 10 off the five
   nearest within 5 of the target (5 since the melee reach went to 4: biters stand 4 from the
   lurer, up to 8 apart, and a blast of 2 caught one at a time), each hit +10 threat. Buffers
   (within reach 15, one cast a second, the member with the lowest bar
@@ -428,7 +431,7 @@ and `Settings` sliders.
   buttons: plan casts / plan stops; reach circles on / off (`Settings::show_reaches`: the
   ranged and alarm, melee, line-of-sight and sight circles; the role disks, the map edge and
   the effect rings stay).
-- Tests (51): hand-computed cases per piece, the pinned two-minute run (seed 1, 7,200 steps,
+- Tests (52): hand-computed cases per piece, the pinned two-minute run (seed 1, 7,200 steps,
   `trips_deliver_monsters_to_the_dps_disk`, its history in the comment), the five-seed run
   (`five_seeds_train_for_three_minutes_without_a_death`, 180 s each, margins from the
   measured table: kills >= 15, the lowest member >= 30%, both lurers >= 6 delivered, at most
@@ -1130,6 +1133,23 @@ trips/delivered/lost):
   it has tagged, so its trips are a third as long as PhBot's "walk 40 and back"; it never
   comes back empty where the real one does half the time; seed 1's A dwells 48 s with its
   chasers under the hand-off.
+- **Lurer A "not luring" (the user, in the browser, 2026-11-05)**: on seed 1 A stands at the
+  centre with monsters chasing it 104 s of the first 180 (43 s from 47 s, 50 s from 130 s). Its
+  three chasers are normal monsters 4 from A and 5 from the centre, inside the dps disk, at 99
+  HP for 50 s: three dps huddle on an 880-HP party monster 2 from the centre (the nearest to
+  each), the fourth targets a 1,300-HP giant with 0-5 MP, and the blast of 5 round the party
+  monster does not reach the normals, so the hand-off never comes. The blast radius alone:
+  five seeds, stall seconds A / B per seed at blast 5: 104 / 56 / 49 / 16 / 11 and 49 / 7 / 52
+  / 20 / 18 (159 kills, no deaths); at 8: 3 / 12 / 41 / 9 / 9 and 31 / 52 / 88 / 18 / 8 (159,
+  none); at 10: 12 / 5 / 21 / 14 / 5 and 17 / 7 / 18 / 16 / 39 (195 kills, 1 death). **How the
+  real dps pick** (493 casts with two or more monsters within 15): the target was the nearest
+  59% and the nearest or second nearest 89%; attacking a party member 74% (79% of the 459
+  casts where one was in range); the weakest by rarity 35%; the lowest HP left 33%; attacking
+  a lurer 17% (47% of the 179 where one was). Built as "attacking a member first, nearest
+  among them" (#70): the stall is unchanged (the party monster attacks a dps too), kills 156
+  over five seeds. The real cure is the damage ratio: one real dps hit (43-78k) kills a normal
+  of 40,532, a party monster takes about 8; the demo's 10 per hit needs 10 hits for a normal
+  and 100 for a party monster, so normals queue behind party monsters while the lurer waits.
 
 ## Gaps and known issues
 

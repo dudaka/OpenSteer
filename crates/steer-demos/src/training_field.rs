@@ -1427,15 +1427,19 @@ fn lure_cast(
     }
 }
 
-/// The monster inside the dps disk nearest to `at`: a dps's target.
+/// A dps's target: of the monsters inside the dps disk, one attacking a party member first
+/// (the watch log, 2026-11-05: of 493 real dps casts with a choice, the target was attacking
+/// a member in 79% of those where one was, and the nearest or second nearest monster 89% of
+/// the time; weakest-first only 35%), the nearest to `at` among them, else the nearest.
 fn nearest_monster_in_disk(at: Vec2, monsters: &[Monster]) -> Option<usize> {
-    (monsters.iter().enumerate())
-        .filter(|(_, m)| (m.body.position - CENTRE).length() <= DPS_RADIUS)
-        .min_by(|a, b| {
-            let d = |m: &Monster| (m.body.position - at).length();
-            d(a.1).total_cmp(&d(b.1))
-        })
-        .map(|(i, _)| i)
+    let d = |m: &Monster| (m.body.position - at).length();
+    let nearest = |attacking: bool| {
+        (monsters.iter().enumerate())
+            .filter(|(_, m)| in_dps_disk(m) && (!attacking || m.target.is_some()))
+            .min_by(|a, b| d(a.1).total_cmp(&d(b.1)))
+            .map(|(i, _)| i)
+    };
+    nearest(true).or_else(|| nearest(false))
 }
 
 /// The nearest of `players` within `ALARM_REACH` of `at`, and its distance.
@@ -4010,7 +4014,10 @@ mod tests {
         // seed (a tenth: somewhere in 40-50%), group heals 0 / 0 / 1 / 0 / 0. World units
         // (2026-11-05): kills 32 / 39 / 29 / 25 / 34 (159), delivered A 16 / 18 / 15 / 15 /
         // 21 and B 20 / 19 / 16 / 20 / 17, lost 0 / 1 / 0 / 1 / 0, no deaths, no leave while
-        // chased, the lowest bar 40 / 80 / 50 / 40 / 50.
+        // chased, the lowest bar 40 / 80 / 50 / 40 / 50. The dps targeting a monster attacking
+        // a member first: seed 2 36 kills and B 14/20/2, the rest unchanged (156 kills); the
+        // lurers' stalls at the centre with chasers unchanged too (A 104 s on seed 1), since
+        // the party monster the dps huddle on attacks a member as well.
         let mut deaths = 0;
         for seed in 1..=5 {
             let mut field = seeded(seed);
@@ -4616,5 +4623,31 @@ mod tests {
             .any(|a| a.id == "toggle_reaches" && !a.active));
         field.action("toggle_reaches");
         assert_eq!(count(&field.view(), color::RANGED), 13);
+    }
+
+    #[test]
+    fn a_dps_fires_at_a_monster_attacking_the_party_before_a_nearer_idle_one() {
+        // Two monsters in the disk, 6 and 12 from a dps at (2.8, -2.8): both idle, the nearer
+        // one; the farther one chasing a lurer, that one (the log: a target attacking a party
+        // member in 79% of the casts that had one in range).
+        let mut field = field_with_a_monster_at(Vec2::new(2.83, -8.83));
+        field.monsters[1].body = standing(Vec2::new(2.83, -14.83));
+        for m in field.monsters.iter_mut().take(2) {
+            m.spawn = m.body.position;
+            m.gait = Gait::Standing;
+            m.until = f32::MAX;
+        }
+        let dps_at = (field.team().iter().map(|p| p.body.position))
+            .find(|p| (*p - Vec2::new(2.83, -2.83)).length() < 0.1)
+            .expect("a dps at the south-east diagonal");
+        assert_eq!(nearest_monster_in_disk(dps_at, field.monsters()), Some(0));
+        field.monsters[1].threat.insert(0, 1.0);
+        field.monsters[1].target = Some(0);
+        assert_eq!(nearest_monster_in_disk(dps_at, field.monsters()), Some(1));
+        // The first step: the two southern dps (12 and 13 away) blast it, the two northern
+        // ones (18 away) run into reach first; the idle monster is untouched.
+        field.update(1.0 / 60.0);
+        let hp: Vec<f32> = field.monsters().iter().take(2).map(|m| m.hp).collect();
+        assert_eq!(hp, [100.0, 80.0]);
     }
 }
