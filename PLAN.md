@@ -11,7 +11,7 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
   check by the lowest bar, the backlog cap, the hand-off, five-seed measurements, the web main
   page). What comes next: Status, "Next".
 
-## Status (2026-11-03)
+## Status (2026-11-05)
 
 | Part | Steps | PRs | State |
 |---|---|---|---|
