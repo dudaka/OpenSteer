@@ -3204,6 +3204,116 @@ mod tests {
     }
 
     /// Runs `steps`, recording which monsters (by id) lurer A tagged at any point.
+    /// A lurer's trips measured as the watch log's were (the Caravan recording of 2026-11-05,
+    /// `PLAN.md` Findings): a trip begins when the lurer passes `TRIP_OUT` from the centre and
+    /// ends when it is back within `TRIP_IN`; its length in seconds, its farthest point, the
+    /// monsters it newly tagged during it (by id), how many of those were later delivered
+    /// (reached the dps disk chasing it), the dwell until the next trip, and the share of
+    /// time within `TRIP_IN`.
+    const TRIP_OUT: f32 = 25.0;
+    const TRIP_IN: f32 = 15.0;
+
+    #[derive(Debug, Default)]
+    struct TripStats {
+        seconds: f32,
+        lengths: Vec<f32>,
+        farthest: Vec<f32>,
+        tagged: Vec<usize>,
+        delivered: Vec<u32>,
+        dwells: Vec<f32>,
+        steps_within: u32,
+        steps: u32,
+    }
+
+    impl TripStats {
+        fn trips_a_minute(&self) -> f32 {
+            self.lengths.len() as f32 / (self.seconds / 60.0)
+        }
+
+        fn share_within(&self) -> f32 {
+            self.steps_within as f32 / self.steps.max(1) as f32
+        }
+    }
+
+    /// The p-th percentile by linear interpolation (the analysis script's `pct`).
+    fn percentile(values: &[f32], p: f32) -> f32 {
+        let mut v = values.to_vec();
+        v.sort_by(f32::total_cmp);
+        if v.is_empty() {
+            return f32::NAN;
+        }
+        let k = (v.len() - 1) as f32 * p / 100.0;
+        let (f, c) = (k.floor() as usize, k.ceil() as usize);
+        v[f] + (v[c] - v[f]) * (k - f as f32)
+    }
+
+    /// Runs `seconds` and measures both lurers' trips.
+    fn measure_trips(field: &mut TrainingField, seconds: f32) -> [TripStats; 2] {
+        let dt = 1.0 / 60.0;
+        let steps = (seconds / dt).round() as usize;
+        let mut stats = [TripStats::default(), TripStats::default()];
+        // Per lurer: the current trip (its start, farthest point, the ids tagged before it),
+        // when the last trip ended, and each tagged id's trip index until it is delivered.
+        let mut out_since: [Option<(f32, f32)>; 2] = [None; 2];
+        let mut back_at: [Option<f32>; 2] = [None; 2];
+        let mut before: [std::collections::HashSet<u32>; 2] = Default::default();
+        let mut tagged: [std::collections::HashSet<u32>; 2] = Default::default();
+        let mut pending: [std::collections::HashMap<u32, usize>; 2] = Default::default();
+        for step in 1..=steps {
+            field.update(dt);
+            let t = step as f32 * dt;
+            for l in 0..2 {
+                let d = (field.team[l].body.position - CENTRE).length();
+                let st = &mut stats[l];
+                st.steps += 1;
+                if d <= TRIP_IN {
+                    st.steps_within += 1;
+                }
+                for m in &field.monsters {
+                    if m.delivered {
+                        if let Some(k) = pending[l].remove(&m.id) {
+                            st.delivered[k] += 1;
+                        }
+                    }
+                }
+                if let Some((t0, far)) = out_since[l].as_mut() {
+                    *far = far.max(d);
+                    for m in &field.monsters {
+                        if m.threat.contains_key(&l) && !before[l].contains(&m.id) {
+                            tagged[l].insert(m.id);
+                        }
+                    }
+                    if d < TRIP_IN {
+                        let k = st.lengths.len();
+                        st.lengths.push(t - *t0);
+                        st.farthest.push(*far);
+                        st.tagged.push(tagged[l].len());
+                        st.delivered.push(0);
+                        for &id in &tagged[l] {
+                            pending[l].insert(id, k);
+                        }
+                        out_since[l] = None;
+                        back_at[l] = Some(t);
+                        tagged[l].clear();
+                    }
+                } else if d > TRIP_OUT {
+                    out_since[l] = Some((t, d));
+                    before[l] = (field.monsters.iter())
+                        .filter(|m| m.threat.contains_key(&l))
+                        .map(|m| m.id)
+                        .collect();
+                    if let Some(b) = back_at[l] {
+                        st.dwells.push(t - b);
+                    }
+                }
+            }
+        }
+        for st in &mut stats {
+            st.seconds = seconds;
+        }
+        stats
+    }
+
     fn run_tracking_a(field: &mut TrainingField, steps: usize) -> std::collections::HashSet<u32> {
         let mut tagged = std::collections::HashSet::new();
         for _ in 0..steps {
@@ -4338,6 +4448,52 @@ mod tests {
                 "monster {i}: {}",
                 out[i]
             );
+        }
+    }
+
+    /// The lurers' trips measured as the watch log's (`measure_trips`), seed 1 for three
+    /// minutes, beside the real lurers of the Caravan recording (2026-11-05, 22.8 min, one
+    /// party, one spot; `PLAN.md` Findings). Measured 2026-11-05 (world units, #63):
+    ///
+    /// | measure | real A / B | demo seed 1 A / B | demo seeds 1-5 |
+    /// | trips a minute | 2.3 / 2.1 | 1.0 / 1.7 | 1.0-4.3 |
+    /// | length p50 (p90) | 14.2 (22.9) / 14.5 (24.9) s | 4.6 (7.5) / 4.6 (7.6) | 4.6-8.7 (7.5-21.3) |
+    /// | farthest p50 (p90) | 36.5 (45.4) / 38.0 (45.5) | 31.1 (38.1) / 35.0 (37.5) | 31-42 (37.5-45) |
+    /// | tagged a trip p50 (p90) | 0 (5) / 0 (5), none on 26 of 52 and 25 of 47 | 2 (2) / 2 (2), none on 0 | 1-2 (1-3), none on 3 of 95 |
+    /// | delivered a minute | 2.6 / 3.1 | 1.7 / 2.7 | 1.7-6.7 |
+    /// | dwell p50 (p90) | 9.5 (19.5) / 10.5 (21.2) s | 47.7 (72.4) / 16.3 (28.2) | 5.9-47.7 (8.0-72.4) |
+    /// | within 15 of the centre | 49% / 47% | 86% / 80% | 33-86% |
+    ///
+    /// The demo's lurer pulls from the near ring (most of its leaves never pass 25) and
+    /// turns home as soon as it has tagged, so its trips are a third as long as PhBot's walk
+    /// out 40 and back; it never leaves empty-handed where the real one does half the time;
+    /// and seed 1's A dwells 48 s at the centre with its chasers under the hand-off. The
+    /// margins hold what is structural: trips happen, reach the band, tag, deliver.
+    #[test]
+    fn the_lurers_trips_measure_like_the_watch_logs() {
+        let mut field = TrainingField::default();
+        let stats = measure_trips(&mut field, 180.0);
+        for (name, st) in ["A", "B"].iter().zip(&stats) {
+            assert!(st.lengths.len() >= 2, "{name}: {} trips", st.lengths.len());
+            let farthest = percentile(&st.farthest, 50.0);
+            assert!(
+                (25.0..=45.0).contains(&farthest),
+                "{name}: farthest {farthest}"
+            );
+            let length = percentile(&st.lengths, 50.0);
+            assert!((2.0..=14.0).contains(&length), "{name}: length {length}");
+            assert!(
+                st.tagged.iter().filter(|&&n| n == 0).count() <= 1,
+                "{name}: {:?}",
+                st.tagged
+            );
+            assert!(
+                st.delivered.iter().sum::<u32>() >= 4,
+                "{name}: {:?}",
+                st.delivered
+            );
+            let within = st.share_within();
+            assert!((0.2..=0.95).contains(&within), "{name}: within {within}");
         }
     }
 }
