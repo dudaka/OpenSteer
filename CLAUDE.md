@@ -105,7 +105,7 @@ cmake --build build
 - Remotes: `origin` = the user's fork `dudaka/OpenSteer` (default branch `main`), `upstream` = `meshula/OpenSteer`. `origin/glfw_port` came with the fork; it is not ours.
 - One branch per feature, made from `main` (the project skills in `.claude/skills/` only exist on branches made from `main`). Commit and push there, never straight to `main`. CI runs only on pushes to `main` and on pull requests.
 - When the feature is done and the user agrees: open a PR, wait for CI to be green, merge with a merge commit, then delete the feature branch locally and on `origin`. Context refreshes go as their own small PRs (#44, #45, #47, #61). PRs so far: #1-#61.
-- Merge only behind a CI watch that listed the jobs: right after `gh pr create`, `gh pr checks --watch` can print "no checks reported" and exit 0, and a chained merge then skips the gate (it happened on #50). Poll first: `until gh pr checks <n> -R dudaka/OpenSteer | grep -q .; do sleep 5; done`, then `--watch --fail-fast`, then merge.
+- Merge only behind a CI watch that listed the jobs: right after `gh pr create`, `gh pr checks --watch` can print "no checks reported" and exit 0, and a chained merge then skips the gate (it happened on #50). Poll first: `until gh pr checks <n> -R dudaka/OpenSteer | grep -q .; do sleep 5; done`, then `--watch --fail-fast`, then merge. Never pipe the watch (or clippy) into `tail`/`grep` inside the chain: the pipeline's status is the last command's, and #64 merged with a red rust job that way (clippy's dead-code error was behind a `;` too). Every gate is its own `&&` step with its own exit status; `set -o pipefail` when a pipe is unavoidable.
 
 ## The Silkroad world (Phase 7 C/D, done)
 
