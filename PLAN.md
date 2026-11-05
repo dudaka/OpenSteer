@@ -24,6 +24,7 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
 | Phase 8: the Training Field, built for the lurer (field, combat, rarities, two lurers, planners, risk check, buffs) | F1-F6k | #46 | done (one branch, 35 commits) |
 | Phase 8 follow-ups after the browser observation: status lines, the lost metric, rocks (circles and rectangles), the lowest-bar risk check, the backlog cap, the pull rule, the hand-off, five-seed measurements, the healer's MP gate, the group heal; the web main page | G1-G13 | #48-#60 | done (one small branch and PR each, 2026-11-03) |
 | Phase 8 from the Caravan watch log (`CARAVAN_LOGGER_REQUIREMENTS.md`): the lurer's knowledge (a monster's HP as max HP less the damage seen, the party window in tenths) | H1 | #62 | done (2026-11-05) |
+| The redraw in Silkroad's world units (the dps disk 20, the luring radius 40, run 11, monsters 10 / 4, the reaches 15 / 8 / 4, the dps blast 5) | H2 | #63 | done (2026-11-05) |
 
 - The user looked at the 3D view (#26) and at the whole 3D batch and reported both "looking good"
   (2026-10-21); C2 (the walker on the ground) and C3 (the drawn terrain, "looks right") too; D3
@@ -46,9 +47,10 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
   (`~/.caravan/caravand.log`, Caravan's `docs/watch-log.md`); the second recording (22.8 min,
   one spot, one party) was analysed in the session's scratchpad (parser, tracks, section 7
   checks, the section 5 table; the numbers in Findings). Agreed order (the user): H1 the
-  lurer's knowledge (done, #62); H2 next: redraw at 1 demo unit = 1 world unit (dps disk 20,
-  luring radius 40, players run 11, monsters 10 / 4, the reaches 4 / 15 / 24 / 15 / 5), one PR
-  that re-pins every measurement; H3: the step 5 measures as a test helper (trips a minute,
+  lurer's knowledge (done, #62); H2 the redraw at 1 demo unit = 1 world unit (done, #63:
+  dps disk 20, luring radius 40, players run 11, monsters 10 / 4, the reaches 15 / 8 / 4; the
+  dps blast went from 2 to 5 with it, the only value beyond the agreed table, from the
+  five-seed sweep in Findings); H3 next: the step 5 measures as a test helper (trips a minute,
   trip length, farthest point, tags and delivered per trip, dwell, time within 15 of the
   centre) with the recording's values as a first comparison column; H4, only after three
   recordings of 30 minutes on two spots or parties: the balance numbers (bite, buffs, dps rate,
@@ -332,15 +334,19 @@ user called the milestone (2026-11-03).
 
 ### As built (after #46)
 
-One module, `crates/steer-demos/src/training_field.rs` (the 46 tests in the same file), demo
-id `training-field`, the last 2D demo. Units: 1 = 1 m; Silkroad's disks of 20 and 60 are 10
-and 50 here. Numbers are constants at the top of the module and `Settings` sliders.
+One module, `crates/steer-demos/src/training_field.rs` (the 48 tests in the same file), demo
+id `training-field`, the last 2D demo. Units: 1 = 1 world unit of Silkroad (10 wire; a "space"
+in PhBot's settings) since H2 (#63, from the Caravan watch log, 2026-11-05; before it 1 = 1 m
+with Silkroad's 20 / 60 disks drawn as 10 / 50). Numbers are constants at the top of the module
+and `Settings` sliders.
 
-- The field: a disk map of `MAP_RADIUS` 60 (nests an `IDLE_RADIUS` 6 inside its edge, never in
+- The field: a disk map of `MAP_RADIUS` 70 (nests an `IDLE_RADIUS` 12 inside its edge, never in
   the dps disk); one centre; the team of eight (the game's party limit): lurers A and B at
   (-1.5, 0) and (1.5, 0), four dps 4 out at the diagonals, the HP buffer at (0, 2.5), the MP
-  buffer at (0, -2.5). Radii: dps 10, buffers 5, lurers 50 (`Role::radius`). Players always
-  run (5); a roaming player seeks random spots of its disk (`roam`, containment as the guard).
+  buffer at (0, -2.5). Radii: dps 20, the HP buffer 5, the MP buffer 20, lurers 40
+  (`Role::radius`; the log: dps p90 17.5, the HP buffer p90 4.5, the MP buffer p90 17.7, trips
+  p50 36-38 and p90 45). Players always run (11, the buffed party's 10.2-12.2); a roaming
+  player seeks random spots of its disk (`roam`, containment as the guard).
   No collisions between bodies (the user).
 - Rocks (`Rocks`): `DEFAULT_OBSTACLES` 8 obstacles (slider 0-20) in the luring disk, each a
   circle or a rectangle at any angle by a coin, a circle's radius and a rectangle's half sides
@@ -357,21 +363,25 @@ and 50 here. Numbers are constants at the top of the module and `Settings` slide
   percent (normal, champion, giant, party normal, party champion, party giant); HP x1 / x2 / x20
   / x10 / x20 / x200 (the game client's, read by caravan), damage x1 / x1.5 / x3 / x2 / x3 / x6
   (ours), bodies x1 / x1.25 / x2; strong = HP x10 or more. Idle: a gait drawn every 2-6 s
-  (standing, walking 1.5, running at the monster speed slider, default 6) within 6 of the nest;
-  whole again at home with nobody after it. Alarm disk 6; it chases whoever dealt it the most
-  damage (`threat`), else the nearest player in its alarm disk, kept within `LOS_REACH` 35 and
-  forgotten beyond; a bite of `BITE` 3 times the damage multiplier every 1.5 s inside the bite
-  reach slider (2); dead at 0 HP, reborn at its nest after 3 s.
+  (standing, walking 4, running at the monster speed slider, default 10, 5-15: the Sand
+  worm's 10 / 4) within 12 of the nest; whole again at home with nobody after it. Alarm disk
+  8; it chases whoever dealt it the most damage (`threat`), else the nearest player in its
+  alarm disk, kept within `LOS_REACH` 35 and forgotten beyond; a bite of `BITE` 3 times the
+  damage multiplier every 1.5 s inside the bite reach slider (4, 2-8: bites landed 4.4 away
+  at p50); dead at 0 HP, reborn at its nest after 3 s.
 - Players: HP and MP 100, +1 of each a second; dead at 0, back at the centre after 5 s with full
   bars, forgotten by every monster. Dps: the nearest monster inside the dps disk, a run into
-  reach 8, a blast every 1.5 s for 6 MP: 10 off the five nearest within 2 of the target, each
-  hit +10 threat. Buffers (within reach 8, one cast a second, the member with the lowest bar
+  reach 15 (the party's skill range 150), a blast every 1.5 s for 6 MP: 10 off the five
+  nearest within 5 of the target (5 since the melee reach went to 4: biters stand 4 from the
+  lurer, up to 8 apart, and a blast of 2 caught one at a time), each hit +10 threat. Buffers
+  (within reach 15, one cast a second, the member with the lowest bar
   under 90% and no such buff running, themselves included): HP buff +4/s for 10 s (4 MP), MP
   buff +3/s for 10 s (2 MP); the HP buffer first tries a heal (+40 on a member under 50%, 15 MP,
   3 s), a group heal (+20 to everyone in reach when two or more of them are under 70%, 25 MP,
   10 s), a guard (bites x0.8 for 20 s, 10 MP, 5 s, on the attacked member with the lowest HP).
-- The lurer's kit: tag (reach 8, 1 damage, 2 MP, 1 s), blast (radius 3 round a monster within 8,
-  6 MP, 4 s), pierce (12 long, 1.5 either side, toward a monster, 8 MP, 6 s); every hit a tag
+- The lurer's kit: tag (reach 15, 1 damage, 2 MP, 1 s), blast (radius 3 round a monster within
+  15, 6 MP, 4 s), pierce (12 long, 1.5 either side, toward a monster, 8 MP, 6 s; shorter than
+  the normal attack's reach now, so it only saves casts, never a run); every hit a tag
   (the lurer on the threat table); an area skill only when it tags two or more untagged
   monsters, the pierce on a tie.
 - The lurer's trip (`Lure`, `LureStage`, `lure_step`). Centre: stand until nothing chases it
@@ -389,7 +399,7 @@ and 50 here. Numbers are constants at the top of the module and `Settings` slide
   planner (default; a stop is a monster to get within a skill's reach of; the shortest run that
   tags N, the fewest casts on a tie) or the stops planner (button); run to the first stop; back
   when N (3) chase, HP < 40%, or nothing more is in sight after a tag; with nothing in sight and
-  nothing tagged, scout random spots of the band 30..47 away from where the other lurer was last
+  nothing tagged, scout random spots of the band 30..37 away from where the other lurer was last
   seen (10 s memory). Back: home within 1; the session's time and HP recorded.
 - What a lurer knows (`observe`, `Lure::damage_seen`, `window_tenth`): monsters and the other
   lurer within 30 of itself, every member's HP and MP bars from the party window in tenths (a
@@ -400,7 +410,7 @@ and 50 here. Numbers are constants at the top of the module and `Settings` slide
   the damage it missed as HP still to kill; a killed monster's id leaves the tally); never the
   other lurer's stage or plan, never a position beyond 30.
 - The view: bodies by role color; HP/MP bars on dark tracks; every reach as circles
-  (`CircleView`: ranged 8 and alarm 6 amber, melee violet, LOS 35 lilac on chasing monsters
+  (`CircleView`: ranged 15 and alarm 8 amber, melee violet, LOS 35 lilac on chasing monsters
   outside the dps disk, each lurer's sight 30); the planned tour or scouting spot as a gray
   polyline; attack lines and blasts; buff and guard rings; rarity labels; three status lines
   (the team; lurer A; lurer B); the legend behind a button. Sliders: monsters, N, monster
@@ -873,7 +883,13 @@ Decided with the user (2026-11-02 to 03, Phase 8, in order):
   window in tenths (H1, #62); (2) redraw at 1 demo unit = 1 world unit (the demo's 10 / 50
   disks are a 5:1 ratio where the real training and luring disks are 20 / 40); (3) the step 5
   measures as a test helper; (4) the balance numbers wait for three recordings of 30 minutes
-  (never tune on one seed applies to real parties too). The user: proceed in that order.
+  (never tune on one seed applies to real parties too). The user: proceed in that order. H2's
+  table ("go", 2026-11-05): dps 20, HP buffer 5, MP buffer 20, luring 40, map 70, run 11 and
+  walk 3.5 (the walk is the monsters' gait, 4), monsters 10 / 4, melee 4 (slider 2-8), ranged
+  and buff reach 15, tag reach 15, alarm 8, sight and LOS unchanged, idle radius 12, blast
+  radii, pierce, body and rocks unchanged. Built with one change beyond it: the dps blast 2 to
+  5, since the melee reach of 4 spreads the biters and a blast of 2 stalled the kills (the
+  sweep in Findings); to confirm or revise with the user.
 
 Open (ask before acting):
 - The party window showing members' HP bars is my assumption about the game; if it does not,
@@ -1073,6 +1089,21 @@ trips/delivered/lost):
   24 / 32 / 15 / 17 / 25, B 12 / 17 / 18 / 8 / 18, no deaths, nothing lost, no leave while
   chased, the lowest bar read 40 everywhere, group heals 0 / 0 / 1 / 0 / 0; at 180 s the known
   backlog overshoots the true one by the damage missed (seed 3: 168 / 192 s against 157).
+- **The redraw in world units (H2, #63)**: seed 1 at 120 s A 9/13/0 (7.3 s sessions, 26
+  walked per delivered, 88% inside the 20 disk), B 13/17/0 (7.3 s, 28, 80%), 29 kills, no
+  deaths, 1 heal, 23 guards; at 180 s A 10/16/0, B 14/20/0, 32 kills. Five seeds: kills 32 /
+  39 / 29 / 25 / 34 (159), delivered A 16 / 18 / 15 / 15 / 21, B 20 / 19 / 16 / 20 / 17, lost
+  0 / 1 / 0 / 1 / 0, no deaths, no leave while chased, the lowest bar 40 / 80 / 50 / 40 / 50.
+  **The blast had to follow the melee reach**: with the agreed table as it stood (the MP
+  buffer's disk 20, the dps blast 2) seed 1 stalled at 13 kills from 80 s with 7 monsters in
+  the disk and the dps' MP drained from 75 to 5: biters stand 4 from the lurer, up to 8 apart,
+  and a blast of 2 caught one at a time. The sweep over five seeds (kills, deaths): MP buffer
+  20 and blast 2: 112, 0; 5 and 2: 118, 0; 10 and 2: 128, 0; 5 and 4: 145, 2; 5 and 5: 166,
+  1; 10 and 5: 159, 1; 20 and 5: 159, 0 (taken: the agreed 20 with the blast at 5). Other
+  shifts of the redraw: the lurers' sessions 7.3 s (the real p50 14 s), 80-90% of seed 1
+  inside the 20 disk (the real lurers 47-49% within 15), the pierce shorter than the normal
+  attack, and the dps standing 4-7 from the centre while they fight (the roam only moves them
+  between fights).
 
 ## Gaps and known issues
 
@@ -1103,6 +1134,14 @@ trips/delivered/lost):
   sessions (they never fell under 90 MP in any measured run); the party window's HP and MP
   bars are assumed; bodies graze rocks (avoidance looks only ahead, as on the plaza's walls);
   the group heal fires only when two members are hurt at once (1 of 5 seeds more than once).
+- Training Field, since the world units (#63): the roam is uniform over a role's disk (a dps
+  p50 14 from the centre on a disk of 20) where the real party clusters (p50 8.2, p90 17.5),
+  and the dps stand 4-7 from the centre while they fight; the lurers spend 80-90% of seed 1
+  inside the 20 disk against the real 47-49% within 15 (their sessions 7.3 s against 14);
+  scouting never returns home, so a lurer on the side away from the other can miss a monster
+  at the centre's edge for minutes (the dry-healer test parks A); the pierce (12) is shorter
+  than the normal attack (15); the lurer's blast radius 3 and the roar's real spread are
+  unmeasured; the MP buffer at 20 is out of its 15 reach of a dps on the far side at times.
 - Training Field, measuring: the fine-grained numbers are one seed (1) and two minutes, the
   five-seed test holds only margins; any new random draw shifts every pinned number (tests
   carry margins and the history; re-pin and say so); `trips` counts leaves (since the cap came
