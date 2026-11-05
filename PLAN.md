@@ -29,7 +29,8 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
 | The watch log analysis as repo scripts (`scripts/watchlog/`: checks, measure, export; slices and tables outside git) | H3b | #66 | done (2026-11-05) |
 | The luring range slider (30-60, default 40: the candidates, the scouting band, the planner's fence, the legend) | H3c | #68 | done (2026-11-05, the user's request) |
 | A button hiding or showing the per-entity reach circles | H3d | #69 | done (2026-11-05, the user's request) |
-| A dps targets a monster attacking a party member first, nearest among them (the log's rule; the user saw lurer A not luring) | H3e | #70 | done (2026-11-05); the stall itself remains: the damage ratio, see Findings |
+| A dps targets a monster attacking a party member first, nearest among them (the log's rule; the user saw lurer A not luring) | H3e | #70 | done (2026-11-05); the stall itself remained |
+| The damage ratio: a dps hit 100 every 3.4 s (the log's one hit per normal monster, a cast every 3.4 s); line of sight 45 | H4a | #71 | done (2026-11-05, the user's go); the stall is gone, kills 275 over five seeds, nothing lost |
 
 - The user looked at the 3D view (#26) and at the whole 3D batch and reported both "looking good"
   (2026-10-21); C2 (the walker on the ground) and C3 (the drawn terrain, "looks right") too; D3
@@ -375,16 +376,22 @@ and `Settings` sliders.
   (standing, walking 4, running at the monster speed slider, default 10, 5-15: the Sand
   worm's 10 / 4) within 12 of the nest; whole again at home with nobody after it. Alarm disk
   8; it chases whoever dealt it the most damage (`threat`), else the nearest player in its
-  alarm disk, kept within `LOS_REACH` 35 and forgotten beyond; a bite of `BITE` 3 times the
+  alarm disk, kept within `LOS_REACH` 45 (35 until 2026-11-05: with a lurer at 11 and a
+  chaser at 10, a monster tagged at the far end of a trip was 35 behind when the lurer
+  reached home and was lost right at the line; the log showed chases to 41.6 with no give-up)
+  and forgotten beyond; a bite of `BITE` 3 times the
   damage multiplier every 1.5 s inside the bite reach slider (4, 2-8: bites landed 4.4 away
   at p50); dead at 0 HP, reborn at its nest after 3 s.
 - Players: HP and MP 100, +1 of each a second; dead at 0, back at the centre after 5 s with full
   bars, forgotten by every monster. Dps: of the monsters inside the dps disk, one attacking a
   party member first (`nearest_monster_in_disk`; the log: 79% of the real casts with such a
   monster in range took one, and 89% took the nearest or second nearest), the nearest to the
-  dps among them, else the nearest; a run into reach 15 (the party's skill range 150), a blast every 1.5 s for 6 MP: 10 off the five
-  nearest within 5 of the target (5 since the melee reach went to 4: biters stand 4 from the
-  lurer, up to 8 apart, and a blast of 2 caught one at a time), each hit +10 threat. Buffers
+  dps among them, else the nearest; a run into reach 15 (the party's skill range 150),
+  a blast every 3.4 s for 6 MP: 100 off the five nearest within 5 of the target (the log: one
+  dps hit kills a normal monster, a party monster takes about 8, a dps casts every 3.4 s; 5
+  since the melee reach went to 4: biters stand 4 from the lurer, up to 8 apart, and a blast
+  of 2 caught one at a time), each hit +100 threat; `DPS_RATE` 117.6 HP a second, so a normal
+  monster is 0.85 s of backlog, a party normal 8.5 s, a giant 17 s. Buffers
   (within reach 15, one cast a second, the member with the lowest bar
   under 90% and no such buff running, themselves included): HP buff +4/s for 10 s (4 MP), MP
   buff +3/s for 10 s (2 MP); the HP buffer first tries a heal (+40 on a member under 50%, 15 MP,
@@ -907,6 +914,15 @@ Decided with the user (2026-11-02 to 03, Phase 8, in order):
   5, since the melee reach of 4 spreads the biters and a blast of 2 stalled the kills (the
   sweep in Findings); the user's "proceed" of 2026-11-05 after the report took it as
   confirmed.
+- The user saw lurer A not luring (2026-11-05, in the browser): traced to the dps never
+  hitting A's chasers (Findings); the user took the dps target rule from the log (#70) and
+  then the damage ratio (H4a, #71: a dps hit 100 every 3.4 s) on my recommendation, before
+  the three recordings, since every one of the 69 real hits on a normal monster exceeded its
+  HP. Line of sight went 35 to 45 with it (the lost events sat right at 35; the real give-up
+  radius is unmeasured): to revise if the user prefers 35 with lost monsters re-pinned.
+  **The two lurers are independent** (the user, restated 2026-11-05): each decides from its own
+  sight, its memory and the party window; no rule may couple them beyond that, and the dps
+  rule must not single out "the lurer's" monsters either (it did not: attacking any member).
 
 Open (ask before acting):
 - The party window showing members' HP bars is my assumption about the game; if it does not,
@@ -1150,6 +1166,21 @@ trips/delivered/lost):
   over five seeds. The real cure is the damage ratio: one real dps hit (43-78k) kills a normal
   of 40,532, a party monster takes about 8; the demo's 10 per hit needs 10 hits for a normal
   and 100 for a party monster, so normals queue behind party monsters while the lurer waits.
+- **The damage ratio (H4a, #71)**: five seeds, 180 s, kills / deaths / lowest bar / stall A
+  and B per seed. 10 every 1.5 s (before): 156 / 0 / 40-80 / A 104, 53, 49, 16, 11 and B 49,
+  7, 52, 20, 18. 50 every 1.5 s: 278 / 0 / 40-70 / A 14, 4, 26, 11, 5 and B 3, 8, 10, 3, 2.
+  100 every 1.5 s: 287 / 0 / 80 / A 9, 5, 14, 14, 1 and B 0, 9, 8, 3, 9. 100 every 3.4 s (the
+  log's two numbers, taken): 271 / 0 / 70-80 / A 16, 1, 17, 19, 4 and B 6, 4, 16, 8, 1. 150
+  every 3.4 s: 283 / 0 / 50-80. With the ratio in, 4 monsters were lost on seed 1 (3 of 4 at
+  37-39 from the centre with the lurer home: 35 behind, right at the line of sight; the
+  lurer at 11 outruns a chaser at 10, which also starts from rest); line of sight 45 made it
+  0 on every seed with kills 275 and no other change. Pinned: seed 1 A 10/22/0 and B 12/22/0,
+  60 kills at 120 s, 90 at 180 s, no heals; five seeds 90 / 56 / 48 / 36 / 45, delivered A
+  35 / 11 / 22 / 21 / 22 and B 32 / 40 / 26 / 15 / 23, nothing lost, no deaths, the lowest
+  bar 70 / 70 / 70 / 80 / 80, the stalls A 13 / 1 / 27 / 19 / 4 s and B 26 / 4 / 14 / 3 / 1 s.
+  The trip table (the test): seed 1 A now 2.7 trips a minute of 6.9 s, dwell 9.0 s, 53%
+  within 15, delivering 6.7 a minute (the real pair 2.3 trips of 14 s, dwell 10 s, 48%, 2.6-3.1
+  a minute); B 1.7 trips of 3.9 s, dwell 25.7 s, 74%, 2.0 a minute.
 
 ## Gaps and known issues
 
@@ -1188,8 +1219,9 @@ trips/delivered/lost):
   at the centre's edge for minutes (the dry-healer test parks A); the pierce (12) is shorter
   than the normal attack (15); the lurer's blast radius 3 and the roar's real spread are
   unmeasured; the MP buffer at 20 is out of its 15 reach of a dps on the far side at times;
-  against the real lurers (Findings, H3) the demo's trips are a third as long, never empty,
-  and its dwell at the centre swings from 6 to 48 s where the real one is 10 s.
+  against the real lurers (Findings, H3 and H4a) the demo's trips are half as long and never
+  empty, and B's dwell at the centre (26 s on seed 1) is longer than the real 10 s; the real
+  give-up radius of a chase (line of sight, 45 here) is unmeasured.
 - Training Field, measuring: the fine-grained numbers are one seed (1) and two minutes, the
   five-seed test holds only margins; any new random draw shifts every pinned number (tests
   carry margins and the history; re-pin and say so); `trips` counts leaves (since the cap came
