@@ -176,9 +176,10 @@ pub const HEALER_MP: f32 = 50.0;
 pub const TREND_WINDOW: f32 = 5.0;
 /// The balance sliders and their defaults: N, the monsters' running speed (faster than the
 /// players' 5, as in the game), the bite's damage and reach, the backlog cap: a lurer waits
-/// while the dps work it knows of (the HP left in the dps disk at the four dps's focused
-/// output `DPS_RATE`, in seconds, read with the disk in sight and run down since, plus what
-/// chases the lurer itself) is above this many seconds, and takes a strong monster only
+/// while the dps work it knows of (the HP it knows of in the dps disk, each monster's max
+/// HP less the damage the lurer saw land on it, at the four dps's focused output `DPS_RATE`,
+/// in seconds, read with the disk in sight and run down since, plus what chases the lurer
+/// itself) is above this many seconds, and takes a strong monster only
 /// under it (the user, 2026-11-03: work left, not head counts; a giant is 20 normals). Off
 /// by default: at 15 and 30 monsters the lowest-bar risk check alone kept everyone alive
 /// while every cap only cost kills (the tables in `PLAN.md` Findings).
@@ -532,6 +533,13 @@ pub struct Lure {
     pub walked: f32,
     /// The backlog last read with the dps disk in sight: seconds of dps work, and when.
     backlog_seen: Option<(f32, f32)>,
+    /// The damage this lurer has seen land on each monster (hits within its sight), by id:
+    /// the server sends no HP for a monster a player has not selected, so a monster's HP is
+    /// known only as its max HP less this tally (a killed monster's id never returns; a
+    /// monster made whole at home is still counted hurt, as a player would).
+    damage_seen: HashMap<u32, f32>,
+    /// The backlog this lurer knew of after the last step.
+    pub known_backlog: f32,
 }
 
 impl Lure {
@@ -548,6 +556,15 @@ impl Lure {
     pub fn backlog(&self, now: f32, chasing_hp: f32) -> f32 {
         let seen = (self.backlog_seen).map_or(0.0, |(s, t)| (s - (now - t)).max(0.0));
         seen + chasing_hp / DPS_RATE
+    }
+
+    /// A monster's HP as this lurer knows it: its max HP less the damage it saw hit it.
+    pub fn known_hp(&self, m: &Monster) -> f32 {
+        (m.max_hp - self.damage_seen.get(&m.id).copied().unwrap_or(0.0)).max(0.0)
+    }
+
+    fn see_hit(&mut self, id: u32, damage: f32) {
+        *self.damage_seen.entry(id).or_insert(0.0) += damage;
     }
 
     pub fn share_in_disk(&self) -> f32 {
@@ -874,6 +891,13 @@ fn hunt(
     };
     body.apply_steering_force(force, dt);
     gait
+}
+
+/// A bar as the party window shows it: the game's party packet carries each member's HP and
+/// MP as tenths, so a bar reads 70 from 70% up to 80% (the floor of HP over a tenth of the
+/// maximum, never a fraction of the percent).
+pub fn window_tenth(value: f32, max: f32) -> f32 {
+    (value / (max / 10.0)).floor().clamp(0.0, 10.0) * 10.0
 }
 
 /// The player a monster chases: the living one that has dealt it the most damage (the lowest
@@ -1503,9 +1527,12 @@ impl TrainingField {
             / DPS_RATE
     }
 
-    /// The party window now: every member's HP in percent.
+    /// The party window now: every member's HP as the game shows it, in tenths.
     fn bars_now(&self) -> Vec<f32> {
-        self.team.iter().map(|p| p.hp / MAX_HP * 100.0).collect()
+        self.team
+            .iter()
+            .map(|p| window_tenth(p.hp, MAX_HP))
+            .collect()
     }
 
     /// Spawns the missing monsters, then moves every body: a player runs inside its role's
@@ -1529,20 +1556,27 @@ impl TrainingField {
         let chasers: Vec<usize> = (0..LURERS)
             .map(|l| self.monsters.iter().filter(|m| m.target == Some(l)).count())
             .collect();
-        // Each lurer reads the disk's backlog with the disk in sight and adds what chases it
-        // from outside the disk.
-        let (disk_backlog, now) = (self.disk_backlog(), self.time);
+        // Each lurer reads the disk's backlog with the disk in sight, from the HP it knows
+        // (max HP less the damage it saw), and adds what chases it from outside the disk.
+        let now = self.time;
         let backlogs: Vec<f32> = (0..LURERS)
             .map(|l| {
-                let at = self.team[l].body.position;
-                if (at - CENTRE).length() + DPS_RADIUS <= LURER_SIGHT {
-                    self.lures[l].backlog_seen = Some((disk_backlog, now));
-                }
+                let lure = &self.lures[l];
+                let known_disk: f32 = (self.monsters.iter().filter(in_dps_disk))
+                    .map(|m| lure.known_hp(m))
+                    .sum::<f32>()
+                    / DPS_RATE;
                 let chasing_hp: f32 = (self.monsters.iter())
                     .filter(|m| m.target == Some(l) && !in_dps_disk(m))
-                    .map(|m| m.hp)
+                    .map(|m| lure.known_hp(m))
                     .sum();
-                self.lures[l].backlog(now, chasing_hp)
+                let at = self.team[l].body.position;
+                let lure = &mut self.lures[l];
+                if (at - CENTRE).length() + DPS_RADIUS <= LURER_SIGHT {
+                    lure.backlog_seen = Some((known_disk, now));
+                }
+                lure.known_backlog = lure.backlog(now, chasing_hp);
+                lure.known_backlog
             })
             .collect();
         // The party window: the shortest bar now and the worst fall over the trend window.
@@ -1666,16 +1700,31 @@ impl TrainingField {
             self.cast_buff(b);
         }
         let rng = &mut self.rng;
+        let mut landed: Vec<(usize, f32)> = Vec::new();
         for (lurer, t) in tags {
             let m = &mut self.monsters[t];
             m.hp -= TAG_DAMAGE;
             *m.threat.entry(lurer).or_insert(0.0) += TAG_DAMAGE;
+            landed.push((t, TAG_DAMAGE));
         }
         for (shooter, at) in hits {
             for t in in_blast(at, AOE_BLAST, &self.monsters) {
                 let m = &mut self.monsters[t];
                 m.hp -= AOE_DAMAGE;
                 *m.threat.entry(shooter).or_insert(0.0) += AOE_DAMAGE;
+                landed.push((t, AOE_DAMAGE));
+            }
+        }
+        // A lurer sees the hits that land within its sight and keeps a tally per monster.
+        for (p, lure) in self.team[..LURERS].iter().zip(&mut self.lures) {
+            if p.is_dead() {
+                continue;
+            }
+            for &(t, damage) in &landed {
+                let m = &self.monsters[t];
+                if (m.body.position - p.body.position).length() <= LURER_SIGHT {
+                    lure.see_hit(m.id, damage);
+                }
             }
         }
         let alive: Vec<bool> = self.team.iter().map(|p| !p.is_dead()).collect();
@@ -1945,6 +1994,11 @@ impl TrainingField {
             .filter(|m| m.hp <= 0.0)
             .map(|m| m.spawn)
             .collect();
+        for m in self.monsters.iter().filter(|m| m.hp <= 0.0) {
+            for lure in &mut self.lures {
+                lure.damage_seen.remove(&m.id);
+            }
+        }
         self.monsters.retain(|m| m.hp > 0.0);
         self.kills += nests.len() as u32;
         let due = self.time + MONSTER_RESPAWN;
@@ -2122,7 +2176,7 @@ impl TrainingField {
             labels.push(label(
                 corner(-w, h - 5.0 + 4.0 * i as f32),
                 format!(
-                    "lurer {name} {:?}: {} trips, {} delivered, {} lost, {:.0}% in the dps disk; {} casts; {} sessions of {:.1} s, back with {:.0} HP (lowest {:.0}), {:.0} walked per delivered",
+                    "lurer {name} {:?}: {} trips, {} delivered, {} lost, {:.0}% in the dps disk; {} casts; {} sessions of {:.1} s, back with {:.0} HP (lowest {:.0}), {:.0} walked per delivered; knows {:.0} s of backlog",
                     lure.stage,
                     lure.trips,
                     lure.delivered,
@@ -2133,7 +2187,8 @@ impl TrainingField {
                     lure.mean_session(),
                     lure.mean_hp_back(),
                     if lure.sessions > 0 { lure.hp_back_min } else { 0.0 },
-                    lure.walked / lure.delivered.max(1) as f32
+                    lure.walked / lure.delivered.max(1) as f32,
+                    lure.known_backlog
                 ),
                 color::LABEL,
             ));
@@ -3059,6 +3114,64 @@ mod tests {
         assert!(near(Lure::new().backlog(5.0, 100.0), 3.75));
     }
 
+    /// Parks both lurers before and after every step (A at `a`, B at `b`).
+    fn step_with_parked_lurers(field: &mut TrainingField, a: Vec2, b: Vec2, steps: usize) {
+        for _ in 0..steps {
+            field.team[0].body = standing(a);
+            field.team[1].body = standing(b);
+            field.update(1.0 / 60.0);
+            field.team[0].body = standing(a);
+            field.team[1].body = standing(b);
+        }
+    }
+
+    #[test]
+    fn a_lurer_knows_a_monsters_hp_only_from_the_hits_it_saw() {
+        // A monster 4 below the centre: the four dps blast it in the first step (40 off its
+        // 100). Lurer A at the centre sees the hits; B, parked 40 east (the monster 40.2
+        // away, beyond its sight of 30), does not.
+        let mut field = field_with_a_monster_at(Vec2::new(0.0, -4.0));
+        step_with_parked_lurers(&mut field, CENTRE, Vec2::new(40.0, 0.0), 1);
+        let m = &field.monsters()[0];
+        assert_eq!(m.hp, 60.0);
+        assert_eq!(field.lures[0].known_hp(m), 60.0);
+        assert_eq!(field.lures[1].known_hp(m), 100.0);
+        // B comes to 18 east: the disk is in its sight and it reads the backlog from what
+        // it knows, the whole 100 HP (3.75 s at the four dps's 26.7 a second); A reads the
+        // 60 it saw (2.25 s). No blast lands within the 1.5 s cooldown.
+        step_with_parked_lurers(&mut field, CENTRE, Vec2::new(18.0, 0.0), 2);
+        let near = |a: f32, b: f32| (a - b).abs() < 0.05;
+        let known = [field.lures[0].known_backlog, field.lures[1].known_backlog];
+        assert!(near(known[0], 2.25) && near(known[1], 3.75), "{known:?}");
+        // Killed, the monster's id leaves every tally (a respawn is a new monster).
+        let id = field.monsters()[0].id;
+        field.monsters[0].hp = 1.0;
+        for _ in 0..120 {
+            field.update(1.0 / 60.0);
+        }
+        assert!(field.monsters().iter().all(|m| m.id != id));
+        assert!(field.lures.iter().all(|l| !l.damage_seen.contains_key(&id)));
+    }
+
+    #[test]
+    fn the_party_window_shows_hp_in_tenths() {
+        // The game's party packet carries each member's HP as tenths: 95% reads 90, 84
+        // reads 80, 79 reads 70; so a fall from 95 to 84 reads 10 and one to 79 reads 20.
+        let mut field = quiet_field();
+        for (hp, lowest, fall) in [(95.0, 90.0, 0.0), (84.0, 80.0, 10.0), (79.0, 70.0, 20.0)] {
+            field.team[2].hp = hp;
+            field.update(1.0 / 60.0);
+            assert_eq!(
+                (field.lowest_hp(), field.worst_fall()),
+                (lowest, fall),
+                "hp {hp}"
+            );
+        }
+        assert_eq!(window_tenth(100.0, MAX_HP), 100.0);
+        assert_eq!(window_tenth(90.0, MAX_HP), 90.0);
+        assert_eq!(window_tenth(0.0, MAX_HP), 0.0);
+    }
+
     /// A giant and a normal monster 20 out on lurer A's side, 6 apart (no cast takes both).
     fn risky_field() -> TrainingField {
         let mut field = quiet_field();
@@ -3688,6 +3801,10 @@ mod tests {
         // 17 / 15 / 11 / 18, nothing lost, no leave while chased. Before the hand-off: 5
         // deaths over seeds 2-4 and leaves while chased on most trips. With the healer's MP
         // gate and the bar-by-bar group heal: kills 36 / 41 / 22 / 30 / 36, B 8 on seed 4.
+        // The lurer's knowledge (2026-11-05: HP from the damage seen, bars in tenths): kills
+        // 36 / 44 / 25 / 22 / 36, delivered A 24 / 32 / 15 / 17 / 25 and B 12 / 17 / 18 / 8 /
+        // 18, no deaths, nothing lost, no leave while chased, the lowest bar read 40 on every
+        // seed (a tenth: somewhere in 40-50%), group heals 0 / 0 / 1 / 0 / 0.
         let mut deaths = 0;
         for seed in 1..=5 {
             let mut field = seeded(seed);
@@ -3789,7 +3906,11 @@ mod tests {
         // The group heal on two members under 70% (on the party's mean it never fired): seed
         // 1 unchanged; over the five seeds 165 kills, no deaths, group heals 0 / 0 / 1 / 4 / 0
         // (seed 4's four cost the healer all its MP, so its strong pulls paused: B 8
-        // delivered instead of 11).
+        // delivered instead of 11). The lurer's knowledge from the watch log (a monster's HP
+        // as max HP less the damage the lurer saw; the party window in tenths): seed 1
+        // unchanged at 120 and 180 s; over the five seeds 163 kills, no deaths (the tenths
+        // moved seeds 2-4), and at 180 s the lurers' known backlog overshoots the true one by
+        // the damage they missed (seed 3: 168 / 192 s known against 157).
         assert_eq!(stages.len(), 3);
         let delivered = a.delivered + b.delivered;
         assert!(a.trips >= 2 && b.trips >= 2, "{} {}", a.trips, b.trips);

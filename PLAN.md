@@ -23,6 +23,7 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
 | Phase 7 D: walls (rectangle obstacle, wall query, the plaza with walls) | D1-D3 | #41-#43 | done |
 | Phase 8: the Training Field, built for the lurer (field, combat, rarities, two lurers, planners, risk check, buffs) | F1-F6k | #46 | done (one branch, 35 commits) |
 | Phase 8 follow-ups after the browser observation: status lines, the lost metric, rocks (circles and rectangles), the lowest-bar risk check, the backlog cap, the pull rule, the hand-off, five-seed measurements, the healer's MP gate, the group heal; the web main page | G1-G13 | #48-#60 | done (one small branch and PR each, 2026-11-03) |
+| Phase 8 from the Caravan watch log (`CARAVAN_LOGGER_REQUIREMENTS.md`): the lurer's knowledge (a monster's HP as max HP less the damage seen, the party window in tenths) | H1 | #62 | done (2026-11-05) |
 
 - The user looked at the 3D view (#26) and at the whole 3D batch and reported both "looking good"
   (2026-10-21); C2 (the walker on the ground) and C3 (the drawn terrain, "looks right") too; D3
@@ -41,12 +42,18 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
   which removed all 5 deaths the first five-seed run found; #58 the five-seed pinned test;
   #59 a strong pull only while the HP buffer has 50 MP; #60 the group heal on two members
   under 70%. Dropped as a non-issue: "lurer A's share" (seed 1's nest layout).
-- Next: the user observes the current build in the browser (restart `scripts/dev.sh`, the main
-  page, then Training Field: the hand-off, the rocks, the status lines' backlog and lowest-bar
-  numbers) and says what to change. Candidates from Gaps if asked: nothing slows ordinary pulls
-  when the healer is dry; scouting sweeps instead of random spots; side probes so bodies stop
-  grazing rocks; the lurers' MP economy. Rhythm as before: a design with numbers, "go", one
-  small PR each, measured on five seeds.
+- The watch log (2026-11-05): Caravan records a training party as `bot.watch` lines
+  (`~/.caravan/caravand.log`, Caravan's `docs/watch-log.md`); the second recording (22.8 min,
+  one spot, one party) was analysed in the session's scratchpad (parser, tracks, section 7
+  checks, the section 5 table; the numbers in Findings). Agreed order (the user): H1 the
+  lurer's knowledge (done, #62); H2 next: redraw at 1 demo unit = 1 world unit (dps disk 20,
+  luring radius 40, players run 11, monsters 10 / 4, the reaches 4 / 15 / 24 / 15 / 5), one PR
+  that re-pins every measurement; H3: the step 5 measures as a test helper (trips a minute,
+  trip length, farthest point, tags and delivered per trip, dwell, time within 15 of the
+  centre) with the recording's values as a first comparison column; H4, only after three
+  recordings of 30 minutes on two spots or parties: the balance numbers (bite, buffs, dps rate,
+  spawn mix). Candidates from Gaps stay: nothing slows ordinary pulls when the healer is dry;
+  scouting sweeps; side probes at rocks; the lurers' MP economy.
   The 3D options offered 2026-10-21 stay for later:
   1. Stop bodies scraping walls: add the containment side probes (the design of steps 23 and 37) to the
      Silkroad walker, so walls it runs along or corners it rounds push it off (Findings: 299 of
@@ -54,7 +61,7 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
   2. Draw building floors (object navmesh cells) so the plaza walker does not float over pits.
   3. One-way ledges: drop off, never climb (now walls both ways; sro-polyanya keeps a blocked side).
   4. Other ground demos on the terrain (Pedestrians, Capture the Flag) with the same `World`.
-- Tests: 325 Rust tests (13 in `silkroad-navmesh`, + 3 ignored full-data ones; 46 in
+- Tests: 327 Rust tests (13 in `silkroad-navmesh`, + 3 ignored full-data ones; 48 in
   `training_field`), 21 C++ oracles.
   Tests needing the game data skip without it (CI has none); with it, the Silkroad demo's tests
   take ~14 s in debug. 2D: `oracle_one_turning`, `oracle_seek_flee`,
@@ -384,16 +391,21 @@ and 50 here. Numbers are constants at the top of the module and `Settings` slide
   when N (3) chase, HP < 40%, or nothing more is in sight after a tag; with nothing in sight and
   nothing tagged, scout random spots of the band 30..47 away from where the other lurer was last
   seen (10 s memory). Back: home within 1; the session's time and HP recorded.
-- What a lurer knows (`observe`): monsters and the other lurer within 30 of itself, every
-  member's HP and MP bars (the party window), which player a monster chases, where it stands,
-  its own memory; never the other lurer's stage or plan, never a position beyond 30.
+- What a lurer knows (`observe`, `Lure::damage_seen`, `window_tenth`): monsters and the other
+  lurer within 30 of itself, every member's HP and MP bars from the party window in tenths (a
+  bar reads 70 from 70% up to 80%; the risk check's falls come in steps of 10), which player a
+  monster chases, where it stands, its own memory; a monster's HP only as its max HP less the
+  damage the lurer saw land on it within 30 (the server sends no HP for an unselected monster;
+  the disk backlog and the chasers' HP are read from that, so a lurer back from a trip counts
+  the damage it missed as HP still to kill; a killed monster's id leaves the tally); never the
+  other lurer's stage or plan, never a position beyond 30.
 - The view: bodies by role color; HP/MP bars on dark tracks; every reach as circles
   (`CircleView`: ranged 8 and alarm 6 amber, melee violet, LOS 35 lilac on chasing monsters
   outside the dps disk, each lurer's sight 30); the planned tour or scouting spot as a gray
   polyline; attack lines and blasts; buff and guard rings; rarity labels; three status lines
   (the team; lurer A; lurer B); the legend behind a button. Sliders: monsters, N, monster
   speed, bite damage, bite reach, backlog cap, obstacles; buttons: plan casts / plan stops.
-- Tests (46): hand-computed cases per piece, the pinned two-minute run (seed 1, 7,200 steps,
+- Tests (48): hand-computed cases per piece, the pinned two-minute run (seed 1, 7,200 steps,
   `trips_deliver_monsters_to_the_dps_disk`, its history in the comment), the five-seed run
   (`five_seeds_train_for_three_minutes_without_a_death`, 180 s each, margins from the
   measured table: kills >= 15, the lowest member >= 30%, both lurers >= 6 delivered, at most
@@ -855,6 +867,13 @@ Decided with the user (2026-11-02 to 03, Phase 8, in order):
   death seen); the group heal on two or more members in reach under 70% (on the mean it never
   fired). "Lurer A's share" was dropped: independent lurers working the halves nearer to them
   is the intended behaviour, and the five seeds show no bias.
+- From the Caravan watch log (2026-11-05; the requirements in `CARAVAN_LOGGER_REQUIREMENTS.md`,
+  Caravan's answer in its `docs/watch-log.md`; one recording of 22.8 minutes, so a first look):
+  (1) the lurer knows a monster's HP only as max HP less the damage it saw, and the party
+  window in tenths (H1, #62); (2) redraw at 1 demo unit = 1 world unit (the demo's 10 / 50
+  disks are a 5:1 ratio where the real training and luring disks are 20 / 40); (3) the step 5
+  measures as a test helper; (4) the balance numbers wait for three recordings of 30 minutes
+  (never tune on one seed applies to real parties too). The user: proceed in that order.
 
 Open (ask before acting):
 - The party window showing members' HP bars is my assumption about the game; if it does not,
@@ -1030,6 +1049,30 @@ trips/delivered/lost):
   36, lowest member 42-48%), cap 30 s 105 kills and no deaths; no leave while chased on any
   seed. Lurer A against B delivered per seed with the cap off and the hand-off: 24/12, 29/17,
   13/15, 20/11, 25/18 (the earlier "A's share" was seed 1's nest layout, not a rule).
+- **The watch log, second recording** (2026-11-05 18:15-18:38 UTC, 22.8 min, the PhBot party
+  at 5248, setup A, 23% of the time cut for attacks on the observer; world units, 10 wire):
+  the party runs 10.2-12.2 all the time (gamedata's 5 never used), walks 3.3-3.9; Sand worm
+  runs 10 and walks 4, Sylaken 7.5 / 3; dps p50 8.2 and p90 17.5 from the centre, the HP
+  buffer p90 4.5, the MP buffer p90 17.7; the lurers' farthest point per trip p50 36.5 / 38,
+  p90 45, max 56-60; a trip every 27 s per lurer, p50 14 s, dwell p50 10 s, half the trips tag
+  nothing, tags per trip p90 5 (the area taunt hits at most 5), delivered 60 + 70, tag to
+  death p50 14-16 s, leaves while still attacked 8 of 51 and 17 of 46, 47-49% of the time
+  within 15 of the centre; the taunt reaches 15 (cast at p50 15), the sprint taunt 24 and
+  teleports onto the target; a dps casts every 3.4 s, hits at most 5, one hit (43-78k) kills a
+  normal monster of 40,532 HP, a party monster (x10) takes about 8; a monster bites every 3.9
+  s at p50 4.4 away, for p50 120-270 and p90 1,000-2,800 against the observer's 43,639 HP;
+  78 of 100 lured monsters attacked the lurer first, p50 2.2 s after the tag; monsters seen
+  57% normal, 34% party normal, 4.5% champion, 3.8% party champion, 0.5% party giant, 0.4%
+  giant; monsters alive within 20 of the centre p50 2, p90 4, max 7, party ones p50 1; the
+  buffers cast every 2.9 s with 16-20 s durations; no player died. Section 7 of the
+  requirements reproduced: checks 1, 3, 5 agree with Caravan's (99.3% of 4,466 casters within
+  2 units, 2,188 timed buffs, index in order), check 2 differs (298 of 307 near and 78 of 106
+  far against 283 of 302 and 69 of 106; definitions to compare).
+- **The lurer's knowledge (H1, #62)**: seed 1 unchanged (A 6/19/0, B 4/11/0, 23 kills at
+  120 s; 36 at 180 s); five seeds: kills 36 / 44 / 25 / 22 / 36 (163 against 165), delivered A
+  24 / 32 / 15 / 17 / 25, B 12 / 17 / 18 / 8 / 18, no deaths, nothing lost, no leave while
+  chased, the lowest bar read 40 everywhere, group heals 0 / 0 / 1 / 0 / 0; at 180 s the known
+  backlog overshoots the true one by the damage missed (seed 3: 168 / 192 s against 157).
 
 ## Gaps and known issues
 
