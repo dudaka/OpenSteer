@@ -61,11 +61,23 @@ behavior, faithful to the C++ and proven by C++ oracles. Each step is small and 
   five-seed sweep in Findings); H3 the step 5 measures as a test helper (done, #64:
   `measure_trips`, trips a minute, trip length, farthest point, tags and delivered per trip,
   dwell, time within 15 of the centre, the recording's values beside seed 1's in the test
-  `the_lurers_trips_measure_like_the_watch_logs` and in Findings); H4 next, only after three
-  recordings of 30 minutes on two spots or parties: the balance numbers (bite, buffs, dps rate,
-  spawn mix) and the lure strategy's differences the table shows (trip length, empty trips,
-  the dwell). Candidates from Gaps stay: nothing slows ordinary pulls when the healer is dry;
-  scouting sweeps; side probes at rocks; the lurers' MP economy.
+  `the_lurers_trips_measure_like_the_watch_logs` and in Findings); then the user's requests
+  (#68 the luring range slider 30-60, #69 the reach circles button), the browser observation
+  "lurer A not luring" traced to the dps never hitting A's chasers (#70 the dps target rule
+  from the log; #71 the damage ratio, a dps hit 100 every 3.4 s, with line of sight 45: the
+  stall gone, five seeds 275 kills, nothing lost, no deaths); the user's "It looks good for
+  me" (2026-11-05) on the result; this refresh #72.
+- Next (ask; do not pick one). H4, the balance numbers that still rest on assumptions, only
+  after three recordings of 30 minutes on two spots or parties (`scripts/watchlog/measure.py`
+  over each window): the buffs (real durations 16-20 s against 10, a buffer casting every
+  2.9 s), the bite (every 3.9 s at p50 against 1.5, 0.3-10% of a player's HP), the spawn mix
+  (34% party monsters seen against 5%), the MP economy of the dps and the lurers, the chase's
+  give-up radius (line of sight 45, unmeasured; the log showed chases to 41.6). The lure
+  strategy for Caravan's `hunt::Lure`, from the trip table: the demo's trips half as long as
+  PhBot's walk 40 and back, never empty where the real ones are half the time, B dwelling 26 s
+  at the centre on seed 1 against the real 10 s. Candidates from Gaps stay: nothing slows
+  ordinary pulls when the healer is dry; scouting sweeps that return home; side probes at
+  rocks; the roam's uniform spread against the real centre-heavy one.
   The 3D options offered 2026-10-21 stay for later:
   1. Stop bodies scraping walls: add the containment side probes (the design of steps 23 and 37) to the
      Silkroad walker, so walls it runs along or corners it rounds push it off (Findings: 299 of
@@ -342,7 +354,7 @@ disk map. Built from the oracle-checked pieces like Phase 6 (hand-computed unit 
 facts pinned, one mutation per step) on one branch with small commits, merged as #46 when the
 user called the milestone (2026-11-03).
 
-### As built (after #46)
+### As built (after #46, #48-#60 and #62-#71)
 
 One module, `crates/steer-demos/src/training_field.rs` (the 52 tests in the same file), demo
 id `training-field`, the last 2D demo. Units: 1 = 1 world unit of Silkroad (10 wire; a "space"
@@ -404,9 +416,10 @@ and `Settings` sliders.
   monsters, the pierce on a tie.
 - The lurer's trip (`Lure`, `LureStage`, `lure_step`). Centre: stand until nothing chases it
   (the hand-off: the dps have taken its pack), HP >= `LEAVE_HP` 90%,
-  the backlog it knows of within the cap (off by default, slider 0-120 s of dps work: the HP left in the dps disk
-  at the four dps's focused 26.7 a second, read with the disk in sight, run down since, plus
-  what chases the lurer from outside the disk; `Lure::backlog`), the party not halted (every
+  the backlog it knows of within the cap (off by default, slider 0-120 s of dps work: the HP
+  it knows of in the dps disk, each monster's max HP less the damage it saw, at the four
+  dps's focused 117.6 a second, read with the disk in sight, run down since, plus what chases
+  the lurer from outside the disk; `Lure::backlog`), the party not halted (every
   bar >= 50% and no member fell more than 30 in 5 s) and, for B, no earlier lurer in sight
   within 15 of the centre that is healthy or moving (at most 5 s). Out: plan every 1 s over the
   8 nearest candidates (untagged by any lurer, chasing nobody, outside the dps disk; mine, by
@@ -428,7 +441,7 @@ and `Settings` sliders.
   the damage it missed as HP still to kill; a killed monster's id leaves the tally); never the
   other lurer's stage or plan, never a position beyond 30.
 - The view: bodies by role color; HP/MP bars on dark tracks; every reach as circles
-  (`CircleView`: ranged 15 and alarm 8 amber, melee violet, LOS 35 lilac on chasing monsters
+  (`CircleView`: ranged 15 and alarm 8 amber, melee violet, LOS 45 lilac on chasing monsters
   outside the dps disk, each lurer's sight 30); the planned tour or scouting spot as a gray
   polyline; attack lines and blasts; buff and guard rings; rarity labels; three status lines
   (the team; lurer A; lurer B); the legend behind a button. Sliders: monsters, N, monster
@@ -923,10 +936,13 @@ Decided with the user (2026-11-02 to 03, Phase 8, in order):
   **The two lurers are independent** (the user, restated 2026-11-05): each decides from its own
   sight, its memory and the party window; no rule may couple them beyond that, and the dps
   rule must not single out "the lurer's" monsters either (it did not: attacking any member).
+- The user's "It looks good for me" (2026-11-05, after #71) confirmed the three values taken
+  beyond the agreed tables: the dps blast 5 (#63), the damage ratio of a dps hit 100 every
+  3.4 s and line of sight 45 (#71). Context refreshed in #72.
 
 Open (ask before acting):
-- The party window showing members' HP bars is my assumption about the game; if it does not,
-  the lurers' risk check and the watch rule lose that reading.
+- (Settled 2026-11-05: the party window does show every member's HP and MP, as tenths, in
+  Caravan's party packet; the demo reads it so since #62.)
 - The lurers' MP: sessions cost blasts and pierces and the MP buffer reaches a lurer only at
   the centre; no wait or return on MP yet.
 - Arrive: keep the faithful "orbits unless braking is tuned" result, or add a non-OpenSteer stop rule?
@@ -1203,18 +1219,21 @@ trips/delivered/lost):
 - Training Field, the model: nothing slows ordinary pulls or the dps's roaming when the HP
   buffer is dry (strong pulls stop under 50 MP); two lurers out of each other's sight can each
   bring a strong monster (the knowledge rule; the healer's MP gate limits the damage); scouting
-  is random spots, so a lurer can zigzag on an empty side; the planners assume skill cooldowns
-  stay as at planning time, and the stops planner keeps the fence only by candidate distance;
-  dps roam to 10 while the HP buffer reaches 8 from within 5; party giants are off (20,000 HP);
-  a giant (2,000) in the disk still needs 75 s of focused fire; a monster's idle run uses the
-  chase speed slider and a gait change cuts speed at once; no MP economy for the lurers'
-  sessions (they never fell under 90 MP in any measured run); the party window's HP and MP
-  bars are assumed; bodies graze rocks (avoidance looks only ahead, as on the plaza's walls);
-  the group heal fires only when two members are hurt at once (1 of 5 seeds more than once).
+  is random spots that never return home, so a lurer can zigzag on an empty side or miss a
+  monster at the centre's edge for minutes; the planners assume skill cooldowns stay as at
+  planning time, and the stops planner keeps the fence only by candidate distance; party
+  giants are off (20,000 HP); a giant (2,000) in the disk is 17 s of focused fire; a monster's
+  idle run uses the chase speed slider and a gait change cuts speed at once; no MP economy
+  for the lurers' sessions, and the dps's MP (6 a cast every 3.4 s against 1 a second of
+  regeneration plus the MP buff) was not re-measured since #71 (before it one dps sat at
+  0-5 MP for minutes at 4 MP a second); bodies graze rocks (avoidance looks only ahead, as on
+  the plaza's walls); the group heal fires only when two members are hurt at once (1 of 5
+  seeds more than once); the buffs, the bite's cadence and damage and the spawn mix are still
+  the assumed numbers (the real ones in Findings, "The watch log", await three recordings).
 - Training Field, since the world units (#63): the roam is uniform over a role's disk (a dps
   p50 14 from the centre on a disk of 20) where the real party clusters (p50 8.2, p90 17.5),
-  and the dps stand 4-7 from the centre while they fight; the lurers spend 80-90% of seed 1
-  inside the 20 disk against the real 47-49% within 15 (their sessions 7.3 s against 14);
+  and the dps stand 4-7 from the centre while they fight; the lurers spend 55-84% of seed 1
+  inside the 20 disk (A 53% within 15 against the real 48%, B 74%; sessions 10.9 / 7.7 s);
   scouting never returns home, so a lurer on the side away from the other can miss a monster
   at the centre's edge for minutes (the dry-healer test parks A); the pierce (12) is shorter
   than the normal attack (15); the lurer's blast radius 3 and the roar's real spread are
